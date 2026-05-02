@@ -1,0 +1,36 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+use App\Enums\PatientStatus;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('patients', function (Blueprint $table) {
+            $table->id();
+            $table->string('patient_code')->unique();
+            $table->string('full_name');
+            $table->string('phone');
+            $table->text('med_history')->nullable();
+            $table->text('preliminary_diagnosis')->nullable();
+            $table->enum('availability_status', array_column(PatientStatus::cases(), 'value'))
+                ->default(PatientStatus::WAITING_DIAGNOSIS->value);
+            $table->foreignId('added_by')->constrained('users'); 
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('patients');
+    }
+};
