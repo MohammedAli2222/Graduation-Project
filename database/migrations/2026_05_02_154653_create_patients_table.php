@@ -16,12 +16,12 @@ return new class extends Migration
             $table->id();
             $table->string('patient_code')->unique();
             $table->string('full_name');
-            $table->string('phone');
-            $table->text('med_history')->nullable();
+            $table->enum('gender', ['male', 'female']);
+            $table->string('phone')->index();
             $table->text('preliminary_diagnosis')->nullable();
             $table->enum('availability_status', array_column(PatientStatus::cases(), 'value'))
                 ->default(PatientStatus::WAITING_DIAGNOSIS->value);
-            $table->foreignId('added_by')->constrained('users'); 
+            $table->foreignId('added_by')->constrained('users');
             $table->timestamps();
         });
     }

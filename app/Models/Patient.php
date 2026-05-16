@@ -16,12 +16,22 @@ class Patient extends Model implements HasMedia
     protected $fillable = [
         'patient_code',
         'full_name',
+        'gender',
         'phone',
-        'med_history',
         'preliminary_diagnosis',
         'availability_status',
         'added_by'
     ];
+
+    public function medicalHistory()
+    {
+        return $this->hasOne(PatientMedicalHistory::class);
+    }
+
+    public function diagnoses()
+    {
+        return $this->hasMany(PatientDiagnose::class);
+    }
 
     protected function casts(): array
     {
@@ -40,9 +50,14 @@ class Patient extends Model implements HasMedia
 
             if (auth()->check()) {
                 $patient->added_by = auth()->id();
-            }else {
-            $patient->added_by = 1;
-        }
+            }
         });
+    }
+
+    public function registerMediaConversions(\Spatie\MediaLibrary\MediaCollections\Models\Media $media = null): void
+    {
+        $this->addMediaConversion('thumb')
+            ->width(100)
+            ->queued();
     }
 }
