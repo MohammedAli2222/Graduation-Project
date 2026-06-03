@@ -23,4 +23,19 @@ class Course extends Model
     {
         return $this->hasMany(CaseType::class);
     }
+
+
+    public function enrollments()
+    {
+        return $this->hasMany(StudentCourseEnrollment::class, 'course_id');
+    }
+
+
+    public function students()
+    {
+        return $this->belongsToMany(StudentProfile::class, 'student_course_enrollments', 'course_id', 'student_id')
+            ->withPivot(['status', 'attempts_count'])
+            ->withTimestamps()
+            ->using(StudentCourseEnrollment::class);
+    }
 }

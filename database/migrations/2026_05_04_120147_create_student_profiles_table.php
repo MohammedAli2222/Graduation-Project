@@ -23,9 +23,8 @@ return new class extends Migration
             $table->string('exam_number')->unique();
             $table->string('university');
 
-            $table->enum('academic_year', [4, 5]);
-
-            $table->enum('semester', [1, 2]);
+            $table->unsignedInteger('academic_year');
+            $table->unsignedInteger('semester');
             $table->timestamps();
         });
     }

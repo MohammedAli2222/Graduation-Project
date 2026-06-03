@@ -2,8 +2,11 @@
 
 namespace App\Services;
 
+use App\Enums\DiagnosisStatus;
 use App\Enums\PatientStatus;
+use App\Models\CaseType;
 use App\Repositories\PatientRepository;
+use Illuminate\Container\Attributes\Auth;
 use Illuminate\Support\Facades\DB;
 
 class PatientService
@@ -18,9 +21,9 @@ class PatientService
     }
 
 
-    public function registerPatient(array $data, $images = null)
+    public function registerPatient(array $data, $images = null, $diagnosisData = null)
     {
-        return DB::transaction(function () use ($data, $images) {
+        return DB::transaction(function () use ($data, $images, $diagnosisData) {
             $patientData = [
                 'full_name' => $data['full_name'],
                 'gender'    => $data['gender'],
@@ -41,6 +44,37 @@ class PatientService
                 'allergies_details'        => $data['allergies_details'] ?? null,
             ]);
 
+
+            if ($diagnosisData) {
+
+                $caseType = CaseType::with('course')->findOrFail($diagnosisData['case_type_id']);
+                $course = $caseType->course;
+
+                $student = auth()->user()->studentProfile;
+
+                if (!$student) {
+                    throw new \Exception('Student profile not found for the authenticated user.');
+                }
+
+                $studentYear     = is_object($student->academic_year) ? (int) $student->academic_year->value : (int) $student->academic_year;
+                $studentSemester = is_object($student->semester) ? (int) $student->semester->value : (int) $student->semester;
+
+                $courseYear     = (int) $course->year;
+                $courseSemester = (int) $course->semester;
+
+                if ($courseYear !== $studentYear || $courseSemester !== $studentSemester) {
+                    throw new \Exception("Unauthorized: You can only register cases for courses in your current academic standing (Year: {$studentYear}, Semester: {$studentSemester}).");
+                }
+
+
+                $patient->diagnoses()->create([
+                    'case_type_id'            => $diagnosisData['case_type_id'],
+                    'department_id'           => $caseType->course->department_id,
+                    'suggested_by_student_id' => auth()->user()->id,
+                    'status'                  => DiagnosisStatus::WAITING_APPROVAL->value,
+                ]);
+            }
+
             if ($images) {
                 $this->mediaService->upload($patient, $images, 'patient_records');
             }
@@ -59,10 +93,16 @@ class PatientService
         return $this->repository->findWithMedia($id);
     }
 
-    public function getWaitingList()
+    public function getReceptionistWaitingPatients()
     {
-        return $this->repository->getPatientsByStatus(PatientStatus::WAITING_DIAGNOSIS->value);
+        return $this->repository->getReceptionistWaitingList();
     }
+
+    public function getStudentPendingPatients(int $instructorProfileId)
+{
+    return $this->repository->getStudentPendingRequests($instructorProfileId);
+}
+
 
     public function updatePatient(int $id, array $data, $images = null)
     {

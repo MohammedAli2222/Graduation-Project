@@ -23,6 +23,21 @@ class StudentProfile extends Model
 
     public function group()
     {
-        return $this->belongsTo(Group::class , 'group_id');
+        return $this->belongsTo(Group::class, 'group_id');
+    }
+
+
+    public function enrollments()
+    {
+        return $this->hasMany(StudentCourseEnrollment::class, 'student_id');
+    }
+
+    
+    public function courses()
+    {
+        return $this->belongsToMany(Course::class, 'student_course_enrollments', 'student_id', 'course_id')
+            ->withPivot(['status', 'attempts_count'])
+            ->withTimestamps()
+            ->using(StudentCourseEnrollment::class);
     }
 }

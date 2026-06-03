@@ -17,14 +17,14 @@ return new class extends Migration
             $table->id();
 
             $table->foreignId('patient_id')->constrained()->onDelete('cascade');
-            $table->foreignId('instructor_id')->constrained('users');
+            $table->foreignId('instructor_id')->nullable()->constrained('users');
 
             $table->foreignId('case_type_id')->constrained();
             $table->foreignId('department_id')->constrained();
 
             $table->foreignId('suggested_by_student_id')->nullable()->constrained('users');
 
-            $table->text('final_diagnosis');
+            $table->text('final_diagnosis')->nullable();
 
 
             $table->enum('status', array_column(DiagnosisStatus::cases(), 'value'))

@@ -45,6 +45,36 @@ class PatientResource extends JsonResource
                 ];
             }),
 
+
+
+            'diagnoses' => $this->whenLoaded('diagnoses', function () {
+                return $this->diagnoses->map(function ($diagnosis) {
+                    return [
+                        'diagnosis_id'        => $diagnosis->id,
+                        'case_type'            => [
+                            'id'   => $diagnosis->case_type_id,
+                            'name' => $diagnosis->caseType ? $diagnosis->caseType->name : null,
+                        ],
+                        'department'           => [
+                            'id'   => $diagnosis->department_id,
+                            'name' => $diagnosis->department ? $diagnosis->department->name : null,
+                        ],
+
+
+                        'suggested_by_student' => [
+                            'id'        => $diagnosis->suggested_by_student_id,
+                            'full_name' => $diagnosis->student ? ($diagnosis->student->first_name) . ' ' .($diagnosis->student->last_name) : null,
+                        ],
+
+                        'final_diagnosis'     => $diagnosis->final_diagnosis,
+                        'approval_status'     => $diagnosis->status,
+                        'rejection_reason'    => $diagnosis->rejection_reason,
+                        'created_at'          => $diagnosis->created_at ? $diagnosis->created_at->format('Y-m-d H:i') : null,
+                    ];
+                });
+            }),
+
+
             'images' => $this->media->map(function ($media) {
                 return [
                     'id'   => $media->id,

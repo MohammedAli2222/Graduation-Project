@@ -20,9 +20,14 @@ class ReceptionistController extends Controller
 
     public function store(StorePatientRequest $request)
     {
+
         try {
+
+            $validatedData = $request->validated();
+
+
             $patient = $this->patientService->registerPatient(
-                $request->validated(),
+                $validatedData,
                 $request->file('images')
             );
 
@@ -50,6 +55,7 @@ class ReceptionistController extends Controller
             return response_error(null, 404, 'No patient found.');
         }
 
+        $patient->load(['medicalHistory', 'media']);
         return response_success(new PatientResource($patient), 200, 'Search results.');
     }
 
@@ -63,19 +69,24 @@ class ReceptionistController extends Controller
         }
     }
 
-    public function waitingList()
+    public function receptionistWaiting()
     {
-        $patients = $this->patientService->getWaitingList();
+        $patients = $this->patientService->getReceptionistWaitingPatients();
 
         if ($patients->isEmpty()) {
             return response_success([], 200, 'Waiting list is currently empty.');
         }
 
-        return response_success(
-            PatientResource::collection($patients),
-            200,
-            'Waiting list fetched successfully.'
-        );
+        return response_success([
+            'patients' => PatientResource::collection($patients->items()), 
+            'pagination' => [
+                'total'        => $patients->total(),
+                'count'        => $patients->count(),
+                'per_page'     => $patients->perPage(),
+                'current_page' => $patients->currentPage(),
+                'last_page'    => $patients->lastPage(),
+            ]
+        ], 200, 'Waiting list fetched successfully.');
     }
 
 

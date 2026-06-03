@@ -8,6 +8,11 @@ use Illuminate\Support\Facades\Hash;
 class UserRepository
 {
 
+    public  function find($userId)
+    {
+        return User::findOrFail($userId);
+    }
+
     public function createUser(array $data): User
     {
         return User::create([
@@ -18,7 +23,7 @@ class UserRepository
         ]);
     }
 
-    
+
     public function findByEmail(string $email): ?User
     {
         return User::where('email', $email)->first();

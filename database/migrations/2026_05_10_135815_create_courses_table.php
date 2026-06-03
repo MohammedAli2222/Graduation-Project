@@ -17,8 +17,8 @@ return new class extends Migration
 
             $table->foreignId('department_id')->constrained()->onDelete('cascade');
 
-            $table->enum('year', [4, 5]);
-            $table->enum('semester', [1, 2]); 
+            $table->unsignedInteger('year');
+            $table->unsignedInteger('semester');
             $table->timestamps();
         });
     }

@@ -2,6 +2,8 @@
 
 namespace App\Repositories;
 
+use App\Enums\DiagnosisStatus;
+use App\Enums\PatientStatus;
 use App\Models\Patient;
 
 class PatientRepository
@@ -11,7 +13,7 @@ class PatientRepository
     {
         return Patient::findOrFail($id);
     }
-    
+
     public function create(array $data)
     {
         return Patient::create($data);
@@ -30,11 +32,38 @@ class PatientRepository
         return Patient::with('media')->findOrFail($id);
     }
 
-    public function getPatientsByStatus(string $status)
+    public function getReceptionistWaitingList()
     {
-        return Patient::with('media')->where('availability_status', $status)
+        return Patient::with(['media', 'medicalHistory'])
+            ->where('availability_status', PatientStatus::WAITING_DIAGNOSIS->value)
+            ->whereDoesntHave('diagnoses')
             ->orderBy('created_at', 'asc')
-            ->get();
+            ->paginate(10);
+    }
+
+
+
+    public function getStudentPendingRequests(int $instructorProfileId)
+    {
+        return Patient::whereHas('diagnoses', function ($query) use ($instructorProfileId) {
+            $query->where('status', DiagnosisStatus::WAITING_APPROVAL->value)
+                ->whereHas('student.studentProfile.group.instructors', function ($instructorQuery) use ($instructorProfileId) {
+                    $instructorQuery->where('instructor_profiles.id', $instructorProfileId);
+                });
+        })
+            ->with([
+                'media',
+                'medicalHistory',
+                'diagnoses' => function ($query) use ($instructorProfileId) {
+                    $query->where('status', DiagnosisStatus::WAITING_APPROVAL->value)
+                        ->whereHas('student.studentProfile.group.instructors', function ($instructorQuery) use ($instructorProfileId) {
+                            $instructorQuery->where('instructor_profiles.id', $instructorProfileId);
+                        })
+                        ->with(['caseType', 'student.studentProfile.group']);
+                }
+            ])
+            ->orderBy('created_at', 'asc')
+            ->paginate(10);
     }
 
     public function update(int $id, array $data)

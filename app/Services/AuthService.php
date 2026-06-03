@@ -7,16 +7,40 @@ use App\Repositories\UserRepository;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
+use App\Services\OtpService;
 
 class AuthService
 {
-    protected $userRepo;
+    public function __construct(
+        protected UserRepository $userRepo,
+        protected OtpService $otpService
+    ) {}
 
-    public function __construct(UserRepository $userRepo)
+    public function verifyUserOtp(int $userId, string $code)
     {
-        $this->userRepo = $userRepo;
-    }
 
+        // 1. جلب المستخدم من الداتابيز أولاً
+        $user = $this->userRepo->find($userId);
+
+
+        $this->otpService->verifyOtp($userId, $code);
+
+
+
+
+        $user->update([
+            'email_verified_at' => now()
+        ]);
+        $user->load($this->getRelationName($user->roles->first()->name));
+
+        $user->tokens()->delete();
+        $finalToken = $user->createToken('auth_token')->plainTextToken;
+
+        return [
+            'user'  => $user,
+            'token' => $finalToken
+        ];
+    }
 
     public function register(array $data)
     {
@@ -28,7 +52,10 @@ class AuthService
 
             $this->createProfileByRole($user, $data);
 
-            $token = $user->createToken('auth_token')->plainTextToken;
+            $this->otpService->generateAndSendOtp($user);
+
+
+            $token = $user->createToken('verification_token', ['verify-otp'])->plainTextToken;
 
             return [
                 'user'  => $user->load($this->getRelationName($data['role'])),
@@ -44,11 +71,24 @@ class AuthService
 
         if (!$user || !Hash::check($credentials['password'], $user->password)) {
             throw ValidationException::withMessages([
-               'email or password' => [trans('auth.failed')],
+                'email or password' => [trans('auth.failed')],
             ]);
         }
 
-        $role = $user->getRoleNames()->first();
+
+        if (is_null($user->email_verified_at)) {
+
+            $this->otpService->generateAndSendOtp($user);
+
+            $tempToken = $user->createToken('verification_token', ['verify-otp'])->plainTextToken;
+
+
+            throw new \Exception(json_encode([
+                'message' => 'Your account is not verified yet. A new OTP code has been sent to your email.',
+                'token'   => $tempToken
+            ]), 403);
+        }
+
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return [

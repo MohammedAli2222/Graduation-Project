@@ -34,8 +34,8 @@ class RegisterRequest extends FormRequest
             'phone'          => 'required_if:role,student|string',
 
             'exam_number'   => 'required_if:role,student|unique:student_profiles,exam_number',
-            'academic_year' => 'required_if:role,student|in:4,5',
-            'semester'      => 'required_if:role,student|in:1,2',
+            'academic_year' => 'required_if:role,student|integer|in:4,5',
+            'semester'      => 'required_if:role,student|integer|in:1,2',
             'university'    => 'required_if:role,student|string|max:255',
 
             // حقول المعيد

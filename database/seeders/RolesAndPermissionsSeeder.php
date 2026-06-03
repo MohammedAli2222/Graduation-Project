@@ -18,9 +18,9 @@ class RolesAndPermissionsSeeder extends Seeder
 
 
         $receptionistRole = Role::findByName('receptionist');
-        $instructorRole = Role::findByName('instructor');
+       // $instructorRole = Role::findByName('instructor');
 
         $receptionistRole->givePermissionTo($viewWaitingList);
-        $instructorRole->givePermissionTo($viewWaitingList);
+        //$instructorRole->givePermissionTo($viewWaitingList);
     }
 }

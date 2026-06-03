@@ -7,7 +7,8 @@ use App\Http\Requests\Auth\RegisterRequest;
 use App\Http\Resources\UserResource;
 use App\Services\AuthService;
 use Illuminate\Http\Request;
-use Illuminate\Validation\ValidationException;
+
+
 
 class AuthController extends Controller
 {
@@ -23,13 +24,9 @@ class AuthController extends Controller
         try {
             $result = $this->authService->register($request->validated());
 
-            $userData = new UserResource($result['user']);
-
             return response_success([
-                'user'  => $userData,
                 'token' => $result['token']
-            ], 201, 'Account created successfully');
-
+            ], 201, 'Account created successfully! Please check your email for the OTP verification code.');
         } catch (\Exception $e) {
             return response_error(null, 500, $e->getMessage());
         }
@@ -43,11 +40,22 @@ class AuthController extends Controller
 
             $result = $this->authService->login($request->validated());
 
+
+
             return response_success($result, 200, 'Logged in successfully');
-        } catch (ValidationException $e) {
-            return response_error($e->errors(), 422, 'Invalid credentials');
         } catch (\Exception $e) {
-            return response_error(null, 500, 'An error occurred during login');
+
+        if ($e->getCode() == 403) {
+            $errorData = json_decode($e->getMessage(), true);
+            return response_error(
+                ['token' => $errorData['token']],
+                403,
+                $errorData['message']
+            );
+        }
+
+        $statusCode = in_array($e->getCode(), [401, 422]) ? $e->getCode() : 500;
+        return response_error(null, $statusCode, $e->getMessage());
         }
     }
 
@@ -61,6 +69,29 @@ class AuthController extends Controller
             return response_success(null, 200, 'Logged out successfully');
         } catch (\Exception $e) {
             return response_error(null, 500, 'Logout failed: ' . $e->getMessage());
+        }
+    }
+
+
+    public function verifyOtp(Request $request)
+    {
+        $request->validate([
+            'otp_code' => 'required|string|size:6',
+        ]);
+
+        try {
+            $result = $this->authService->verifyUserOtp(auth()->id(), $request->otp_code);
+
+            $userData = new UserResource($result['user']);
+
+
+            return response_success([
+                'user'  => $userData,
+                'token' => $result['token']
+            ], 200, 'Your account has been verified and activated successfully.');
+        } catch (\Exception $e) {
+            $statusCode = $e->getCode() == 422 ? 422 : 500;
+            return response_error(null, $statusCode, $e->getMessage());
         }
     }
 }
