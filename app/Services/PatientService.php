@@ -6,8 +6,8 @@ use App\Enums\DiagnosisStatus;
 use App\Enums\PatientStatus;
 use App\Models\CaseType;
 use App\Repositories\PatientRepository;
-use Illuminate\Container\Attributes\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\ValidationException;
 
 class PatientService
 {
@@ -99,9 +99,9 @@ class PatientService
     }
 
     public function getStudentPendingPatients(int $instructorProfileId)
-{
-    return $this->repository->getStudentPendingRequests($instructorProfileId);
-}
+    {
+        return $this->repository->getStudentPendingRequests($instructorProfileId);
+    }
 
 
     public function updatePatient(int $id, array $data, $images = null)
@@ -140,6 +140,7 @@ class PatientService
         ];
     }
 
+
     private function updateMedicalHistory($patient, array $data)
     {
         $map = [
@@ -168,5 +169,51 @@ class PatientService
                 $medicalData
             );
         }
+    }
+
+    public function getAvailablePatientsByCaseType(int $caseTypeId)
+    {
+
+        $student = auth()->user();
+
+        $profile = $student->studentProfile;
+
+
+        $isAllowed = $this->repository->checkCaseBelongsToYearAndSemester(
+            $caseTypeId,
+            $profile->academic_year,
+            $profile->semester
+        );
+        if (!$isAllowed) {
+            throw new \Exception("Unauthorized access. This case type does not belong to your current academic year or semester.", 403);
+        }
+
+        $statusAvailable = DiagnosisStatus::AVAILABLE->value;
+
+        return $this->repository->getByCaseTypeAndStatus($caseTypeId, $statusAvailable);
+    }
+
+
+    public function getDiagnosisDetails(int $id)
+    {
+        $student = auth()->user();
+        $studentYear = $student->studentProfile->academic_year;
+        $studentSemester = $student->studentProfile->semester;
+
+        $diagnosis = $this->repository->getDiagnosisDetailsWithPatientMedia($id);
+
+        $isAllowed = $this->repository->checkCaseBelongsToYearAndSemester(
+            $diagnosis->case_type_id,
+            $studentYear,
+            $studentSemester
+        );
+
+        if (!$isAllowed) {
+            throw ValidationException::withMessages([
+                'case' => ['Access denied. This case does not belong to your current academic year or semester.']
+            ]);
+        }
+
+        return $diagnosis;
     }
 }

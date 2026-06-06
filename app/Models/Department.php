@@ -8,7 +8,12 @@ class Department extends Model
 {
     protected $fillable = [
         'name',
+        'total_chairs',
         'description'
+    ];
+
+    protected $casts = [
+        'total_chairs' => 'integer',
     ];
 
 
@@ -29,5 +34,11 @@ class Department extends Model
     public function caseTypes()
     {
         return $this->hasManyThrough(CaseType::class, Course::class);
+    }
+
+
+    public function diagnoses()
+    {
+        return $this->hasManyThrough(PatientDiagnose::class, CaseType::class);
     }
 }

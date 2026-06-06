@@ -58,21 +58,19 @@ class DiagnosisService
         });
     }
 
-    /**
-     * الموافقة على تشخيص طالب
-     */
-    public function approveCase(int $id, string $finalDiagnosis, int $instructorId, int $instructorProfileId)
+
+    public function approveCase(int $id, array $data, int $instructorId, int $instructorProfileId)
     {
         $diagnosis = $this->diagnosisRepo->FindOrFail($id);
 
         $this->validatePendingStatus($diagnosis);
         $this->authorizeInstructorForStudent($diagnosis, $instructorProfileId);
 
-        DB::transaction(function () use ($diagnosis, $finalDiagnosis, $instructorId) {
+        DB::transaction(function () use ($diagnosis,$data, $instructorId) {
             $this->diagnosisRepo->update($diagnosis, [
                 'status'          => DiagnosisStatus::AVAILABLE->value,
                 'instructor_id'   => $instructorId,
-                'final_diagnosis' => $finalDiagnosis,
+                'final_diagnosis' => $data['final_diagnosis'],
             ]);
 
             $this->patientRepo->updateAvailability($diagnosis->patient_id, PatientStatus::AVAILABLE->value);
@@ -84,18 +82,18 @@ class DiagnosisService
     /**
      * رفض تشخيص طالب
      */
-    public function rejectCase(int $id, string $rejectionReason, int $instructorId, int $instructorProfileId)
+    public function rejectCase(int $id, array $data, int $instructorId, int $instructorProfileId)
     {
         $diagnosis = $this->diagnosisRepo->FindOrFail($id);
 
         $this->validatePendingStatus($diagnosis);
         $this->authorizeInstructorForStudent($diagnosis, $instructorProfileId);
 
-        return DB::transaction(function () use ($diagnosis, $rejectionReason, $instructorId) {
+        return DB::transaction(function () use ($diagnosis, $data, $instructorId) {
             $this->diagnosisRepo->update($diagnosis, [
                 'status'           => DiagnosisStatus::REJECTED->value,
                 'instructor_id'    => $instructorId,
-                'rejection_reason' => $rejectionReason,
+                'rejection_reason' => $data['rejection_reason'],
             ]);
 
             $this->patientRepo->updateAvailability($diagnosis->patient_id, PatientStatus::WAITING_DIAGNOSIS->value);

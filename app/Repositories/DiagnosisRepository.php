@@ -2,6 +2,7 @@
 
 namespace App\Repositories;
 
+use App\Enums\DiagnosisStatus;
 use App\Models\PatientDiagnose;
 
 class DiagnosisRepository
@@ -21,4 +22,13 @@ class DiagnosisRepository
     {
         return $diagnosis->update($data);
     }
+
+    public function findAvailableDiagnosis(int $diagnosisId)
+    {
+        return PatientDiagnose::where('id', $diagnosisId)
+            ->where('status', DiagnosisStatus::AVAILABLE->value)
+            ->first();
+    }
+
+
 }

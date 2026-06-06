@@ -2,13 +2,16 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\EnrollCoursesRequest;
+use App\Enums\DiagnosisStatus;
 use App\Http\Requests\StudentStorePatientRequest;
 use App\Http\Resources\CaseTypeResource;
 use App\Http\Resources\PatientResource;
 use App\Services\PatientService;
 use App\Services\StudentCourseService;
 use App\Http\Resources\CourseResource;
+use App\Http\Resources\PatientDiagnosisDetailsResource;
+use App\Http\Resources\PatientDiagnosisResource;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
 
 class StudentController extends Controller
@@ -80,31 +83,54 @@ class StudentController extends Controller
         }
     }
 
-    /**
-     * 🌟 التسجيل التلقائي الذكي للمواد بناءً على الحالة الأكاديمية للطالب
-     */
+
     public function setupAcademicCourses(Request $request)
     {
         $student = $request->user()->studentProfile;
 
-        // تشغيل نظام الـ Service المقسم والذكي اللي بنيناه
         $result = $this->courseService->autoEnrollStudentCourses($student);
 
-        // [الحالة 2]: إذا الطالب مرفع كل مواد هاد الفصل ومطلوب منه الانتظار (قفل التطبيق)
         if ($result['status'] === 'waiting_next_semester') {
             return response()->json([
                 'status'  => 200,
-                'code'    => 'LOCK_STUDENT_APP', // كود صريح ليفهمه مطور الـ Flutter / React لقفل الواجهات
+                'code'    => 'LOCK_STUDENT_APP',
                 'message' => $result['message'],
                 'data'    => []
             ], 200);
         }
 
-        // [الحالة 1 و 3]: تم التسجيل التلقائي بنجاح (سواء مواد كاملة أو مواد الرسوب فقط)
         return response_success(
             ['enrolled_count' => $result['count']],
             200,
             $result['message']
         );
+    }
+
+    public function getAvailablePatients(int $caseTypeId)
+    {
+        try {
+            $patients = $this->patientService->getAvailablePatientsByCaseType($caseTypeId);
+
+            return response_success(PatientDiagnosisResource::collection($patients), 200, 'Available patients retrieved successfully.');
+        } catch (\Exception $e) {
+            return response_error(null, $e->getCode(), $e->getMessage());
+        }
+    }
+
+    public function getPatientCaseDetails(int $id)
+    {
+        try {
+            $diagnosis = $this->patientService->getDiagnosisDetails($id);
+
+            $formattedDetails = (new PatientDiagnosisDetailsResource($diagnosis))->resolve();
+
+            return response_success($formattedDetails, 200, 'Patient detailed profile retrieved successfully.');
+        } catch (ModelNotFoundException $e) {
+            return response_error(null, 404, 'The requested patient case layout was not found.');
+        } catch (\Exception $e) {
+            $code = intval($e->getCode());
+            $statusCode = ($code >= 400 && $code <= 500) ? $code : 400;
+            return response_error(null, $statusCode, $e->getMessage());
+        }
     }
 }

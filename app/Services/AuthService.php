@@ -19,7 +19,6 @@ class AuthService
     public function verifyUserOtp(int $userId, string $code)
     {
 
-        // 1. جلب المستخدم من الداتابيز أولاً
         $user = $this->userRepo->find($userId);
 
 
@@ -100,6 +99,27 @@ class AuthService
     public function logout($user)
     {
         return $user->currentAccessToken()->delete();
+    }
+
+
+    public function updateProfile($user, array $data)
+    {
+        DB::transaction(function () use ($user, $data) {
+
+            $userData = array_intersect_key($data, array_flip(['first_name', 'last_name', 'email']));
+
+            if (!empty($userData)) {
+                $user->update($userData);
+            }
+
+            $profileData = array_intersect_key($data, array_flip(['phone']));
+
+            if (!empty($profileData) && $user->studentProfile) {
+                $user->studentProfile->update($profileData);
+            }
+        });
+
+        return $user->refresh()->load('studentProfile');
     }
 
 

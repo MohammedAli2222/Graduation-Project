@@ -5,7 +5,7 @@ namespace App\Http\Requests;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
-class EnrollCoursesRequest extends FormRequest
+class UpdateStudentProfileRequest extends FormRequest
 {
     /**
      * Determine if the user is authorized to make this request.
@@ -22,9 +22,17 @@ class EnrollCoursesRequest extends FormRequest
      */
     public function rules(): array
     {
+        $user = auth()->user();
+        
+        $studentProfileId = $user->studentProfile?->id;
+
         return [
-            'course_ids'   => 'required|array',
-            'course_ids.*' => 'required|exists:courses,id'
+            'first_name' => 'sometimes|required|string|max:50',
+            'last_name'  => 'sometimes|required|string|max:50',
+            'email'      => 'sometimes|required|email|unique:users,email,' . $user->id,
+
+
+            'phone'      => 'sometimes|required|string|unique:student_profiles,phone,' . $studentProfileId,
         ];
     }
 }

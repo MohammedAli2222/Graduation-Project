@@ -14,6 +14,7 @@ return new class extends Migration
         Schema::create('case_types', function (Blueprint $table) {
             $table->id();
             $table->string('name');
+            $table->integer('slots_needed')->default(1); 
 
             $table->foreignId('course_id')->constrained()->onDelete('cascade');
 

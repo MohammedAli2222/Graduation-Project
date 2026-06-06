@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\InstructorController;
 use App\Http\Controllers\ReceptionistController;
@@ -39,15 +40,25 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
 
-    Route::middleware('role:student')->prefix('student')->group(function () {
+    Route::middleware(['role:student'])->prefix('student')->group(function () {
 
+        Route::post('/setup-courses', [StudentController::class, 'setupAcademicCourses']);
         Route::get('case-types', [StudentController::class, 'getCaseTypesDropdown']);
 
+        Route::post('/update-profile', [AuthController::class, 'updateProfile']);
 
-        Route::get('/my-courses', [StudentController::class, 'getMyCourses']);
-        Route::post('/setup-courses', [StudentController::class, 'setupAcademicCourses']);
 
-        Route::post('/patients/store', [StudentController::class, 'store']);
+        Route::middleware(['ensure.courses.setup'])->group(function () {
+
+            Route::get('case-types/{caseTypeId}/available-patients', [StudentController::class, 'getAvailablePatients']);
+            Route::get('patient-case-details/{id}', [StudentController::class, 'getPatientCaseDetails']);
+
+            Route::get('/my-courses', [StudentController::class, 'getMyCourses']);
+
+            Route::post('/patients/store', [StudentController::class, 'store']);
+
+            Route::post('appointments/book', [AppointmentController::class, 'bookCase']);
+        });
     });
 
 

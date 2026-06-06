@@ -24,33 +24,33 @@ class RegisterRequest extends FormRequest
     {
         return [
             'first_name'   => 'required|string|max:255',
-            'last_name'   => 'required|string|max:255',
-            'email'    => 'required|email|unique:users,email',
-            'password' => 'required|min:8',
-            'role'     => 'required|in:student,instructor,store_owner,department_head',
+            'last_name'    => 'required|string|max:255',
+            'email'        => 'required|email|unique:users,email',
+            'password'     => 'required|min:8',
+            'role'         => ['required', 'in:student,instructor,store_owner,department_head'],
+
+            // دمج الهاتف للطالب والمعيد
+            'phone'        => 'required_if:role,student,instructor|string|max:20',
 
             // حقول الطالب
             'group_id'      => 'required_if:role,student|exists:groups,id',
-            'phone'          => 'required_if:role,student|string',
-
             'exam_number'   => 'required_if:role,student|unique:student_profiles,exam_number',
-            'academic_year' => 'required_if:role,student|integer|in:4,5',
-            'semester'      => 'required_if:role,student|integer|in:1,2',
+            'academic_year' => ['required_if:role,student', 'integer', 'in:4,5'],
+            'semester'      => ['required_if:role,student', 'integer', 'in:1,2'],
             'university'    => 'required_if:role,student|string|max:255',
 
             // حقول المعيد
             'specialty'      => 'required_if:role,instructor',
-            'phone'           => 'required_if:role,instructor|string',
             'specialty_year' => 'required_if:role,instructor|string',
-            'group_ids'        => 'required_if:role,instructor|array',
-            'group_ids.*'      => 'exists:groups,id',
+            'group_ids'      => 'required_if:role,instructor|array',
+            'group_ids.*'    => 'exists:groups,id',
 
             // حقول رئيس القسم
             'department_id' => 'required_if:role,department_head|exists:departments,id',
 
             // حقول المتجر
             'store_name'    => 'required_if:role,store_owner|string|max:255',
-            'store_phone'  => 'required_if:role,store_owner|string',
+            'store_phone'   => 'required_if:role,store_owner|string',
             'store_address' => 'required_if:role,store_owner|string',
         ];
     }

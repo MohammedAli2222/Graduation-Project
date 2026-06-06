@@ -3,18 +3,31 @@
 namespace App\Http\Controllers;
 
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ApproveCaseRequest;
 use App\Http\Requests\DiagnoseRequest;
+use App\Http\Requests\RejectCaseRequest;
 use App\Http\Resources\PatientDiagnosisResource;
 use App\Http\Resources\PatientResource;
 use App\Services\DiagnosisService;
 use App\Services\PatientService;
 use Exception;
-use Illuminate\Http\Request;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Support\Facades\Auth;
 
 class InstructorController extends Controller
 {
     public function __construct(protected DiagnosisService $diagnosisService, protected PatientService $patientservice) {}
+
+
+    private function getInstructorId()
+    {
+        $id = auth()->user()->instructorProfile?->id;
+        if (!$id) {
+            throw new Exception('Instructor profile not found.', 404);
+        }
+        return $id;
+    }
+
 
     public function diagnose(DiagnoseRequest $request)
     {
@@ -28,57 +41,50 @@ class InstructorController extends Controller
     }
 
 
-    public function approve(Request $request, $id)
+    public function approve(ApproveCaseRequest $request, $id)
     {
-        $request->validate([
-            'final_diagnosis' => 'required|string|max:1000',
-        ]);
+        $validatedData = $request->validated();
 
         try {
-            $instructorProfileId = auth()->user()->instructorProfile?->id;
-
-            if (!$instructorProfileId) {
-                return response_error('Instructor profile not found.', 404);
-            }
+            $instructorId = $this->getInstructorId();
 
             $this->diagnosisService->approveCase(
                 $id,
-                $request->final_diagnosis,
+                $validatedData,
                 auth()->id(),
-                $instructorProfileId
+                $instructorId
             );
 
             return response_success(null, 200, 'Case approved successfully.');
+        } catch (ModelNotFoundException) {
+            return response_error(null, 404, 'PatientDiagnose not found');
         } catch (Exception $e) {
 
-            return response_error(null, 400, $e->getMessage());
+            return response_error(null, $e->getCode() ?: 400, $e->getMessage());
         }
     }
 
 
-    public function reject(Request $request, $id)
+    public function reject(RejectCaseRequest $request, $id)
     {
-        $request->validate([
-            'rejection_reason' => 'required|string|max:1000',
-        ]);
+
+        $validatedData = $request->validated();
 
         try {
-            
-            $instructorProfileId = auth()->user()->instructorProfile?->id;
 
-            if (!$instructorProfileId) {
-                return response_error('Instructor profile not found.', 404);
-            }
+            $instructorId = $this->getInstructorId();
 
 
             $this->diagnosisService->rejectCase(
                 $id,
-                $request->rejection_reason,
+                $validatedData,
                 auth()->id(),
-                $instructorProfileId
+                $instructorId
             );
 
             return response_success(null, 200, 'Case has been rejected successfully.');
+        } catch (ModelNotFoundException) {
+            return response_error(null, 404, 'PatientDiagnose not found');
         } catch (Exception $e) {
             return response_error(null, 400, $e->getMessage());
         }
@@ -88,13 +94,9 @@ class InstructorController extends Controller
     public function studentPending()
     {
 
-        $instructorProfileId = auth()->user()->instructorProfile?->id;
+        $instructorId = $this->getInstructorId();
 
-        if (!$instructorProfileId) {
-            return response_error('Instructor profile not found.', 404);
-        }
-
-        $patients = $this->patientservice->getStudentPendingPatients($instructorProfileId);
+        $patients = $this->patientservice->getStudentPendingPatients($instructorId);
 
         if ($patients->isEmpty()) {
             return response_success([], 200, 'Waiting list is currently empty.');

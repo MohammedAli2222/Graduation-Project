@@ -4,7 +4,9 @@ namespace App\Repositories;
 
 use App\Enums\DiagnosisStatus;
 use App\Enums\PatientStatus;
+use App\Models\Course;
 use App\Models\Patient;
+use App\Models\PatientDiagnose;
 
 class PatientRepository
 {
@@ -90,4 +92,39 @@ class PatientRepository
     {
         return Patient::where('id', $patientId)->update(['availability_status' => $status]);
     }
+
+
+    public function getByCaseTypeAndStatus(int $caseTypeId, string $statusValue)
+    {
+        return PatientDiagnose::with(['patient' => function ($query) {
+            $query->select('id', 'full_name', 'phone', 'gender');
+        }])
+            ->where('case_type_id', $caseTypeId)
+            ->where('status', $statusValue)
+            ->get();
+    }
+
+    public function checkCaseBelongsToYearAndSemester(int $caseTypeId, int $year, int $semester): bool
+    {
+        return Course::whereHas('caseTypes', function ($query) use ($caseTypeId) {
+            $query->where('id', $caseTypeId);
+        })
+            ->where('year', $year)
+            ->where('semester', $semester)
+            ->exists();
+    }
+
+    public function getDiagnosisDetailsWithPatientMedia(int $id)
+{
+    return PatientDiagnose::with([
+            'patient.media',
+            'patient.medicalHistory',
+            'caseType',
+            'department',
+            'instructor'
+        ])
+        ->where('id', $id)
+        ->where('status', DiagnosisStatus::AVAILABLE->value)
+        ->findOrFail($id);
+}
 }

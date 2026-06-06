@@ -21,7 +21,7 @@ class DatabaseSeeder extends Seeder
             GroupSeeder::class,
             RolesAndPermissionsSeeder::class,
             DepartmentAndCourseSeeder::class,
-            CaseTypeSeeder::class,          
+            CaseTypeSeeder::class,
         ]);
 
         $receptionist = User::create([
@@ -29,6 +29,7 @@ class DatabaseSeeder extends Seeder
             'last_name' => 'Hospital',
             'email' => 'receptionist@hospital.com',
             'password' => Hash::make('password123'),
+            'email_verified_at' => now(),
         ]);
 
         $receptionist->assignRole('receptionist');
