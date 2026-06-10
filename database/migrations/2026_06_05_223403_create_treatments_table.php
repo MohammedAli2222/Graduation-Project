@@ -7,23 +7,23 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
+
     public function up(): void
     {
         Schema::create('treatments', function (Blueprint $table) {
             $table->id();
 
-            $table->foreignId('appointment_id')->constrained()->onDelete('cascade');
+            $table->foreignId('diagnosis_id')->constrained('patient_diagnoses')->onDelete('cascade');
 
             $table->foreignId('instructor_id')->nullable()->constrained('users')->onDelete('set null');
 
             $table->enum('status', array_column(TreatmentStatus
-            ::cases(), 'value'))
+                ::cases(), 'value'))
                 ->default(TreatmentStatus::IN_PROGRESS->value);
-                
-            $table->timestamp('start_date')->nullable();
+
+            $table->text('rejection_reason')->nullable();
+
+            $table->timestamp('start_date')->useCurrent();
             $table->timestamp('end_date')->nullable();
 
             $table->text('instructor_notes')->nullable();
@@ -31,9 +31,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('treatments');
