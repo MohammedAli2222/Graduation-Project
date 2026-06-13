@@ -42,6 +42,22 @@ class RepositoryServiceProvider extends ServiceProvider
             InstructorRepositoryInterface::class,
             InstructorRepository::class
         );
+        $this->app->bind(
+            \App\Repositories\Contracts\ProductRepositoryInterface::class,
+            \App\Repositories\ProductRepository::class
+        );
+        $this->app->bind(
+            \App\Repositories\Contracts\OrderRepositoryInterface::class,
+            \App\Repositories\OrderRepository::class
+        );
+        $this->app->bind(
+            \App\Repositories\Contracts\PromotionRepositoryInterface::class,
+            \App\Repositories\PromotionRepository::class
+        );
+        $this->app->bind(
+            \App\Repositories\Contracts\CartRepositoryInterface::class,
+            \App\Repositories\CartRepository::class
+        );
     }
 
     /**

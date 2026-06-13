@@ -8,6 +8,11 @@ use App\Http\Controllers\Hod\DepartmentRequirementController;
 use App\Http\Controllers\Hod\DepartmentStatisticController;
 use App\Http\Controllers\InstructorController;
 use App\Http\Controllers\ReceptionistController;
+use App\Http\Controllers\Store\StoreOrderController;
+use App\Http\Controllers\Store\StoreProductController;
+use App\Http\Controllers\Store\StorePromotionController;
+use App\Http\Controllers\Student\StudentCartController;
+use App\Http\Controllers\Student\StudentCheckoutController;
 use App\Http\Controllers\StudentController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -44,6 +49,15 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('case-types', [StudentController::class, 'getCaseTypesDropdown']);
         Route::post('/update-profile', [AuthController::class, 'updateProfile']);
 
+        Route::prefix('cart')->group(function () {
+            Route::get('/', [StudentCartController::class, 'show']);
+            Route::post('/add', [StudentCartController::class, 'add']);
+            Route::delete('/items/{cartItem}', [StudentCartController::class, 'remove']);
+            Route::delete('/clear', [StudentCartController::class, 'clear']);
+        });
+
+        Route::post('/checkout', [StudentCheckoutController::class, 'checkout']);
+
         Route::middleware(['ensure.courses.setup'])->group(function () {
             Route::get('case-types/{caseTypeId}/available-patients', [StudentController::class, 'getAvailablePatients']);
             Route::get('patient-case-details/{id}', [StudentController::class, 'getPatientCaseDetails']);
@@ -79,4 +93,24 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/statistics', [DepartmentStatisticController::class, 'index']);
     });
 
+    Route::middleware(['auth:sanctum', 'role:store_owner'])->prefix('store')->group(function () {
+
+        Route::get('/products', [StoreProductController::class, 'index']);
+        Route::post('/products', [StoreProductController::class, 'store']);
+        Route::put('/products/{product}', [StoreProductController::class, 'update']);
+        Route::delete('/products/{product}', [StoreProductController::class, 'destroy']);
+        Route::get('/products/{product}', [StoreProductController::class, 'show']);
+        Route::get('/categories', [StoreProductController::class, 'getCategoriesDropdown']);
+
+        Route::get('/orders', [StoreOrderController::class, 'index']);
+        Route::get('/orders/{order}', [StoreOrderController::class, 'show']);
+        Route::patch('/orders/{order}/status', [StoreOrderController::class, 'updateStatus']);
+
+        // مسارات العروض الترويجية (Promotions)
+        Route::get('/promotions', [StorePromotionController::class, 'index']);
+        Route::get('/promotions/{promotion}', [StorePromotionController::class, 'show']);
+        Route::post('/promotions', [StorePromotionController::class, 'store']);
+        Route::put('/promotions/{promotion}', [StorePromotionController::class, 'update']);
+        Route::delete('/promotions/{promotion}', [StorePromotionController::class, 'destroy']);
+    });
 });
