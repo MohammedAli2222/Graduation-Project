@@ -2,10 +2,10 @@
 
 namespace App\Http\Requests;
 
-use Illuminate\Contracts\Validation\ValidationRule;
-use Illuminate\Foundation\Http\FormRequest;
 use App\Enums\DiagnosisStatus;
 use App\Models\PatientDiagnose;
+use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Http\Exceptions\HttpResponseException;
 use Illuminate\Validation\Validator;
 
 class StudentStorePatientRequest extends StorePatientRequest
@@ -31,8 +31,6 @@ class StudentStorePatientRequest extends StorePatientRequest
         $rules['preliminary_diagnosis'] = 'required|string|max:1000';
 
         $rules['case_type_id'] = 'required|exists:case_types,id';
-
-
 
         return $rules;
     }
@@ -60,7 +58,7 @@ class StudentStorePatientRequest extends StorePatientRequest
 
         $errorMessage = $validator->errors()->first();
 
-        throw new \Illuminate\Http\Exceptions\HttpResponseException(
+        throw new HttpResponseException(
             response_error(null, 422, $errorMessage)
         );
     }

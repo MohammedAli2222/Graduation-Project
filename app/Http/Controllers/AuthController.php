@@ -10,8 +10,6 @@ use App\Services\AuthService;
 use Exception;
 use Illuminate\Http\Request;
 
-
-
 class AuthController extends Controller
 {
     protected $authService;
@@ -27,14 +25,12 @@ class AuthController extends Controller
             $result = $this->authService->register($request->validated());
 
             return response_success([
-                'token' => $result['token']
+                'token' => $result['token'],
             ], 201, 'Account created successfully! Please check your email for the OTP verification code.');
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             return response_error(null, 500, $e->getMessage());
         }
     }
-
-
 
     public function login(LoginRequest $request)
     {
@@ -42,13 +38,12 @@ class AuthController extends Controller
 
             $result = $this->authService->login($request->validated());
 
-
-
             return response_success($result, 200, 'Logged in successfully');
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
 
             if ($e->getCode() == 403) {
                 $errorData = json_decode($e->getMessage(), true);
+
                 return response_error(
                     ['token' => $errorData['token']],
                     403,
@@ -57,11 +52,10 @@ class AuthController extends Controller
             }
 
             $statusCode = in_array($e->getCode(), [401, 422]) ? $e->getCode() : 500;
+
             return response_error(null, $statusCode, $e->getMessage());
         }
     }
-
-
 
     public function logout(Request $request)
     {
@@ -69,11 +63,10 @@ class AuthController extends Controller
             $this->authService->logout($request->user());
 
             return response_success(null, 200, 'Logged out successfully');
-        } catch (\Exception $e) {
-            return response_error(null, 500, 'Logout failed: ' . $e->getMessage());
+        } catch (Exception $e) {
+            return response_error(null, 500, 'Logout failed: '.$e->getMessage());
         }
     }
-
 
     public function verifyOtp(Request $request)
     {
@@ -86,13 +79,13 @@ class AuthController extends Controller
 
             $userData = new UserResource($result['user']);
 
-
             return response_success([
-                'user'  => $userData,
-                'token' => $result['token']
+                'user' => $userData,
+                'token' => $result['token'],
             ], 200, 'Your account has been verified and activated successfully.');
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $statusCode = $e->getCode() == 422 ? 422 : 500;
+
             return response_error(null, $statusCode, $e->getMessage());
         }
     }
@@ -103,9 +96,11 @@ class AuthController extends Controller
 
         try {
             $updatedUser = $this->authService->updateProfile(auth()->user(), $validatedData);
+
             return response_success(new UserResource($updatedUser), 200, 'Profile updated successfully.');
         } catch (Exception $e) {
             $statusCode = ($e->getCode() >= 400 && $e->getCode() <= 500) ? $e->getCode() : 400;
+
             return response_error(null, $statusCode, $e->getMessage());
         }
     }

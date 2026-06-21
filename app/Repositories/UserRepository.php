@@ -7,8 +7,7 @@ use Illuminate\Support\Facades\Hash;
 
 class UserRepository
 {
-
-    public  function find($userId)
+    public function find($userId)
     {
         return User::findOrFail($userId);
     }
@@ -16,13 +15,12 @@ class UserRepository
     public function createUser(array $data): User
     {
         return User::create([
-            'first_name'   => $data['first_name'],
-            'last_name'   => $data['last_name'],
-            'email'    => $data['email'],
+            'first_name' => $data['first_name'],
+            'last_name' => $data['last_name'],
+            'email' => $data['email'],
             'password' => Hash::make($data['password']),
         ]);
     }
-
 
     public function findByEmail(string $email): ?User
     {
@@ -31,8 +29,8 @@ class UserRepository
 
     /**
      * جلب بيانات المستخدم مع البروفايل الخاص به بناءً على العلاقة.
-     * @param User $user
-     * @param string $relation اسم العلاقة (مثل studentProfile)
+     *
+     * @param  string  $relation  اسم العلاقة (مثل studentProfile)
      */
     public function loadProfile(User $user, string $relation): User
     {

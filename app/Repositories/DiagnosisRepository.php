@@ -7,7 +7,6 @@ use App\Models\PatientDiagnose;
 
 class DiagnosisRepository
 {
-
     public function FindOrFail(int $id)
     {
         return PatientDiagnose::findOrFail($id);
@@ -30,5 +29,9 @@ class DiagnosisRepository
             ->first();
     }
 
-
+    public function makeAvailable(int $diagnosisId): bool
+    {
+        return PatientDiagnose::where('id', $diagnosisId)
+            ->update(['status' => DiagnosisStatus::AVAILABLE->value]);
+    }
 }

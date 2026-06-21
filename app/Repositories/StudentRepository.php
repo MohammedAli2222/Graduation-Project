@@ -13,11 +13,12 @@ class StudentRepository
      * 1️⃣ جلب المواد المخصصة لفصل محدد وسنة محددة بالظبط
      * (لأننا صرنا بحاجتها بفصل مواد الـ Semester 1 عن الـ Semester 2)
      */
-    public function getCoursesByCurrentLevel(int $year, int $semester)
+    public function getCourseIdsByLevel(int $year, int $semester): array
     {
         return Course::where('year', $year)
             ->where('semester', $semester)
-            ->get();
+            ->pluck('id')
+            ->toArray(); // ⚡ جلب مصفوفة الأرقام فقط، خفيف جداً على الذاكرة وسريع
     }
 
     /**
@@ -54,7 +55,6 @@ class StudentRepository
         return StudentCourseEnrollment::create($data);
     }
 
-
     public function getActiveEnrollmentsForStudent(int $studentId)
     {
         return StudentCourseEnrollment::with(['course.department', 'course.caseTypes'])
@@ -63,12 +63,20 @@ class StudentRepository
             ->get();
     }
 
-
-    public function getAvailableCaseTypesForStanding(int $year, int $semester)
+    public function getAvailableCaseTypesForStanding(int $studentId)
     {
-        return CaseType::whereHas('course', function ($query) use ($year, $semester) {
-            $query->where('year', $year)
-                ->where('semester', $semester);
-        })->get();
+        $activeCourseIds = StudentCourseEnrollment::where('student_id', $studentId)
+            ->where('status', EnrollmentStatus::ACTIVE)
+            ->pluck('course_id');
+
+        // 2. إذا لم يكن لديه مواد نشطة، نرجع مصفوفة فارغة
+        if ($activeCourseIds->isEmpty()) {
+            return collect();
+        }
+
+        // 3. جلب الحالات التي تنتمي لهذه المواد فقط
+        return CaseType::select('id', 'name', 'course_id')
+            ->whereIn('course_id', $activeCourseIds)
+            ->get();
     }
 }

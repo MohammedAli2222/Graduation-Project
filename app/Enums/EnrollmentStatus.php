@@ -9,7 +9,6 @@ enum EnrollmentStatus: string
     case FAILED = 'failed';
     case DROPPED = 'dropped';
 
-
     // public function label(): string
     // {
     //     return match($this) {

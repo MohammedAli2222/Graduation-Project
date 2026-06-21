@@ -13,7 +13,7 @@ class StudentProfile extends Model
         'exam_number',
         'university',
         'academic_year',
-        'semester'
+        'semester',
     ];
 
     public function user()
@@ -26,13 +26,11 @@ class StudentProfile extends Model
         return $this->belongsTo(Group::class, 'group_id');
     }
 
-
     public function enrollments()
     {
         return $this->hasMany(StudentCourseEnrollment::class, 'student_id');
     }
 
-    
     public function courses()
     {
         return $this->belongsToMany(Course::class, 'student_course_enrollments', 'student_id', 'course_id')

@@ -13,7 +13,6 @@ class Course extends Model
         'semester',
     ];
 
-
     public function department()
     {
         return $this->belongsTo(Department::class);
@@ -24,12 +23,10 @@ class Course extends Model
         return $this->hasMany(CaseType::class);
     }
 
-
     public function enrollments()
     {
         return $this->hasMany(StudentCourseEnrollment::class, 'course_id');
     }
-
 
     public function students()
     {

@@ -2,21 +2,22 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\DiagnosisStatus;
 use App\Http\Requests\StudentStorePatientRequest;
 use App\Http\Resources\CaseTypeResource;
-use App\Http\Resources\PatientResource;
-use App\Services\PatientService;
-use App\Services\StudentCourseService;
 use App\Http\Resources\CourseResource;
 use App\Http\Resources\PatientDiagnosisDetailsResource;
 use App\Http\Resources\PatientDiagnosisResource;
+use App\Http\Resources\PatientResource;
+use App\Services\PatientService;
+use App\Services\StudentCourseService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class StudentController extends Controller
 {
     protected PatientService $patientService;
+
     protected StudentCourseService $courseService;
 
     public function __construct(PatientService $patientService, StudentCourseService $courseService)
@@ -25,12 +26,11 @@ class StudentController extends Controller
         $this->courseService = $courseService;
     }
 
-
     public function getCaseTypesDropdown(Request $request)
     {
         $student = $request->user()->studentProfile;
 
-        if (!$student) {
+        if (! $student) {
             return response_error(null, 404, 'Profile not found.');
         }
 
@@ -47,7 +47,7 @@ class StudentController extends Controller
     {
         $student = $request->user()->studentProfile;
 
-        if (!$student) {
+        if (! $student) {
             return response_error(null, 403, 'This action is unauthorized. Student profile not found.');
         }
 
@@ -76,13 +76,17 @@ class StudentController extends Controller
                 $diagnosisData
             );
 
-            $patient->load(['medicalHistory', 'diagnoses', 'media']);
             return response_success(new PatientResource($patient), 201, 'Patient request submitted successfully.');
+        } catch (ValidationException $e) {
+            return response_error($e->errors(), 422, 'Validation failed.');
         } catch (\Exception $e) {
-            return response_error(null, 500, 'Something went wrong: ' . $e->getMessage());
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? $e->getCode()
+                : 500;
+
+            return response_error(null, $statusCode, $e->getMessage());
         }
     }
-
 
     public function setupAcademicCourses(Request $request)
     {
@@ -92,10 +96,10 @@ class StudentController extends Controller
 
         if ($result['status'] === 'waiting_next_semester') {
             return response()->json([
-                'status'  => 200,
-                'code'    => 'LOCK_STUDENT_APP',
+                'status' => 200,
+                'code' => 'LOCK_STUDENT_APP',
                 'message' => $result['message'],
-                'data'    => []
+                'data' => [],
             ], 200);
         }
 
@@ -111,9 +115,29 @@ class StudentController extends Controller
         try {
             $patients = $this->patientService->getAvailablePatientsByCaseType($caseTypeId);
 
-            return response_success(PatientDiagnosisResource::collection($patients), 200, 'Available patients retrieved successfully.');
+            return response_success(
+                [
+                    "data" => PatientDiagnosisResource::collection($patients),
+                    'pagination' => [
+                        'total' => $patients->total(),
+                        'count' => $patients->count(),
+                        'per_page' => $patients->perPage(),
+                        'current_page' => $patients->currentPage(),
+                        'last_page' => $patients->lastPage(),
+                    ],
+
+                ],
+                200,
+                'Available patients retrieved successfully.'
+
+            );
         } catch (\Exception $e) {
-            return response_error(null, $e->getCode(), $e->getMessage());
+
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? $e->getCode()
+                : 500;
+
+            return response_error(null, $statusCode, $e->getMessage());
         }
     }
 
@@ -122,15 +146,20 @@ class StudentController extends Controller
         try {
             $diagnosis = $this->patientService->getDiagnosisDetails($id);
 
-            $formattedDetails = (new PatientDiagnosisDetailsResource($diagnosis))->resolve();
+            $resource = new PatientDiagnosisDetailsResource($diagnosis);
 
-            return response_success($formattedDetails, 200, 'Patient detailed profile retrieved successfully.');
+            return response_success($resource, 200, 'Patient detailed profile retrieved successfully.');
         } catch (ModelNotFoundException $e) {
             return response_error(null, 404, 'The requested patient case layout was not found.');
+        } catch (ValidationException $e) {
+            return response_error($e->errors(), 422, 'Validation failed.');
         } catch (\Exception $e) {
-            $code = intval($e->getCode());
-            $statusCode = ($code >= 400 && $code <= 500) ? $code : 400;
-            return response_error(null, $statusCode, $e->getMessage());
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? $e->getCode()
+                : 500;
+
+            // بدلاً من $e->getMessage() التي قد تكون كارثية، استخدم رسالة ثابتة
+            return response_error(null, $statusCode, 'An internal server error occurred.');
         }
     }
 }

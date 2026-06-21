@@ -2,10 +2,14 @@
 
 namespace App\Providers;
 
-use Illuminate\Support\ServiceProvider;
+use App\Models\CaseType;
+use App\Models\Group;
+use App\Observers\CaseTypeObserver;
+use App\Observers\GroupObserver;
 use Illuminate\Cache\RateLimiting\Limit;
-use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -22,6 +26,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+
+        CaseType::observe(CaseTypeObserver::class);
+        Group::observe(GroupObserver::class);
 
         RateLimiter::for('strict_auth', function (Request $request) {
             return Limit::perMinute(3)->by($request->ip())->response(function () {

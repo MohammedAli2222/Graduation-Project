@@ -2,8 +2,10 @@
 
 namespace App\Http\Requests\Auth;
 
+use App\Models\Group;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Validator;
 
 class RegisterRequest extends FormRequest
 {
@@ -23,35 +25,63 @@ class RegisterRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'first_name'   => 'required|string|max:255',
-            'last_name'    => 'required|string|max:255',
-            'email'        => 'required|email|unique:users,email',
-            'password'     => 'required|min:8',
-            'role'         => ['required', 'in:student,instructor,store_owner,department_head'],
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'email' => 'required|email|unique:users,email',
+            'password' => 'required|min:8',
+            'role' => ['required', 'in:student,instructor,store_owner,department_head'],
 
             // دمج الهاتف للطالب والمعيد
-            'phone'        => 'required_if:role,student,instructor|string|max:20',
+            'phone' => 'required_if:role,student,instructor|string|max:20',
 
             // حقول الطالب
-            'group_id'      => 'required_if:role,student|exists:groups,id',
-            'exam_number'   => 'required_if:role,student|unique:student_profiles,exam_number',
+            'group_id' => 'required_if:role,student|exists:groups,id',
+            'exam_number' => 'required_if:role,student|unique:student_profiles,exam_number',
             'academic_year' => ['required_if:role,student', 'integer', 'in:4,5'],
-            'semester'      => ['required_if:role,student', 'integer', 'in:1,2'],
-            'university'    => 'required_if:role,student|string|max:255',
+            'semester' => ['required_if:role,student', 'integer', 'in:1,2'],
+            'university' => 'required_if:role,student|string|max:255',
 
             // حقول المعيد
-            'specialty'      => 'required_if:role,instructor',
+            'specialty' => 'required_if:role,instructor',
             'specialty_year' => 'required_if:role,instructor|string',
-            'group_ids'      => 'required_if:role,instructor|array',
-            'group_ids.*'    => 'exists:groups,id',
+            'group_ids' => 'required_if:role,instructor|array',
+            'group_ids.*' => 'exists:groups,id',
 
             // حقول رئيس القسم
             'department_id' => 'required_if:role,department_head|exists:departments,id',
 
             // حقول المتجر
-            'store_name'    => 'required_if:role,store_owner|string|max:255',
-            'store_phone'   => 'required_if:role,store_owner|string',
+            'store_name' => 'required_if:role,store_owner|string|max:255',
+            'store_phone' => 'required_if:role,store_owner|string',
             'store_address' => 'required_if:role,store_owner|string',
+        ];
+    }
+
+    public function after(): array
+    {
+        return [
+            function (Validator $validator) {
+                // الفحص فقط إذا لم تكن هناك أخطاء مدخلات أساسية (مثل غياب الحقول)
+                if ($validator->errors()->isEmpty()) {
+
+                    $role = $this->input('role');
+
+                    // 1️⃣ سيناريو الطالب: التأكد أن الـ group_id يطابق الـ academic_year
+                    if ($role === 'student') {
+                        $academicYear = (int) $this->input('academic_year');
+                        $groupId = $this->input('group_id');
+
+                        $group = Group::find($groupId);
+
+                        if ($group && (int) $group->academic_year !== $academicYear) {
+                            $validator->errors()->add(
+                                'group_id',
+                                'عذراً، الفئة المختارة غير تابعة لسنتك الدراسية الحالية.'
+                            );
+                        }
+                    }
+                }
+            },
         ];
     }
 }

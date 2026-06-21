@@ -10,9 +10,8 @@ class StoreProfile extends Model
         'user_id',
         'store_name',
         'store_phone',
-        'store_address'
+        'store_address',
     ];
-
 
     public function user()
     {

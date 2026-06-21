@@ -11,40 +11,45 @@ class Appointment extends Model
         'patient_id',
         'student_id',
         'diagnosis_id',
+        'treatment_id',
         'slot_number',
         'appointment_date',
         'status',
     ];
-
 
     protected $casts = [
         'status' => AppointmentStatus::class,
         'appointment_date' => 'datetime',
     ];
 
-
     public function patient()
     {
         return $this->belongsTo(Patient::class);
     }
-
 
     public function student()
     {
         return $this->belongsTo(User::class, 'student_id');
     }
 
-
     public function diagnosis()
     {
         return $this->belongsTo(PatientDiagnose::class, 'diagnosis_id');
     }
 
-    /**
-     * الموعد قد ينتج عنه عدة جلسات معالجة (عادة جلسة واحدة لكل موعد)
-     */
-    public function treatments()
+    public function treatment()
     {
-        return $this->hasMany(Treatment::class);
+        return $this->belongsTo(Treatment::class, 'treatment_id');
+    }
+
+    public function getSlotTimeRange(): string
+    {
+        return match ((int) $this->slot_number) {
+            1 => '08:00 AM - 10:00 AM',
+            2 => '10:30 AM - 12:30 PM',
+            3 => '01:00 PM - 03:00 PM',
+            4 => '03:30 PM - 05:30 PM',
+            default => 'Unknown Slot',
+        };
     }
 }

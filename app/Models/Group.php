@@ -3,12 +3,12 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 
 class Group extends Model
 {
-
-    protected $fillable = ['group_name'];
-
+    use HasFactory; 
+    protected $fillable = ['group_name', 'academic_year'];
 
     public function instructors()
     {
@@ -19,6 +19,10 @@ class Group extends Model
             'instructor_profile_id'
         )->withTimestamps();
     }
+
+    protected $casts = [
+        'academic_year' => 'integer',
+    ];
 
     public function students()
     {
