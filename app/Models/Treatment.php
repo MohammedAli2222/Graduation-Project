@@ -12,7 +12,7 @@ class Treatment extends Model implements HasMedia
     use InteractsWithMedia;
 
     protected $fillable = [
-        'appointment_id',
+        'diagnosis_id',
         'instructor_id',
         'status',
         'start_date',
@@ -20,18 +20,21 @@ class Treatment extends Model implements HasMedia
         'instructor_notes',
     ];
 
-
     protected $casts = [
-        'status'     => TreatmentStatus::class,
+        'status' => TreatmentStatus::class,
         'start_date' => 'datetime',
-        'end_date'   => 'datetime',
+        'end_date' => 'datetime',
     ];
 
-    public function appointment()
+    public function diagnosis()
     {
-        return $this->belongsTo(Appointment::class);
+        return $this->belongsTo(PatientDiagnose::class, 'diagnosis_id');
     }
 
+    public function appointments()
+    {
+        return $this->hasMany(Appointment::class, 'treatment_id');
+    }
 
     public function instructor()
     {

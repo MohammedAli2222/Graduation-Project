@@ -6,14 +6,12 @@ use Illuminate\Database\Eloquent\Model;
 
 class InstructorProfile extends Model
 {
-
     protected $fillable = [
         'user_id',
         'phone',
         'specialty',
         'specialty_year',
     ];
-
 
     public function user()
     {

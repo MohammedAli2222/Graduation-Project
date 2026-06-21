@@ -22,6 +22,11 @@ return new class extends Migration
 
             $table->date('appointment_date');
 
+            $table->foreignId('treatment_id')
+                ->nullable()
+                ->constrained('treatments')
+                ->onDelete('set null');
+
             $table->enum('status', array_column(AppointmentStatus::cases(), 'value'))
                 ->default(AppointmentStatus::SCHEDULED->value);
             $table->timestamps();

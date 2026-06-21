@@ -2,15 +2,17 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use App\Enums\PatientStatus;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 use Spatie\MediaLibrary\HasMedia;
 use Spatie\MediaLibrary\InteractsWithMedia;
-use Illuminate\Support\Str;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 
 class Patient extends Model implements HasMedia
 {
-
+    use HasFactory;
     use InteractsWithMedia;
 
     protected $fillable = [
@@ -20,7 +22,7 @@ class Patient extends Model implements HasMedia
         'phone',
         'preliminary_diagnosis',
         'availability_status',
-        'added_by'
+        'added_by',
     ];
 
     public function medicalHistory()
@@ -44,7 +46,7 @@ class Patient extends Model implements HasMedia
     {
         static::creating(function ($patient) {
 
-            $patient->patient_code = date('Y') . '-' . Str::upper(Str::random(4));
+            $patient->patient_code = date('Y').'-'.Str::upper(Str::random(4));
 
             $patient->availability_status = PatientStatus::WAITING_DIAGNOSIS;
 
@@ -54,7 +56,7 @@ class Patient extends Model implements HasMedia
         });
     }
 
-    public function registerMediaConversions(\Spatie\MediaLibrary\MediaCollections\Models\Media $media = null): void
+    public function registerMediaConversions(?Media $media = null): void
     {
         $this->addMediaConversion('thumb')
             ->width(100)

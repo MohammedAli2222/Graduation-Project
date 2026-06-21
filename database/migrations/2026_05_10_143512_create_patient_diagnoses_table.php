@@ -1,10 +1,9 @@
 <?php
 
+use App\Enums\DiagnosisStatus;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
-use App\Enums\DiagnosisStatus;
-
 
 return new class extends Migration
 {
@@ -26,6 +25,7 @@ return new class extends Migration
 
             $table->text('final_diagnosis')->nullable();
 
+            $table->index(['case_type_id', 'status']);
 
             $table->enum('status', array_column(DiagnosisStatus::cases(), 'value'))
                 ->default(DiagnosisStatus::AVAILABLE->value);

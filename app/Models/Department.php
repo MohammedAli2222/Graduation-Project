@@ -2,20 +2,22 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Department extends Model
 {
+    use HasFactory;
+
     protected $fillable = [
         'name',
         'total_chairs',
-        'description'
+        'description',
     ];
 
     protected $casts = [
         'total_chairs' => 'integer',
     ];
-
 
     public function departmentHeadProfile()
     {
@@ -35,7 +37,6 @@ class Department extends Model
     {
         return $this->hasManyThrough(CaseType::class, Course::class);
     }
-
 
     public function diagnoses()
     {

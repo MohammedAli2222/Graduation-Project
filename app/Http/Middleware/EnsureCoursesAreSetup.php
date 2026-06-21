@@ -2,7 +2,6 @@
 
 namespace App\Http\Middleware;
 
-use App\Models\StudentCourseEnrollment;
 use Closure;
 use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
@@ -25,13 +24,12 @@ class EnsureCoursesAreSetup
             $currentYear = is_object($studentProfile->academic_year) ? $studentProfile->academic_year->value : $studentProfile->academic_year;
             $currentSemester = is_object($studentProfile->semester) ? $studentProfile->semester->value : $studentProfile->semester;
 
-
             $hasCourses = $studentProfile->courses()
                 ->where('year', $currentYear)
                 ->where('semester', $currentSemester)
                 ->exists();
-                
-            if (!$hasCourses) {
+
+            if (! $hasCourses) {
                 return response_error(null, 403, 'Unauthorized: You must setup your academic courses first before accessing this feature.');
             }
         }

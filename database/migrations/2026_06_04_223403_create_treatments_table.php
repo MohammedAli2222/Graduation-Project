@@ -15,15 +15,14 @@ return new class extends Migration
         Schema::create('treatments', function (Blueprint $table) {
             $table->id();
 
-            $table->foreignId('appointment_id')->constrained()->onDelete('cascade');
+            $table->foreignId('diagnosis_id')->constrained('patient_diagnoses')->onDelete('cascade');
 
             $table->foreignId('instructor_id')->nullable()->constrained('users')->onDelete('set null');
 
-            $table->enum('status', array_column(TreatmentStatus
-            ::cases(), 'value'))
+            $table->enum('status', array_column(TreatmentStatus::cases(), 'value'))
                 ->default(TreatmentStatus::IN_PROGRESS->value);
-                
-            $table->timestamp('start_date')->nullable();
+
+            $table->timestamp('start_date')->useCurrent();
             $table->timestamp('end_date')->nullable();
 
             $table->text('instructor_notes')->nullable();

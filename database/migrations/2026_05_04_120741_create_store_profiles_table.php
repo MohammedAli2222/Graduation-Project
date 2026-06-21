@@ -17,7 +17,6 @@ return new class extends Migration
 
             $table->string('store_name');
 
-
             $table->string('store_phone');
             $table->text('store_address');
 

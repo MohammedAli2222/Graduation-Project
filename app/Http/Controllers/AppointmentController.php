@@ -5,20 +5,22 @@ namespace App\Http\Controllers;
 use App\Http\Requests\StoreAppointmentRequest;
 use App\Http\Resources\AppointmentResource;
 use App\Services\AppointmentService;
+use App\Services\TreatmentService;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
 use Illuminate\Validation\ValidationException;
 
 class AppointmentController extends Controller
 {
     protected $appointmentService;
 
-    public function __construct(AppointmentService $appointmentService)
+    protected $treatmentService;
+
+    public function __construct(AppointmentService $appointmentService, TreatmentService $treatmentService)
     {
         $this->appointmentService = $appointmentService;
+        $this->treatmentService = $treatmentService;
     }
 
-    /**
-     * حجز حالة مريض وجدولة الموعد الأول لها
-     */
     public function bookCase(StoreAppointmentRequest $request)
     {
         try {
@@ -27,6 +29,7 @@ class AppointmentController extends Controller
             foreach ($appointments as $appointment) {
                 $appointment->load('patient');
             }
+
             return response_success(
                 AppointmentResource::collection(collect($appointments)),
                 201,
@@ -44,6 +47,19 @@ class AppointmentController extends Controller
                 500,
                 'An unexpected error occurred during the booking process.'
             );
+        }
+    }
+
+    public function cancelAppointment(int $id)
+    {
+        try {
+            $this->treatmentService->cancelAppointment($id);
+
+            return response_success(null, 200, 'Appointment cancelled successfully before attendance.');
+        } catch (ModelNotFoundException $e) {
+            return response_error(null, 404, $e->getMessage());
+        } catch (\Exception $e) {
+            return response_error(null, 400, $e->getMessage());
         }
     }
 }

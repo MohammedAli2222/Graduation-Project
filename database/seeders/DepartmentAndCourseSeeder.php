@@ -17,7 +17,7 @@ class DepartmentAndCourseSeeder extends Seeder
         // ==========================================================================
         $restorative = Department::create([
             'name' => 'قسم المداواة والترميم',
-            'description' => 'يشمل الحشوات التجميلية، ترميم الأسنان، وعلاج الجذور وسحب العصب.'
+            'description' => 'يشمل الحشوات التجميلية، ترميم الأسنان، وعلاج الجذور وسحب العصب.',
         ]);
 
         $restorative->courses()->createMany([
@@ -34,7 +34,7 @@ class DepartmentAndCourseSeeder extends Seeder
         // ==========================================================================
         $surgery = Department::create([
             'name' => 'قسم جراحة الفم والفكين',
-            'description' => 'يشمل التخدير، القلع البسيط والجراحي، والعمليات الجراحية الفموية الصغرى والكبرى.'
+            'description' => 'يشمل التخدير، القلع البسيط والجراحي، والعمليات الجراحية الفموية الصغرى والكبرى.',
         ]);
 
         $surgery->courses()->createMany([
@@ -49,7 +49,7 @@ class DepartmentAndCourseSeeder extends Seeder
         // ==========================================================================
         $prosthodontics = Department::create([
             'name' => 'قسم التعويضات السنية',
-            'description' => 'يشمل التعويضات الثابتة (التيجان والجسور) والتعويضات المتحركة (الكاملة والجزئية).'
+            'description' => 'يشمل التعويضات الثابتة (التيجان والجسور) والتعويضات المتحركة (الكاملة والجزئية).',
         ]);
 
         $prosthodontics->courses()->createMany([
@@ -63,7 +63,7 @@ class DepartmentAndCourseSeeder extends Seeder
         // ==========================================================================
         $pedodonticsAndOrtho = Department::create([
             'name' => 'قسم طب أسنان الأطفال وتقويم الأسنان',
-            'description' => 'يشمل معالجة أسنان الأطفال، الأجهزة الوقائية، وتقويم الأسنان وتعديل الإطباق.'
+            'description' => 'يشمل معالجة أسنان الأطفال، الأجهزة الوقائية، وتقويم الأسنان وتعديل الإطباق.',
         ]);
 
         $pedodonticsAndOrtho->courses()->createMany([
@@ -78,7 +78,7 @@ class DepartmentAndCourseSeeder extends Seeder
         // ==========================================================================
         $periodontics = Department::create([
             'name' => 'قسم أمراض اللثة',
-            'description' => 'يشمل تجريف اللثة، تقليح الأسنان (تنظيف اللثة)، وعلاجات الأنسجة الداعمة.'
+            'description' => 'يشمل تجريف اللثة، تقليح الأسنان (تنظيف اللثة)، وعلاجات الأنسجة الداعمة.',
         ]);
 
         $periodontics->courses()->createMany([
@@ -91,13 +91,13 @@ class DepartmentAndCourseSeeder extends Seeder
         // ==========================================================================
         $comprehensive = Department::create([
             'name' => 'قسم العيادات الشاملة',
-            'description' => 'العيادة النهائية لطلاب السنة الخامسة التي تشمل خطة علاج متكاملة للمريض من ألف إلى الياء.'
+            'description' => 'العيادة النهائية لطلاب السنة الخامسة التي تشمل خطة علاج متكاملة للمريض من ألف إلى الياء.',
         ]);
 
         $comprehensive->courses()->create([
             'name' => 'Comprehensive Clinical Dentistry (العيادة الشاملة)',
             'year' => '5',
-            'semester' => '2'
+            'semester' => '2',
         ]);
     }
 }

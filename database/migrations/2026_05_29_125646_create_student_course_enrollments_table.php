@@ -21,7 +21,6 @@ return new class extends Migration
 
             $table->unsignedInteger('attempts_count')->default(1);
 
-
             $table->unique(['student_id', 'course_id']);
 
             $table->timestamps();

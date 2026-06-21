@@ -7,7 +7,6 @@ use App\Repositories\UserRepository;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
-use App\Services\OtpService;
 
 class AuthService
 {
@@ -21,14 +20,10 @@ class AuthService
 
         $user = $this->userRepo->find($userId);
 
-
         $this->otpService->verifyOtp($userId, $code);
 
-
-
-
         $user->update([
-            'email_verified_at' => now()
+            'email_verified_at' => now(),
         ]);
         $user->load($this->getRelationName($user->roles->first()->name));
 
@@ -36,8 +31,8 @@ class AuthService
         $finalToken = $user->createToken('auth_token')->plainTextToken;
 
         return [
-            'user'  => $user,
-            'token' => $finalToken
+            'user' => $user,
+            'token' => $finalToken,
         ];
     }
 
@@ -53,27 +48,24 @@ class AuthService
 
             $this->otpService->generateAndSendOtp($user);
 
-
             $token = $user->createToken('verification_token', ['verify-otp'])->plainTextToken;
 
             return [
-                'user'  => $user->load($this->getRelationName($data['role'])),
+                'user' => $user->load($this->getRelationName($data['role'])),
                 'token' => $token,
             ];
         });
     }
 
-
     public function login(array $credentials)
     {
         $user = $this->userRepo->findByEmail($credentials['email']);
 
-        if (!$user || !Hash::check($credentials['password'], $user->password)) {
+        if (! $user || ! Hash::check($credentials['password'], $user->password)) {
             throw ValidationException::withMessages([
                 'email or password' => [trans('auth.failed')],
             ]);
         }
-
 
         if (is_null($user->email_verified_at)) {
 
@@ -81,17 +73,16 @@ class AuthService
 
             $tempToken = $user->createToken('verification_token', ['verify-otp'])->plainTextToken;
 
-
             throw new \Exception(json_encode([
                 'message' => 'Your account is not verified yet. A new OTP code has been sent to your email.',
-                'token'   => $tempToken
+                'token' => $tempToken,
             ]), 403);
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return [
-            'user'  => new UserResource($user),
+            'user' => new UserResource($user),
             'token' => $token,
         ];
     }
@@ -101,27 +92,27 @@ class AuthService
         return $user->currentAccessToken()->delete();
     }
 
-
     public function updateProfile($user, array $data)
     {
+        $user->loadMissing('studentProfile');
+
         DB::transaction(function () use ($user, $data) {
 
             $userData = array_intersect_key($data, array_flip(['first_name', 'last_name', 'email']));
 
-            if (!empty($userData)) {
+            if (! empty($userData)) {
                 $user->update($userData);
             }
 
             $profileData = array_intersect_key($data, array_flip(['phone']));
 
-            if (!empty($profileData) && $user->studentProfile) {
+            if (! empty($profileData) && $user->studentProfile) {
                 $user->studentProfile->update($profileData);
             }
         });
 
         return $user->refresh()->load('studentProfile');
     }
-
 
     protected function createProfileByRole($user, $data)
     {
@@ -132,8 +123,8 @@ class AuthService
 
             case 'instructor':
                 $instructor = $user->instructorProfile()->create([
-                    'phone'          => $data['phone'],
-                    'specialty'      => $data['specialty'],
+                    'phone' => $data['phone'],
+                    'specialty' => $data['specialty'],
                     'specialty_year' => $data['specialty_year'],
                 ]);
                 if (isset($data['group_ids'])) {
@@ -143,14 +134,14 @@ class AuthService
 
             case 'department_head':
                 $user->departmentHeadProfile()->create([
-                    'department_id' => $data['department_id']
+                    'department_id' => $data['department_id'],
                 ]);
                 break;
 
             case 'store_owner':
                 $user->storeProfile()->create([
-                    'store_name'    => $data['store_name'],
-                    'store_phone'  => $data['store_phone'],
+                    'store_name' => $data['store_name'],
+                    'store_phone' => $data['store_phone'],
                     'store_address' => $data['store_address'],
                 ]);
                 break;
@@ -161,10 +152,10 @@ class AuthService
     {
         return match ($role) {
             'student' => 'studentProfile.group',
-            'instructor'      => 'instructorProfile',
+            'instructor' => 'instructorProfile',
             'department_head' => 'departmentHeadProfile',
-            'store_owner'     => 'storeProfile',
-            default           => null,
+            'store_owner' => 'storeProfile',
+            default => null,
         };
     }
 }

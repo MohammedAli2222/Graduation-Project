@@ -9,6 +9,7 @@ enum DiagnosisStatus: string
     case RESERVED = 'reserved';
     case REJECTED = 'rejected';
     case CONVERTED_TO_TREATMENT = 'converted_to_treatment';
+    case FINISHED = 'finished';
 
     // public function label(): string
     // {

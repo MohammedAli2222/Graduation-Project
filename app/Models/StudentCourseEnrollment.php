@@ -16,12 +16,10 @@ class StudentCourseEnrollment extends Model
         ];
     }
 
-
     public function studentProfile()
     {
         return $this->belongsTo(StudentProfile::class, 'student_id');
     }
-
 
     public function course()
     {

@@ -25,19 +25,19 @@ class ReceptionistController extends Controller
 
             $validatedData = $request->validated();
 
-
             $patient = $this->patientService->registerPatient(
                 $validatedData,
                 $request->file('images')
             );
 
             $patient->load(['medicalHistory', 'media']);
+
             return response_success(new PatientResource($patient), 201, 'Created patient successfully.');
         } catch (\Exception $e) {
             return response_error(
                 null,
                 500,
-                'Something went wrong: ' . $e->getMessage()
+                'Something went wrong: '.$e->getMessage()
             );
         }
     }
@@ -45,17 +45,18 @@ class ReceptionistController extends Controller
     public function search(Request $request)
     {
         $term = $request->query('q');
-        if (!$term) {
+        if (! $term) {
             return response_error(null, 400, 'Search term is required');
         }
 
         $patient = $this->patientService->searchPatients($term);
 
-        if (!$patient) {
+        if (! $patient) {
             return response_error(null, 404, 'No patient found.');
         }
 
         $patient->load(['medicalHistory', 'media']);
+
         return response_success(new PatientResource($patient), 200, 'Search results.');
     }
 
@@ -63,6 +64,7 @@ class ReceptionistController extends Controller
     {
         try {
             $patient = $this->patientService->getPatientProfile($id);
+
             return response_success(new PatientResource($patient), 200, 'Patient profile fetched.');
         } catch (ModelNotFoundException $e) {
             return response_error(null, 404, 'Patient not found.');
@@ -78,17 +80,16 @@ class ReceptionistController extends Controller
         }
 
         return response_success([
-            'patients' => PatientResource::collection($patients->items()), 
+            'patients' => PatientResource::collection($patients->items()),
             'pagination' => [
-                'total'        => $patients->total(),
-                'count'        => $patients->count(),
-                'per_page'     => $patients->perPage(),
+                'total' => $patients->total(),
+                'count' => $patients->count(),
+                'per_page' => $patients->perPage(),
                 'current_page' => $patients->currentPage(),
-                'last_page'    => $patients->lastPage(),
-            ]
+                'last_page' => $patients->lastPage(),
+            ],
         ], 200, 'Waiting list fetched successfully.');
     }
-
 
     public function update(UpdatePatientRequest $request, $id)
     {
@@ -103,10 +104,9 @@ class ReceptionistController extends Controller
         } catch (ModelNotFoundException $e) {
             return response_error(null, 404, 'patient id not found');
         } catch (\Exception $e) {
-            return response_error(null, 500, 'Update failed: ' . $e->getMessage());
+            return response_error(null, 500, 'Update failed: '.$e->getMessage());
         }
     }
-
 
     public function stats()
     {

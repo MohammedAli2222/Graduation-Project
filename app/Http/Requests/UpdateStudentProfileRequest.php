@@ -23,16 +23,15 @@ class UpdateStudentProfileRequest extends FormRequest
     public function rules(): array
     {
         $user = auth()->user();
-        
+
         $studentProfileId = $user->studentProfile?->id;
 
         return [
             'first_name' => 'sometimes|required|string|max:50',
-            'last_name'  => 'sometimes|required|string|max:50',
-            'email'      => 'sometimes|required|email|unique:users,email,' . $user->id,
+            'last_name' => 'sometimes|required|string|max:50',
+            'email' => 'sometimes|required|email|unique:users,email,'.$user->id,
 
-
-            'phone'      => 'sometimes|required|string|unique:student_profiles,phone,' . $studentProfileId,
+            'phone' => 'sometimes|required|string|unique:student_profiles,phone,'.$studentProfileId,
         ];
     }
 }

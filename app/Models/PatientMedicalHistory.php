@@ -15,7 +15,7 @@ class PatientMedicalHistory extends Model
         'takes_medications',
         'medications_details',
         'has_allergies',
-        'allergies_details'
+        'allergies_details',
     ];
 
     protected $casts = [
