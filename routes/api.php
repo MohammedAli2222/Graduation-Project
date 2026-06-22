@@ -11,8 +11,10 @@ use App\Http\Controllers\ReceptionistController;
 use App\Http\Controllers\Store\StoreOrderController;
 use App\Http\Controllers\Store\StoreProductController;
 use App\Http\Controllers\Store\StorePromotionController;
+use App\Http\Controllers\Student\MarketplaceBrowseController;
 use App\Http\Controllers\Student\StudentCartController;
 use App\Http\Controllers\Student\StudentCheckoutController;
+use App\Http\Controllers\Student\StudentProductController;
 use App\Http\Controllers\StudentController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
@@ -57,6 +59,23 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         Route::post('/checkout', [StudentCheckoutController::class, 'checkout']);
+
+        Route::prefix('marketplace')->group(function () {
+
+            Route::get('/my-products', [StudentProductController::class, 'index']);
+
+            Route::post('/my-products', [StudentProductController::class, 'store']);
+
+            Route::put('/my-products/{product}', [StudentProductController::class, 'update']);
+
+            Route::delete('/my-products/{product}', [StudentProductController::class, 'destroy']);
+        });
+
+        Route::prefix('browse')->group(function () {
+            Route::get('/products', [MarketplaceBrowseController::class, 'index']);
+
+            Route::get('/products/{id}', [MarketplaceBrowseController::class, 'show']);
+        });
 
         Route::middleware(['ensure.courses.setup'])->group(function () {
             Route::get('case-types/{caseTypeId}/available-patients', [StudentController::class, 'getAvailablePatients']);

@@ -16,7 +16,6 @@ class Product extends Model implements HasMedia
 {
     use InteractsWithMedia;
 
-
     protected $fillable = [
         'store_id',
         'category_id',
@@ -28,40 +27,55 @@ class Product extends Model implements HasMedia
         'condition',
     ];
 
-
     protected $casts = [
         'price'               => 'float',
         'availability_status' => ProductAvailability::class,
         'condition'           => ProductCondition::class,
     ];
 
-
     protected $with = ['media'];
 
-
+    /**
+     * علاقة المنتج بصاحب المتجر الرسمي.
+     */
     public function store(): BelongsTo
     {
         return $this->belongsTo(User::class, 'store_id');
     }
 
+    /**
+     * علاقة المنتج بالبائع (الطالب أو المتجر) - تستخدم في سياق الـ Marketplace.
+     */
+    public function seller(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'store_id');
+    }
 
+    /**
+     * علاقة المنتج بالفئة.
+     */
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
     }
 
+    /**
+     * علاقة المنتج بالعروض الترويجية.
+     */
     public function promotions(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(Promotion::class, 'promotion_product');
     }
 
-
+    /**
+     * تسجيل تحويلات الصور المصغرة والمحسنة.
+     */
     public function registerMediaConversions(Media $media = null): void
     {
         $this->addMediaConversion('thumb')
             ->width(200)
             ->height(200)
-            ->queued(); // تنفيذ في الخلفية عبر الطوابير Queue لعدم تأخير الاستجابة
+            ->queued();
 
         $this->addMediaConversion('optimized')
             ->width(800)

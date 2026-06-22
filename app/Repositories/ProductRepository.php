@@ -3,6 +3,7 @@
 
 namespace App\Repositories;
 
+use App\Enums\ProductAvailability;
 use App\Models\Product;
 use App\Repositories\Contracts\ProductRepositoryInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
@@ -58,5 +59,40 @@ class ProductRepository implements ProductRepositoryInterface
             ->where('store_id', $storeId)
             ->whereIn('id', $productIds)
             ->count();
+    }
+
+  public function getMarketplaceProducts(array $filters = [], int $perPage = 15): LengthAwarePaginator
+    {
+        return $this->model->query()
+            ->whereIn('availability_status', [
+                ProductAvailability::AVAILABLE->value,
+                ProductAvailability::LIMITED->value
+            ])
+
+            ->when(isset($filters['search']), function ($query) use ($filters) {
+                $query->where(function ($q) use ($filters) {
+                    $q->where('name', 'like', '%' . $filters['search'] . '%')
+                        ->orWhere('description', 'like', '%' . $filters['search'] . '%');
+                });
+            })
+
+            ->when(isset($filters['category_id']), function ($query) use ($filters) {
+                $query->where('category_id', $filters['category_id']);
+            })
+
+            ->when(isset($filters['condition']), function ($query) use ($filters) {
+                $query->where('condition', $filters['condition']);
+            })
+
+            ->with(['seller.storeProfile', 'seller.studentProfile', 'category'])
+
+            ->latest()
+            ->paginate($perPage);
+    }
+
+
+    public function findById(int $productId): ?Product
+    {
+        return $this->model->find($productId);
     }
 }
