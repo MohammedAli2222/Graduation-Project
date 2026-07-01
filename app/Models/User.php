@@ -70,4 +70,15 @@ class User extends Authenticatable
     {
         return $this->hasOne(InstructorProfile::class);
     }
+
+    public function getProfileRelationName($role)
+    {
+        return match ($role) {
+            'student' => 'studentProfile',
+            'instructor' => 'instructorProfile',
+            'department_head' => 'departmentHeadProfile',
+            'store_owner' => 'storeProfile',
+            default => null,
+        };
+    }
 }

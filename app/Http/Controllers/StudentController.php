@@ -29,18 +29,14 @@ class StudentController extends Controller
     public function getCaseTypesDropdown(Request $request)
     {
         $student = $request->user()->studentProfile;
+        if (!$student) return response_error(null, 404, 'Profile not found.');
 
-        if (! $student) {
-            return response_error(null, 404, 'Profile not found.');
-        }
+        $data = $this->courseService->getCaseTypesForDropdown($student);
 
-        $caseTypes = $this->courseService->getCaseTypesForDropdown($student);
-
-        return response_success(
-            CaseTypeResource::collection($caseTypes),
-            200,
-            'Available case types for dropdown retrieved successfully.'
-        );
+        return response_success([
+            'current_semester' => CaseTypeResource::collection($data['current']),
+            'previous_semesters' => CaseTypeResource::collection($data['previous']),
+        ], 200, 'Case types retrieved successfully.');
     }
 
     public function getMyCourses(Request $request)
@@ -66,15 +62,23 @@ class StudentController extends Controller
         try {
             $validatedData = $request->validated();
 
+            $files = [
+                'id_card'         => $request->file('id_card'),
+                'clinical_images' => $request->file('clinical_images'),
+                'x_ray_images'    => $request->file('x_ray_images'),
+            ];
+
             $diagnosisData = [
-                'case_type_id' => $validatedData['case_type_id'],
+                'case_type_ids' => $validatedData['case_type_ids'],
+                'estimated_costs' => $request->input('estimated_costs'),
             ];
 
             $patient = $this->patientService->registerPatient(
                 $validatedData,
-                $request->file('images'),
+                $files,
                 $diagnosisData
             );
+
 
             return response_success(new PatientResource($patient), 201, 'Patient request submitted successfully.');
         } catch (ValidationException $e) {

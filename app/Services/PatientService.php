@@ -21,18 +21,23 @@ class PatientService
         $this->mediaService = $mediaService;
     }
 
-    public function registerPatient(array $data, $images = null, $diagnosisData = null)
+    public function registerPatient(array $data, array $files = [], array $diagnosisData = null)
     {
-        return DB::transaction(function () use ($data, $images, $diagnosisData) {
+        return DB::transaction(function () use ($data, $files, $diagnosisData) {
+            // 1. إنشاء المريض
             $patientData = [
                 'full_name' => $data['full_name'],
-                'gender' => $data['gender'],
-                'phone' => $data['phone'],
+                'gender'    => $data['gender'],
+                'phone'     => $data['phone'],
+                'birth_date' => $data['birth_date'],
+                'address'   => $data['address'],
                 'preliminary_diagnosis' => $data['preliminary_diagnosis'] ?? null,
+                'added_by'  => auth()->id(),
             ];
 
             $patient = $this->repository->create($patientData);
 
+            // 2. التاريخ الطبي
             $patient->medicalHistory()->create([
                 'has_general_diseases' => $data['has_general_diseases'],
                 'general_diseases_details' => $data['general_diseases_details'] ?? null,
@@ -44,43 +49,52 @@ class PatientService
                 'allergies_details' => $data['allergies_details'] ?? null,
             ]);
 
-            if ($diagnosisData) {
-
-                $caseType = CaseType::with('course')->findOrFail($diagnosisData['case_type_id']);
-                $course = $caseType->course;
-
-                if (! $course) {
-                    throw new \Exception('The selected case type is not linked to any valid academic course.', 422);
-                }
-
+            // 3. معالجة التشخيصات والملفات المرتبطة بها
+            if (!empty($diagnosisData['case_type_ids'])) {
                 $student = auth()->user()->studentProfile;
-                if (! $student) {
-                    throw new \Exception('Student profile not found for the authenticated user.', 404);
+                if (!$student) {
+                    throw new \Exception('Student profile not found.', 404);
                 }
 
                 $studentYear = is_object($student->academic_year) ? (int) $student->academic_year->value : (int) $student->academic_year;
                 $studentSemester = is_object($student->semester) ? (int) $student->semester->value : (int) $student->semester;
 
-                $courseYear = (int) $course->year;
-                $courseSemester = (int) $course->semester;
+                foreach ($diagnosisData['case_type_ids'] as $index => $caseTypeId) {
+                    $caseType = CaseType::with('course')->findOrFail($caseTypeId);
+                    $course = $caseType->course;
+                    
+                    $isAllowed = ($course->year < $studentYear) ||
+                        ($course->year == $studentYear && $course->semester <= $studentSemester);
 
-                if ($courseYear !== $studentYear || $courseSemester !== $studentSemester) {
-                    throw new \Exception("Unauthorized: You can only register cases for courses in your current academic standing (Year: {$studentYear}, Semester: {$studentSemester}).", 403);
+                    if (!$isAllowed) {
+                        throw new \Exception("Unauthorized: You cannot register for '{$caseType->name}' as it belongs to a future academic standing.", 403);
+                    }
+
+                    // إنشاء التشخيص
+                    $diagnosis = $patient->diagnoses()->create([
+                        'case_type_id' => $caseTypeId,
+                        'department_id' => $course->department_id,
+                        'suggested_by_student_id' => auth()->id(),
+                        'status' => DiagnosisStatus::WAITING_APPROVAL->value,
+                        'estimated_cost' => $diagnosisData['estimated_costs'][$index] ?? 0,
+                    ]);
+
+                    // رفع الصور الخاصة بهذا التشخيص فقط (داخل الـ foreach)
+                    if (isset($files['clinical_images'][$index])) {
+                        $this->mediaService->upload($diagnosis, $files['clinical_images'][$index], 'clinical_images');
+                    }
+                    if (isset($files['x_ray_images'][$index])) {
+                        $this->mediaService->upload($diagnosis, $files['x_ray_images'][$index], 'x_ray_images');
+                    }
                 }
-
-                $patient->diagnoses()->create([
-                    'case_type_id' => $diagnosisData['case_type_id'],
-                    'department_id' => $course->department_id,
-                    'suggested_by_student_id' => auth()->user()->id,
-                    'status' => DiagnosisStatus::WAITING_APPROVAL->value,
-                ]);
             }
 
-            if ($images) {
-                $this->mediaService->upload($patient, $images, 'patient_records');
+            // 4. رفع صورة الهوية (للمريض)
+            if (isset($files['id_card'])) {
+                $this->mediaService->upload($patient, $files['id_card'], 'id_cards');
             }
 
-            return $patient->load(['medicalHistory', 'diagnoses', 'media']);
+            return $patient->load(['medicalHistory', 'diagnoses.media', 'media']);
         });
     }
 
@@ -203,7 +217,7 @@ class PatientService
 
         $isAllowed = $this->repository->checkIfCaseBelongsToActiveCourse(
             $diagnosis->case_type_id,
-            auth()->user()->studentProfile->id 
+            auth()->user()->studentProfile->id
         );
 
         if (! $isAllowed) {

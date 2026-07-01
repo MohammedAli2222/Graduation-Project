@@ -17,7 +17,7 @@ class PatientTreatmentHistoryResource extends JsonResource
         return [
             'id' => $this->id,
             'status' => $this->status,
-            'start_date' => $this->start_date,
+            'start_date' => $this->start_date->format('Y-m-d H:i'),
             'end_date' => $this->end_date,
             'before_images' => $this->getMedia('before_treatment_images')->map(function ($media) {
                 return [

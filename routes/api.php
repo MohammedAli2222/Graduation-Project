@@ -152,3 +152,5 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/promotions/{promotion}', [StorePromotionController::class, 'destroy']);
     });
 });
+
+

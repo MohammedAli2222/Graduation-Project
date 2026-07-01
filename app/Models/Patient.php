@@ -18,6 +18,8 @@ class Patient extends Model implements HasMedia
     protected $fillable = [
         'patient_code',
         'full_name',
+        'birth_date',
+        'address',
         'gender',
         'phone',
         'preliminary_diagnosis',

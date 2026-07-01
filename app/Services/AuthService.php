@@ -79,6 +79,13 @@ class AuthService
             ]), 403);
         }
 
+        $role = $user->getRoleNames()->first();
+        $relation = $user->getProfileRelationName($role); 
+
+        if ($relation) {
+            $user->load($relation);
+        }
+
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return [

@@ -6,6 +6,7 @@ use App\Enums\EnrollmentStatus;
 use App\Models\CaseType;
 use App\Models\Course;
 use App\Models\StudentCourseEnrollment;
+use App\Models\StudentProfile;
 
 class StudentRepository
 {
@@ -63,20 +64,33 @@ class StudentRepository
             ->get();
     }
 
-    public function getAvailableCaseTypesForStanding(int $studentId)
+    public function getCategorizedCaseTypes(int $userId)
     {
-        $activeCourseIds = StudentCourseEnrollment::where('student_id', $studentId)
-            ->where('status', EnrollmentStatus::ACTIVE)
-            ->pluck('course_id');
+        $student = StudentProfile::where('user_id', $userId)->first();
+        if (!$student) return ['current' => collect(), 'previous' => collect()];
 
-        // 2. إذا لم يكن لديه مواد نشطة، نرجع مصفوفة فارغة
-        if ($activeCourseIds->isEmpty()) {
-            return collect();
-        }
+        $studentYear = (int) $student->academic_year;
+        $studentSemester = (int) $student->semester;
 
-        // 3. جلب الحالات التي تنتمي لهذه المواد فقط
-        return CaseType::select('id', 'name', 'course_id')
-            ->whereIn('course_id', $activeCourseIds)
+        $allEligible = CaseType::join('courses', 'case_types.course_id', '=', 'courses.id')
+            ->select('case_types.*', 'courses.year', 'courses.semester')
+            ->where(function ($query) use ($studentYear, $studentSemester) {
+                $query->where('courses.year', '<', $studentYear)
+                    ->orWhere(function ($q) use ($studentYear, $studentSemester) {
+                        $q->where('courses.year', '=', $studentYear)
+                            ->where('courses.semester', '<=', $studentSemester);
+                    });
+            })
             ->get();
+
+        // التقسيم
+        return [
+            'current' => $allEligible->filter(function ($ct) use ($studentYear, $studentSemester) {
+                return $ct->year == $studentYear && $ct->semester == $studentSemester;
+            }),
+            'previous' => $allEligible->filter(function ($ct) use ($studentYear, $studentSemester) {
+                return !($ct->year == $studentYear && $ct->semester == $studentSemester);
+            }),
+        ];
     }
 }

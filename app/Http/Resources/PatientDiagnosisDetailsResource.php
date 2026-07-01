@@ -42,13 +42,25 @@ class PatientDiagnosisDetailsResource extends JsonResource
                 'final_diagnosis' => $this->final_diagnosis,
                 'case_status' => $this->status,
             ],
-            'attachments' => ($this->patient && $this->patient->media) ? $this->patient->media->map(function ($mediaItem) {
-                return [
-                    'id' => $mediaItem->id,
-                    'url' => $mediaItem->getUrl(),
-                ];
-            }) : [],
-            'instructor_name' => trim(($this->instructor->first_name ?? 'N/A').' '.($this->instructor->last_name ?? '')),
+            'attachments' => [
+                // صور المريض (الهوية مثلاً)
+                'patient_documents' => $this->patient->getMedia('id_cards')->map(fn($m) => [
+                    'id' => $m->id,
+                    'url' => $m->getUrl(),
+                ]),
+
+                // صور التشخيص (السريرية والشعاعية) - هنا التعديل الأساسي
+                'clinical_images' => $this->getMedia('clinical_images')->map(fn($m) => [
+                    'id' => $m->id,
+                    'url' => $m->getUrl(),
+                ]),
+
+                'x_ray_images' => $this->getMedia('x_ray_images')->map(fn($m) => [
+                    'id' => $m->id,
+                    'url' => $m->getUrl(),
+                ]),
+            ],
+            'instructor_name' => trim(($this->instructor->first_name ?? 'N/A') . ' ' . ($this->instructor->last_name ?? '')),
             'created_at' => $this->created_at ? $this->created_at->format('Y-m-d H:i') : null,
         ];
     }
