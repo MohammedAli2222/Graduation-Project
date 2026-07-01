@@ -21,15 +21,12 @@ class StudentCourseService
 
     public function getCaseTypesForDropdown(StudentProfile $student)
     {
-        // $year = is_object($student->academic_year) ? (int) $student->academic_year->value : (int) $student->academic_year;
-        // $semester = is_object($student->semester) ? (int) $student->semester->value : (int) $student->semester;
 
         $cacheKey = "case_types:student_{$student->id}";
 
-        // $cacheKey = "case_types:student_{$student->id}:year_{$year}:semester_{$semester}";
 
         return Cache::remember($cacheKey, now()->addDay(), function () use ($student) {
-            return $this->studentRepo->getAvailableCaseTypesForStanding($student->id);
+            return $this->studentRepo->getCategorizedCaseTypes($student->user_id);
         });
     }
 

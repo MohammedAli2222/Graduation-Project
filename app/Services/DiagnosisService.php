@@ -67,12 +67,12 @@ class DiagnosisService
 
         DB::transaction(function () use ($diagnosis, $data, $instructorId) {
             $this->diagnosisRepo->update($diagnosis, [
-                'status' => DiagnosisStatus::RESERVED->value,
+                'status' => DiagnosisStatus::AVAILABLE->value,
                 'instructor_id' => $instructorId,
                 'final_diagnosis' => $data['final_diagnosis'],
             ]);
 
-            $this->patientRepo->updateAvailability($diagnosis->patient_id, PatientStatus::FULLY_RESERVED->value);
+            $this->patientRepo->updateAvailability($diagnosis->patient_id, PatientStatus::AVAILABLE->value);
         });
 
         return true;

@@ -24,11 +24,15 @@ return new class extends Migration
             $table->foreignId('suggested_by_student_id')->nullable()->constrained('users');
 
             $table->text('final_diagnosis')->nullable();
+            
+            $table->decimal('estimated_cost', 10, 2)->default(0);
+
 
             $table->index(['case_type_id', 'status']);
 
             $table->enum('status', array_column(DiagnosisStatus::cases(), 'value'))
                 ->default(DiagnosisStatus::AVAILABLE->value);
+
 
             $table->text('rejection_reason')->nullable();
             $table->timestamps();

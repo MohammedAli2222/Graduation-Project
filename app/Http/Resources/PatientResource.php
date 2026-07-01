@@ -15,14 +15,21 @@ class PatientResource extends JsonResource
     public function toArray(Request $request): array
     {
         return [
-
             'patient_id' => $this->id,
             'patient_code' => $this->patient_code,
             'full_name' => $this->full_name,
             'gender' => $this->gender,
             'phone' => $this->phone,
+            'birth_date' => $this->birth_date,
+            'address' => $this->address,
             'preliminary_diagnosis' => $this->preliminary_diagnosis,
             'status' => $this->availability_status,
+
+            // صورة الهوية (مربوطة بالمريض - صورة واحدة)
+            'id_card' => $this->getMedia('id_cards')->map(fn($media) => [
+                'id' => $media->id,
+                'url' => $media->getFullUrl(),
+            ])->first(),
 
             'medical_history' => $this->whenLoaded('medicalHistory', function () {
                 return [
@@ -57,26 +64,29 @@ class PatientResource extends JsonResource
                             'id' => $diagnosis->department_id,
                             'name' => $diagnosis->department ? $diagnosis->department->name : null,
                         ],
-
                         'suggested_by_student' => [
                             'id' => $diagnosis->suggested_by_student_id,
-                            'full_name' => $diagnosis->student ? ($diagnosis->student->first_name).' '.($diagnosis->student->last_name) : null,
+                            'full_name' => $diagnosis->student ? ($diagnosis->student->first_name) . ' ' . ($diagnosis->student->last_name) : null,
                         ],
-
                         'final_diagnosis' => $diagnosis->final_diagnosis,
                         'approval_status' => $diagnosis->status,
                         'rejection_reason' => $diagnosis->rejection_reason,
+                        'estimated_cost' => (float) $diagnosis->estimated_cost,
                         'created_at' => $diagnosis->created_at ? $diagnosis->created_at->format('Y-m-d H:i') : null,
+
+                        // الصور المرتبطة بكل تشخيص
+                        'media' => [
+                            'clinical_images' => $diagnosis->getMedia('clinical_images')->map(fn($media) => [
+                                'id' => $media->id,
+                                'url' => $media->getFullUrl(),
+                            ]),
+                            'x_ray_images' => $diagnosis->getMedia('x_ray_images')->map(fn($media) => [
+                                'id' => $media->id,
+                                'url' => $media->getFullUrl(),
+                            ]),
+                        ],
                     ];
                 });
-            }),
-
-            'images' => $this->media->map(function ($media) {
-                return [
-                    'id' => $media->id,
-                    'url' => $media->getFullUrl(),
-                    'type' => $media->mime_type,
-                ];
             }),
 
             'created_at' => $this->created_at->format('Y-m-d H:i'),

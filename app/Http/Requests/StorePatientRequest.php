@@ -27,6 +27,8 @@ class StorePatientRequest extends FormRequest
             'gender' => 'required|in:male,female',
             'phone' => 'required|string|unique:patients,phone',
             'preliminary_diagnosis' => 'nullable|string|max:1000',
+            'birth_date' => 'required|date',
+            'address' => 'required|string|max:255',
 
             'has_general_diseases' => 'required|boolean',
             'general_diseases_details' => 'nullable|required_if:has_general_diseases,true|string',
@@ -37,8 +39,18 @@ class StorePatientRequest extends FormRequest
             'has_allergies' => 'required|boolean',
             'allergies_details' => 'nullable|required_if:has_allergies,true|string',
 
-            'images' => 'required|array',
-            'images.*' => 'image|mimes:jpeg,png,jpg|max:5120',
+
+            'id_card' => ['required', 'image', 'mimes:jpeg,png,jpg', 'max:5120'],
+
+            'clinical_images' => 'nullable|array',
+            'clinical_images.*' => 'nullable|array',
+            'clinical_images.*.*' => 'image|mimes:jpeg,png,jpg|max:5120',
+
+            'x_ray_images' => 'nullable|array',
+            'x_ray_images.*' => 'nullable|array',
+            'x_ray_images.*.*' => 'image|mimes:jpeg,png,jpg|max:5120',
+
+            
         ];
     }
 }

@@ -87,3 +87,5 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('treatments/review', [InstructorController::class, 'reviewTreatment']);
     });
 });
+
+

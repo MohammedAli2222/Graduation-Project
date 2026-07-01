@@ -30,7 +30,11 @@ class StudentStorePatientRequest extends StorePatientRequest
 
         $rules['preliminary_diagnosis'] = 'required|string|max:1000';
 
-        $rules['case_type_id'] = 'required|exists:case_types,id';
+        $rules['case_type_ids'] = 'required|array|min:1';
+        $rules['case_type_ids.*'] = 'required|exists:case_types,id';
+
+        $rules['estimated_costs'] = 'required|array|min:1';
+        $rules['estimated_costs.*'] = 'required|numeric|min:0';
 
         return $rules;
     }
@@ -48,6 +52,15 @@ class StudentStorePatientRequest extends StorePatientRequest
                 $validator->errors()->add(
                     'pending_limit',
                     'Sorry Doctor, you cannot submit a new case at this time. You already have a pending patient request awaiting review by the instructor.'
+                );
+            }
+
+            $caseTypeIds = $this->input('case_type_ids');
+
+            if (is_array($caseTypeIds) && count($caseTypeIds) > 5) {
+                $validator->errors()->add(
+                    'limit',
+                    'You cannot submit more than 5 cases at once.'
                 );
             }
         });

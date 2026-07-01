@@ -5,10 +5,13 @@ namespace App\Models;
 use App\Enums\DiagnosisStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Spatie\MediaLibrary\HasMedia;
+use Spatie\MediaLibrary\InteractsWithMedia;
 
-class PatientDiagnose extends Model
+
+class PatientDiagnose extends Model implements HasMedia
 {
-    use HasFactory;
+    use HasFactory, InteractsWithMedia;
 
     protected $table = 'patient_diagnoses';
 
@@ -20,6 +23,7 @@ class PatientDiagnose extends Model
         'suggested_by_student_id',
         'final_diagnosis',
         'status',
+        'estimated_cost',
         'rejection_reason',
     ];
 
@@ -60,5 +64,11 @@ class PatientDiagnose extends Model
     public function appointments()
     {
         return $this->hasMany(Appointment::class, 'diagnosis_id');
+    }
+
+    public function registerMediaCollections(): void
+    {
+        $this->addMediaCollection('clinical_images');
+        $this->addMediaCollection('x_ray_images');
     }
 }

@@ -79,14 +79,5 @@ class UserResource extends JsonResource
         ];
     }
 
-    protected function getProfileRelationName($role)
-    {
-        return match ($role) {
-            'student' => 'studentProfile',
-            'instructor' => 'instructorProfile',
-            'department_head' => 'departmentHeadProfile',
-            'store_owner' => 'storeProfile',
-            default => null,
-        };
-    }
+
 }
