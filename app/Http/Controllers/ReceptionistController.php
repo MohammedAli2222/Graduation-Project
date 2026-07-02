@@ -25,9 +25,15 @@ class ReceptionistController extends Controller
 
             $validatedData = $request->validated();
 
+            $files = [
+                'id_card'         => $request->file('id_card'),
+                'clinical_images' => $request->file('clinical_images'),
+                'x_ray_images'    => $request->file('x_ray_images'),
+            ];
+
             $patient = $this->patientService->registerPatient(
                 $validatedData,
-                $request->file('images')
+                $files
             );
 
             $patient->load(['medicalHistory', 'media']);
@@ -37,7 +43,7 @@ class ReceptionistController extends Controller
             return response_error(
                 null,
                 500,
-                'Something went wrong: '.$e->getMessage()
+                'Something went wrong: ' . $e->getMessage()
             );
         }
     }
@@ -104,7 +110,7 @@ class ReceptionistController extends Controller
         } catch (ModelNotFoundException $e) {
             return response_error(null, 404, 'patient id not found');
         } catch (\Exception $e) {
-            return response_error(null, 500, 'Update failed: '.$e->getMessage());
+            return response_error(null, 500, 'Update failed: ' . $e->getMessage());
         }
     }
 

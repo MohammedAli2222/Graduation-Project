@@ -12,6 +12,7 @@ class CaseType extends Model
     protected $fillable = [
         'name',
         'course_id',
+        'slots_needed',
         'required_count',
     ];
 

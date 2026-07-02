@@ -101,12 +101,13 @@ class PatientRepository
             'department_id',
             'instructor_id',
             'status',
+            'estimated_cost',
             'final_diagnosis',
             'created_at'
         )
             ->with([
                 'patient' => function ($query) {
-                    $query->select('id', 'full_name', 'phone', 'gender');
+                    $query->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address');
                 },
                 'caseType' => function ($query) {
                     $query->select('id', 'name');
@@ -133,18 +134,7 @@ class PatientRepository
                 $query->where('id', $caseTypeId);
             })
             ->exists();
-
-
     }
-    // public function checkCaseBelongsToYearAndSemester(int $caseTypeId, int $year, int $semester): bool
-    // {
-    //     return Course::whereHas('caseTypes', function ($query) use ($caseTypeId) {
-    //         $query->where('id', $caseTypeId);
-    //     })
-    //         ->where('year', $year)
-    //         ->where('semester', $semester)
-    //         ->exists();
-    // }
 
     public function getDiagnosisDetailsWithPatientMedia(int $id)
     {
@@ -155,12 +145,13 @@ class PatientRepository
             'department_id',
             'instructor_id',
             'status',
+            'estimated_cost',
             'final_diagnosis',
             'created_at'
         )
             ->with([
                 'patient' => function ($query) {
-                    $query->select('id', 'full_name', 'phone', 'gender');
+                    $query->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address');
                 },
                 'patient.media',
                 'patient.medicalHistory',
@@ -177,5 +168,20 @@ class PatientRepository
             ])
             ->where('status', DiagnosisStatus::AVAILABLE->value)
             ->findOrFail($id);
+    }
+
+    public function getAvailableDiagnosesForPatient(int $patientId, int $studentId)
+    {
+        $activeCourseIds = StudentCourseEnrollment::where('student_id', $studentId)
+            ->where('status', EnrollmentStatus::ACTIVE)
+            ->pluck('course_id');
+
+        return PatientDiagnose::where('patient_id', $patientId)
+            ->whereHas('caseType', function ($query) use ($activeCourseIds) {
+                $query->whereIn('course_id', $activeCourseIds);
+            })
+            ->with(['caseType', 'department', 'instructor'])
+            ->latest()
+            ->get();
     }
 }

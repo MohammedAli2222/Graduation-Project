@@ -7,9 +7,11 @@ use App\Enums\DiagnosisStatus;
 use App\Enums\TreatmentStatus;
 use App\Exceptions\AppointmentAlreadyAttendedException;
 use App\Exceptions\UnauthorizedTreatmentException;
+use App\Models\Appointment;
 use App\Repositories\AppointmentRepository;
 use App\Repositories\TreatmentRepository;
 use App\Services\MediaService;
+use Carbon\Carbon;
 use Exception;
 use Illuminate\Support\Facades\DB;
 
@@ -108,9 +110,12 @@ class StartTreatmentAction
             $treatmentId
         );
 
-        $appointment->update([
-            'status' => AppointmentStatus::ATTENDED->value,
-        ]);
+        Appointment::where('diagnosis_id', $appointment->diagnosis_id)
+            ->where('appointment_date', $appointment->appointment_date)
+            ->update([
+                'status' => AppointmentStatus::ATTENDED->value,
+                'treatment_id' => $treatmentId 
+            ]);
 
         $appointment->diagnosis()->update([
             'status' => DiagnosisStatus::CONVERTED_TO_TREATMENT->value,
@@ -137,9 +142,8 @@ class StartTreatmentAction
 
     private function validateTimeSlot($appointment): void
     {
-        $now = now();
-        $appointmentDate = \Carbon\Carbon::parse($appointment->appointment_date);
-
+        $now = Carbon::now('Asia/Damascus');
+        $appointmentDate = Carbon::parse($appointment->appointment_date, 'Asia/Damascus');
         // 1. التحقق من التاريخ
         if (!$now->isSameDay($appointmentDate)) {
             throw new \Exception('Treatment can only be started on the scheduled date: ' . $appointmentDate->format('Y-m-d'));

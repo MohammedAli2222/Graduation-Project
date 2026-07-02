@@ -110,4 +110,45 @@ class AppointmentRepository
             })
             ->exists();
     }
+
+    public function getStudentAppointments(int $studentId)
+    {
+        $today = Carbon::now('Asia/Damascus')->format('Y-m-d');
+
+        return Appointment::where('student_id', $studentId)
+            ->where('status', AppointmentStatus::SCHEDULED->value)
+            ->where('appointment_date', '>=', $today)
+            ->with([
+                'diagnosis.caseType:id,name',
+                'diagnosis.patient:id,full_name,phone',
+                'diagnosis.department:id,name'
+            ])
+            ->orderBy('appointment_date', 'asc')
+            ->orderBy('slot_number', 'asc')
+            ->paginate(10);
+    }
+
+    public function getStudentAppointmentHistory(int $studentId)
+    {
+        // نحدد التاريخ الحالي بتوقيت دمشق
+        $today = Carbon::now('Asia/Damascus')->format('Y-m-d');
+
+        return Appointment::where('student_id', $studentId)
+            ->where(function ($query) use ($studentId, $today) {
+                // الحالة 1: المواعيد التي انتهت فعلياً (حضور أو إلغاء)
+                $query->whereNotIn('status', [AppointmentStatus::SCHEDULED->value])
+                    ->orWhere(function ($q) use ($studentId, $today) {
+                        $q->where('student_id', $studentId)
+                            ->where('status', AppointmentStatus::SCHEDULED->value)
+                            ->where('appointment_date', '<', $today); 
+                    });
+            })
+            ->with([
+                'diagnosis.caseType:id,name',
+                'diagnosis.patient:id,full_name,phone',
+                'diagnosis.department:id,name'
+            ])
+            ->orderBy('appointment_date', 'desc')
+            ->paginate(10);
+    }
 }

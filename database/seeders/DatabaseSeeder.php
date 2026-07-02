@@ -21,10 +21,6 @@ class DatabaseSeeder extends Seeder
 
         $this->call([
             RoleSeeder::class,
-            GroupSeeder::class,
-            RolesAndPermissionsSeeder::class,
-            DepartmentAndCourseSeeder::class,
-            CaseTypeSeeder::class,
         ]);
 
         $receptionist = User::create([
@@ -36,5 +32,14 @@ class DatabaseSeeder extends Seeder
         ]);
 
         $receptionist->assignRole('receptionist');
+
+        $this->call([
+            GroupSeeder::class,
+            RolesAndPermissionsSeeder::class,
+            DepartmentAndCourseSeeder::class,
+            CaseTypeSeeder::class,
+            UserSeeder::class,
+            PatientSeeder::class,
+        ]);
     }
 }

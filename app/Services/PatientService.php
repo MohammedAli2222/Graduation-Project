@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\DiagnosisStatus;
 use App\Enums\PatientStatus;
 use App\Models\CaseType;
+use App\Models\Patient;
 use App\Repositories\PatientRepository;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -24,62 +25,79 @@ class PatientService
     public function registerPatient(array $data, array $files = [], array $diagnosisData = null)
     {
         return DB::transaction(function () use ($data, $files, $diagnosisData) {
-            // 1. إنشاء المريض
+
+            // 1. إنشاء المريض الأساسي
             $patientData = [
-                'full_name' => $data['full_name'],
-                'gender'    => $data['gender'],
-                'phone'     => $data['phone'],
-                'birth_date' => $data['birth_date'],
-                'address'   => $data['address'],
+                'full_name'    => $data['full_name'],
+                'gender'       => $data['gender'],
+                'phone'        => $data['phone'],
+                'birth_date'   => $data['birth_date'],
+                'address'      => $data['address'],
                 'preliminary_diagnosis' => $data['preliminary_diagnosis'] ?? null,
-                'added_by'  => auth()->id(),
+                'added_by'     => auth()->id(),
+                'availability_status' => PatientStatus::WAITING_DIAGNOSIS->value,
             ];
 
             $patient = $this->repository->create($patientData);
 
-            // 2. التاريخ الطبي
+            // 2. إنشاء التاريخ الطبي المرتبط بالمريض
             $patient->medicalHistory()->create([
-                'has_general_diseases' => $data['has_general_diseases'],
+                'has_general_diseases'     => $data['has_general_diseases'],
                 'general_diseases_details' => $data['general_diseases_details'] ?? null,
-                'is_special_needs' => $data['is_special_needs'],
-                'special_needs_details' => $data['special_needs_details'] ?? null,
-                'takes_medications' => $data['takes_medications'],
-                'medications_details' => $data['medications_details'] ?? null,
-                'has_allergies' => $data['has_allergies'],
-                'allergies_details' => $data['allergies_details'] ?? null,
+                'is_special_needs'         => $data['is_special_needs'],
+                'special_needs_details'    => $data['special_needs_details'] ?? null,
+                'takes_medications'        => $data['takes_medications'],
+                'medications_details'      => $data['medications_details'] ?? null,
+                'has_allergies'            => $data['has_allergies'],
+                'allergies_details'        => $data['allergies_details'] ?? null,
             ]);
 
-            // 3. معالجة التشخيصات والملفات المرتبطة بها
-            if (!empty($diagnosisData['case_type_ids'])) {
-                $student = auth()->user()->studentProfile;
-                if (!$student) {
-                    throw new \Exception('Student profile not found.', 404);
-                }
+            // 3. رفع صورة الهوية (مشتركة للجميع)
+            if (isset($files['id_card'])) {
+                $this->mediaService->upload($patient, $files['id_card'], 'id_cards');
+            }
 
-                $studentYear = is_object($student->academic_year) ? (int) $student->academic_year->value : (int) $student->academic_year;
-                $studentSemester = is_object($student->semester) ? (int) $student->semester->value : (int) $student->semester;
+            // 4. منطق معالجة الصور حسب الدور
+            $user = auth()->user();
+
+            if ($user->hasRole('receptionist')) {
+                // استقبال: الصور ترفع مباشرة على المريض
+                if (isset($files['clinical_images'])) {
+                    foreach ($files['clinical_images'] as $image) {
+                        $this->mediaService->upload($patient, $image, 'clinical_images');
+                    }
+                }
+                if (isset($files['x_ray_images'])) {
+                    foreach ($files['x_ray_images'] as $image) {
+                        $this->mediaService->upload($patient, $image, 'x_ray_images');
+                    }
+                }
+            } elseif ($user->hasRole('student') && !empty($diagnosisData['case_type_ids'])) {
+                // طالب: الصور ترفع لكل تشخيص على حدة
+                $student = $user->studentProfile;
 
                 foreach ($diagnosisData['case_type_ids'] as $index => $caseTypeId) {
                     $caseType = CaseType::with('course')->findOrFail($caseTypeId);
                     $course = $caseType->course;
-                    
-                    $isAllowed = ($course->year < $studentYear) ||
-                        ($course->year == $studentYear && $course->semester <= $studentSemester);
+
+                    // التحقق من الصلاحية الأكاديمية
+                    $studentYear = (int) $student->academic_year;
+                    $studentSemester = (int) $student->semester;
+                    $isAllowed = ($course->year < $studentYear) || ($course->year == $studentYear && $course->semester <= $studentSemester);
 
                     if (!$isAllowed) {
-                        throw new \Exception("Unauthorized: You cannot register for '{$caseType->name}' as it belongs to a future academic standing.", 403);
+                        throw new \Exception("Unauthorized: Cannot register for '{$caseType->name}'.", 403);
                     }
 
-                    // إنشاء التشخيص
                     $diagnosis = $patient->diagnoses()->create([
                         'case_type_id' => $caseTypeId,
                         'department_id' => $course->department_id,
-                        'suggested_by_student_id' => auth()->id(),
+                        'suggested_by_student_id' => $user->id,
                         'status' => DiagnosisStatus::WAITING_APPROVAL->value,
                         'estimated_cost' => $diagnosisData['estimated_costs'][$index] ?? 0,
                     ]);
 
-                    // رفع الصور الخاصة بهذا التشخيص فقط (داخل الـ foreach)
+                    // رفع الصور للتشخيص الخاص بالطالب
                     if (isset($files['clinical_images'][$index])) {
                         $this->mediaService->upload($diagnosis, $files['clinical_images'][$index], 'clinical_images');
                     }
@@ -87,11 +105,6 @@ class PatientService
                         $this->mediaService->upload($diagnosis, $files['x_ray_images'][$index], 'x_ray_images');
                     }
                 }
-            }
-
-            // 4. رفع صورة الهوية (للمريض)
-            if (isset($files['id_card'])) {
-                $this->mediaService->upload($patient, $files['id_card'], 'id_cards');
             }
 
             return $patient->load(['medicalHistory', 'diagnoses.media', 'media']);
@@ -227,5 +240,14 @@ class PatientService
         }
 
         return $diagnosis;
+    }
+
+    public function getPatientDiagnoses(int $patientId ,$studentId)
+    {
+        if (!Patient::where('id', $patientId)->exists()) {
+            throw new \Exception('Patient not found.', 404);
+        }
+
+        return $this->repository->getAvailableDiagnosesForPatient($patientId ,$studentId);
     }
 }
