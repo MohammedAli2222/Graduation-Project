@@ -122,4 +122,6 @@ class DiagnosisService
             throw new Exception('You are not authorized to process this diagnosis because the student is outside your assigned groups.', 403);
         }
     }
+
+
 }

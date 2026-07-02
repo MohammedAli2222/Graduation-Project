@@ -48,7 +48,7 @@ class Patient extends Model implements HasMedia
     {
         static::creating(function ($patient) {
 
-            $patient->patient_code = date('Y').'-'.Str::upper(Str::random(4));
+            $patient->patient_code = date('Y') . '-' . Str::upper(Str::random(4));
 
             $patient->availability_status = PatientStatus::WAITING_DIAGNOSIS;
 
@@ -63,5 +63,12 @@ class Patient extends Model implements HasMedia
         $this->addMediaConversion('thumb')
             ->width(100)
             ->queued();
+    }
+
+    public function registerMediaCollections(): void
+    {
+        $this->addMediaCollection('id_cards');
+        $this->addMediaCollection('clinical_images'); 
+        $this->addMediaCollection('x_ray_images');
     }
 }

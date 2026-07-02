@@ -162,8 +162,32 @@ class StudentController extends Controller
                 ? $e->getCode()
                 : 500;
 
-            // بدلاً من $e->getMessage() التي قد تكون كارثية، استخدم رسالة ثابتة
             return response_error(null, $statusCode, 'An internal server error occurred.');
+        }
+    }
+
+
+    public function getPatientDiagnoses(int $patientId)
+    {
+        try {
+            $studentId = auth()->user()->studentProfile->id;
+            $diagnoses = $this->patientService->getPatientDiagnoses($patientId, $studentId);
+
+            return response_success(
+                PatientDiagnosisResource::collection($diagnoses),
+                200,
+                'Patient diagnoses retrieved successfully.'
+            );
+        } catch (\Exception $e) {
+            // تأكد أن الكود رقم (Integer)
+            $statusCode = (int)$e->getCode();
+
+            // تصحيح: إذا كان الكود غير صالح (أقل من 100 أو أكبر من 599)، اجعله 500
+            if ($statusCode < 100 || $statusCode > 599) {
+                $statusCode = 500;
+            }
+
+            return response_error(null, $statusCode, $e->getMessage());
         }
     }
 }

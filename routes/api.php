@@ -85,9 +85,14 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/patients/store', [StudentController::class, 'store']);
             Route::post('appointments/book', [AppointmentController::class, 'bookCase']);
 
+            Route::get('/appointments', [AppointmentController::class, 'getMyAppointments']);
+            Route::get('/appointments/history', [AppointmentController::class, 'getAppointmentHistory']);
+
             Route::post('/treatments/start', [TreatmentController::class, 'startTreatment']);
             Route::post('/treatments/follow-up', [TreatmentController::class, 'bookFollowUp']);
             Route::post('/treatments/complete', [TreatmentController::class, 'completeTreatment']);
+
+            Route::get('/patients/{patientId}/diagnoses', [StudentController::class, 'getPatientDiagnoses']);
 
             Route::get('/patients/{patient_id}/treatments/history', [TreatmentController::class, 'getPatientTreatmentHistory']);
 
@@ -97,7 +102,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::get('/dashboard/progress', [TreatmentController::class, 'getProgressStats']);
             Route::get('/dashboard/cases', [TreatmentController::class, 'getCasesList']);
-
         });
     });
 
@@ -152,5 +156,3 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/promotions/{promotion}', [StorePromotionController::class, 'destroy']);
     });
 });
-
-

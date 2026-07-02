@@ -7,11 +7,6 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class PatientResource extends JsonResource
 {
-    /**
-     * Transform the resource into an array.
-     *
-     * @return array<string, mixed>
-     */
     public function toArray(Request $request): array
     {
         return [
@@ -25,30 +20,35 @@ class PatientResource extends JsonResource
             'preliminary_diagnosis' => $this->preliminary_diagnosis,
             'status' => $this->availability_status,
 
-            // صورة الهوية (مربوطة بالمريض - صورة واحدة)
-            'id_card' => $this->getMedia('id_cards')->map(fn($media) => [
-                'id' => $media->id,
-                'url' => $media->getFullUrl(),
-            ])->first(),
+            // حل مشكلة id_card: نستخدم whenLoaded للتأكد من جلب الميديا مسبقاً
+            'id_card' => $this->whenLoaded('media', function () {
+                return $this->getMedia('id_cards')->map(fn($media) => [
+                    'id' => $media->id,
+                    'url' => $media->getFullUrl(),
+                ])->first();
+            }),
+
+            // منع التكرار: الصور العامة تظهر فقط إذا لم يكن للمريض تشخيصات (سياق موظف الاستقبال)
+            'clinical_images' => $this->when(!($this->relationLoaded('diagnoses') && $this->diagnoses->isNotEmpty()), function () {
+                return $this->getMedia('clinical_images')->map(fn($media) => [
+                    'id' => $media->id,
+                    'url' => $media->getFullUrl(),
+                ]);
+            }),
+
+            'x_ray_images' => $this->when(!($this->relationLoaded('diagnoses') && $this->diagnoses->isNotEmpty()), function () {
+                return $this->getMedia('x_ray_images')->map(fn($media) => [
+                    'id' => $media->id,
+                    'url' => $media->getFullUrl(),
+                ]);
+            }),
 
             'medical_history' => $this->whenLoaded('medicalHistory', function () {
                 return [
-                    'general_diseases' => [
-                        'has' => (bool) $this->medicalHistory->has_general_diseases,
-                        'details' => $this->medicalHistory->general_diseases_details,
-                    ],
-                    'special_needs' => [
-                        'has' => (bool) $this->medicalHistory->is_special_needs,
-                        'details' => $this->medicalHistory->special_needs_details,
-                    ],
-                    'medications' => [
-                        'has' => (bool) $this->medicalHistory->takes_medications,
-                        'details' => $this->medicalHistory->medications_details,
-                    ],
-                    'allergies' => [
-                        'has' => (bool) $this->medicalHistory->has_allergies,
-                        'details' => $this->medicalHistory->allergies_details,
-                    ],
+                    'general_diseases' => ['has' => (bool) $this->medicalHistory->has_general_diseases, 'details' => $this->medicalHistory->general_diseases_details],
+                    'special_needs' => ['has' => (bool) $this->medicalHistory->is_special_needs, 'details' => $this->medicalHistory->special_needs_details],
+                    'medications' => ['has' => (bool) $this->medicalHistory->takes_medications, 'details' => $this->medicalHistory->medications_details],
+                    'allergies' => ['has' => (bool) $this->medicalHistory->has_allergies, 'details' => $this->medicalHistory->allergies_details],
                 ];
             }),
 
@@ -56,25 +56,12 @@ class PatientResource extends JsonResource
                 return $this->diagnoses->map(function ($diagnosis) {
                     return [
                         'diagnosis_id' => $diagnosis->id,
-                        'case_type' => [
-                            'id' => $diagnosis->case_type_id,
-                            'name' => $diagnosis->caseType ? $diagnosis->caseType->name : null,
-                        ],
-                        'department' => [
-                            'id' => $diagnosis->department_id,
-                            'name' => $diagnosis->department ? $diagnosis->department->name : null,
-                        ],
-                        'suggested_by_student' => [
-                            'id' => $diagnosis->suggested_by_student_id,
-                            'full_name' => $diagnosis->student ? ($diagnosis->student->first_name) . ' ' . ($diagnosis->student->last_name) : null,
-                        ],
+                        'case_type' => ['id' => $diagnosis->case_type_id, 'name' => $diagnosis->caseType?->name],
+                        'department' => ['id' => $diagnosis->department_id, 'name' => $diagnosis->department?->name],
+                        'status' => $diagnosis->status,
                         'final_diagnosis' => $diagnosis->final_diagnosis,
-                        'approval_status' => $diagnosis->status,
-                        'rejection_reason' => $diagnosis->rejection_reason,
                         'estimated_cost' => (float) $diagnosis->estimated_cost,
-                        'created_at' => $diagnosis->created_at ? $diagnosis->created_at->format('Y-m-d H:i') : null,
 
-                        // الصور المرتبطة بكل تشخيص
                         'media' => [
                             'clinical_images' => $diagnosis->getMedia('clinical_images')->map(fn($media) => [
                                 'id' => $media->id,
@@ -89,7 +76,10 @@ class PatientResource extends JsonResource
                 });
             }),
 
-            'created_at' => $this->created_at->format('Y-m-d H:i'),
+            'created_at' => $this->created_at?->format('Y-m-d H:i'),
         ];
     }
+
+
+  
 }

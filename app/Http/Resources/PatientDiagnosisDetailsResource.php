@@ -21,6 +21,8 @@ class PatientDiagnosisDetailsResource extends JsonResource
                 'name' => $this->patient->full_name ?? 'N/A',
                 'gender' => $this->patient->gender ?? 'N/A',
                 'phone' => $this->patient->phone ?? 'N/A',
+                'birth_date' => $this->patient->birth_date ?? 'N/A',
+                'address' => $this->patient->address ?? 'N/A',
             ],
             'medical_history' => $this->patient->medicalHistory ? [
                 'has_general_diseases' => (bool) $this->patient->medicalHistory->has_general_diseases,
@@ -41,6 +43,8 @@ class PatientDiagnosisDetailsResource extends JsonResource
                 'department' => $this->department->name ?? 'N/A',
                 'final_diagnosis' => $this->final_diagnosis,
                 'case_status' => $this->status,
+                'estimated_cost' => $this->estimated_cost
+
             ],
             'attachments' => [
                 // صور المريض (الهوية مثلاً)

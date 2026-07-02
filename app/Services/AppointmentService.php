@@ -136,7 +136,7 @@ class AppointmentService
                 $diagnosis->update(['status' => DiagnosisStatus::RESERVED->value]);
 
                 $this->updatePatientStatusIfAllDiagnosesReserved($diagnosis->patient_id);
-                
+
                 return $createdAppointments;
             });
         } catch (LockTimeoutException $e) {
@@ -148,6 +148,16 @@ class AppointmentService
         }
     }
 
+    public function getStudentAppointments(int $studentId)
+    {
+        return $this->appointmentRepo->getStudentAppointments($studentId);
+    }
+
+    public function getStudentAppointmentHistory(int $studentId)
+    {
+        return $this->appointmentRepo->getStudentAppointmentHistory($studentId);
+    }
+
     public function updatePatientStatusIfAllDiagnosesReserved(int $patientId)
     {
         $hasAvailableDiagnoses = PatientDiagnose::where('patient_id', $patientId)
@@ -156,7 +166,7 @@ class AppointmentService
 
         if (!$hasAvailableDiagnoses) {
             Patient::where('id', $patientId)
-                ->update(['status' => PatientStatus::FULLY_RESERVED->value]);
+                ->update(['availability_status' => PatientStatus::FULLY_RESERVED->value]);
         }
     }
 }

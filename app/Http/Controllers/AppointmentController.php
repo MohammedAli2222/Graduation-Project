@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreAppointmentRequest;
 use App\Http\Resources\AppointmentResource;
+use App\Models\Appointment;
 use App\Services\AppointmentService;
 use App\Services\TreatmentService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class AppointmentController extends Controller
@@ -43,7 +45,7 @@ class AppointmentController extends Controller
             );
         } catch (\Exception $e) {
             return response_error(
-                null,
+                ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()],
                 500,
                 'An unexpected error occurred during the booking process.'
             );
@@ -60,6 +62,52 @@ class AppointmentController extends Controller
             return response_error(null, 404, $e->getMessage());
         } catch (\Exception $e) {
             return response_error(null, 400, $e->getMessage());
+        }
+    }
+
+    public function getMyAppointments()
+    {
+
+        try {
+            $studentId = auth()->id();
+            $appointments = $this->appointmentService->getStudentAppointments($studentId);
+
+            return response_success(
+                [
+                    'data' => AppointmentResource::collection($appointments),
+                    'pagination' => [
+                        'total' => $appointments->total(),
+                        'current_page' => $appointments->currentPage(),
+                        'last_page' => $appointments->lastPage(),
+                    ],
+                ],
+                200,
+                'Appointments retrieved successfully.'
+            );
+        } catch (\Exception $e) {
+            return response_error(null, 500, 'Error retrieving appointments: ' . $e->getMessage());
+        }
+    }
+
+    public function getAppointmentHistory()
+    {
+        try {
+            $studentId = auth()->id();
+            $history = $this->appointmentService->getStudentAppointmentHistory($studentId);
+
+            return response_success(
+                [
+                    'data' => AppointmentResource::collection($history),
+                    'pagination' => [
+                        'total' => $history->total(),
+                        'current_page' => $history->currentPage(),
+                    ],
+                ],
+                200,
+                'Appointment history retrieved successfully.'
+            );
+        } catch (\Exception $e) {
+            return response_error(null, 500, 'Error retrieving history: ' . $e->getMessage());
         }
     }
 }

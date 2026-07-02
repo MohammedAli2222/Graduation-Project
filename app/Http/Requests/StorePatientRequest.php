@@ -42,15 +42,15 @@ class StorePatientRequest extends FormRequest
 
             'id_card' => ['required', 'image', 'mimes:jpeg,png,jpg', 'max:5120'],
 
-            'clinical_images' => 'nullable|array',
-            'clinical_images.*' => 'nullable|array',
+            'clinical_images' => 'required|array',
+            'clinical_images.*' => 'nullable',
             'clinical_images.*.*' => 'image|mimes:jpeg,png,jpg|max:5120',
 
-            'x_ray_images' => 'nullable|array',
-            'x_ray_images.*' => 'nullable|array',
+            'x_ray_images' => 'required|array',
+            'x_ray_images.*' => 'nullable',
             'x_ray_images.*.*' => 'image|mimes:jpeg,png,jpg|max:5120',
 
-            
+
         ];
     }
 }
