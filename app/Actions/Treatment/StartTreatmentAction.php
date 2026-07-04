@@ -132,9 +132,9 @@ class StartTreatmentAction
         $startTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->start_slot]['start'], 'Asia/Damascus');
         $endTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->end_slot]['end'], 'Asia/Damascus');
 
-        // السماح بالبدء من بداية أول سلوت وحتى نهاية آخر سلوت
-        if ($now->lessThan($startTime) || $now->greaterThan($endTime)) {
-            throw new Exception("Treatment can only be started between {$slotTimes[$appointment->start_slot]['start']} and {$slotTimes[$appointment->end_slot]['end']}.");
-        }
+        // // السماح بالبدء من بداية أول سلوت وحتى نهاية آخر سلوت
+        // if ($now->lessThan($startTime) || $now->greaterThan($endTime)) {
+        //     throw new Exception("Treatment can only be started between {$slotTimes[$appointment->start_slot]['start']} and {$slotTimes[$appointment->end_slot]['end']}.");
+        // }
     }
 }

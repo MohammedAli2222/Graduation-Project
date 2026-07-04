@@ -20,10 +20,6 @@ return new class extends Migration
             $table->enum('status', array_column(TreatmentStatus::cases(), 'value'))
                 ->default(TreatmentStatus::IN_PROGRESS->value);
 
-            $table->enum('status', array_column(TreatmentStatus
-                ::cases(), 'value'))
-                ->default(TreatmentStatus::IN_PROGRESS->value);
-
             $table->text('rejection_reason')->nullable();
 
             $table->timestamp('start_date')->useCurrent();
