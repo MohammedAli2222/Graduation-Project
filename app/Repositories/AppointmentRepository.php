@@ -60,7 +60,7 @@ class AppointmentRepository
             ->count();
     }
 
-    
+
 
     public function hasAppointmentWithPatient(int $studentId, int $patientId): bool
     {
@@ -83,8 +83,8 @@ class AppointmentRepository
                 'diagnosis.patient:id,full_name,phone',
                 'diagnosis.department:id,name'
             ])
-            ->orderBy('appointment_date', 'asc')
-            ->orderBy('slot_number', 'asc')
+            ->orderBy('appointment_date', 'asc') // ترتيب حسب التاريخ
+            ->orderBy('start_slot', 'asc')       // ترتيب حسب السلوت الأول
             ->paginate(10);
     }
 
