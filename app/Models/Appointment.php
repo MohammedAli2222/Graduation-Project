@@ -12,7 +12,9 @@ class Appointment extends Model
         'student_id',
         'diagnosis_id',
         'treatment_id',
-        'slot_number',
+        'start_slot',
+        'end_slot',
+        'slots_count',
         'appointment_date',
         'status',
     ];
@@ -44,12 +46,29 @@ class Appointment extends Model
 
     public function getSlotTimeRange(): string
     {
-        return match ((int) $this->slot_number) {
+        // تعريف الأوقات لكل سلوت
+        $slotDefinitions = [
             1 => '08:00 AM - 10:00 AM',
             2 => '10:30 AM - 12:30 PM',
             3 => '01:00 PM - 03:00 PM',
             4 => '03:30 PM - 05:30 PM',
-            default => 'Unknown Slot',
-        };
+        ];
+
+        $ranges = [];
+
+        // نقوم بالدوران من بداية السلوت إلى نهايته
+        for ($i = $this->start_slot; $i <= $this->end_slot; $i++) {
+            if (isset($slotDefinitions[$i])) {
+                $ranges[] = $slotDefinitions[$i];
+            }
+        }
+
+        // إذا كان الموعد سلوت واحد، نرجعه مباشرة
+        if (count($ranges) === 1) {
+            return $ranges[0];
+        }
+
+        // إذا كان أكثر من سلوت، ندمجهم بطريقة جميلة
+        return implode(' & ', $ranges);
     }
 }

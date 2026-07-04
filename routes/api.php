@@ -78,6 +78,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('role:instructor')->prefix('instructor')->group(function () {
 
+    Route::get('/dashboard/stats', [InstructorController::class, 'getStats']);
+
         Route::get('/patients/student-pending', [InstructorController::class, 'studentPending']);
 
         Route::post('/diagnose', [InstructorController::class, 'diagnose']);

@@ -23,6 +23,7 @@ class InstructorController extends Controller
 {
     public function __construct(protected DiagnosisService $diagnosisService, protected PatientService $patientservice, protected TreatmentService $treatmentService) {}
 
+
     private function getInstructorId()
     {
         $id = auth()->user()->instructorProfile?->id;
@@ -31,6 +32,16 @@ class InstructorController extends Controller
         }
 
         return $id;
+    }
+
+    public function getStats(Request $request)
+    {
+        try {
+            $stats = $this->diagnosisService->getInstructorStats($request->user()->id);
+            return response_success($stats ,200 );
+        } catch (\Exception $e) {
+            return response_error(null ,400);
+        }
     }
 
     public function diagnose(DiagnoseRequest $request)

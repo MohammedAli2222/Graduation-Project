@@ -28,6 +28,9 @@ class DiagnoseRequest extends FormRequest
             'diagnoses.*.case_type_id' => 'required|exists:case_types,id',
             'diagnoses.*.final_diagnosis' => 'required|string|max:5000',
             'diagnoses.*.suggested_by_student_id' => 'nullable|exists:users,id',
+
+            'diagnoses.*.media_ids' => 'nullable|array',
+            'diagnoses.*.media_ids.*' => 'exists:media,id',
         ];
     }
 }

@@ -6,9 +6,12 @@ use App\Enums\DiagnosisStatus;
 use App\Enums\PatientStatus;
 use App\Models\CaseType;
 use App\Models\Group;
+use App\Models\InstructorProfile;
+use App\Models\Patient;
 use App\Models\PatientDiagnose;
 use App\Repositories\DiagnosisRepository;
 use App\Repositories\PatientRepository;
+use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Exception;
 use Illuminate\Support\Facades\DB;
 
@@ -19,6 +22,32 @@ class DiagnosisService
         protected PatientRepository $patientRepo
     ) {}
 
+
+    public function getInstructorStats(int $userId)
+    {
+        $instructorProfile = InstructorProfile::where('user_id', $userId)->firstOrFail();
+
+        $groupIds = $instructorProfile->groups()->pluck('groups.id');
+
+        $pendingRequests = PatientDiagnose::where('status', DiagnosisStatus::WAITING_APPROVAL->value)
+            ->whereHas('student', function ($query) use ($groupIds) {
+                $query->whereHas('studentProfile', function ($subQuery) use ($groupIds) {
+                    $subQuery->whereIn('group_id', $groupIds);
+                });
+            })->count();
+
+       $waitingPatients = Patient::where('availability_status', PatientStatus::WAITING_DIAGNOSIS->value)
+        ->whereHas('adder', function ($query) {
+            $query->role('receptionist');
+        })
+        ->count();
+
+        return [
+            'pending_approvals_count' => $pendingRequests,
+            'new_patients_from_reception_count' => $waitingPatients,
+            'supervised_groups_total' => $groupIds->count(),
+        ];
+    }
     /**
      * تشخيص المرضى القادمين من موظف الاستقبال
      */
@@ -42,7 +71,7 @@ class DiagnosisService
             foreach ($data['diagnoses'] as $item) {
                 $caseType = CaseType::with('course')->findOrFail($item['case_type_id']);
 
-                $createdDiagnoses[] = $this->diagnosisRepo->create([
+                $diagnosis = $this->diagnosisRepo->create([
                     'patient_id' => $data['patient_id'],
                     'instructor_id' => $instructorId,
                     'case_type_id' => $item['case_type_id'],
@@ -50,10 +79,25 @@ class DiagnosisService
                     'final_diagnosis' => $item['final_diagnosis'],
                     'status' => DiagnosisStatus::AVAILABLE->value,
                 ]);
+
+                // نسخ الصور المختارة من المريض إلى التشخيص الجديد
+                if (!empty($item['media_ids'])) {
+                    foreach ($item['media_ids'] as $mediaId) {
+                        $media = Media::where('id', $mediaId)
+                            ->where('model_id', $data['patient_id'])
+                            ->where('model_type', Patient::class)
+                            ->first();
+
+                        if ($media) {
+                            $media->copy($diagnosis, $media->collection_name);
+                        }
+                    }
+                }
+
+                $createdDiagnoses[] = $diagnosis;
             }
 
             $this->patientRepo->updateAvailability($data['patient_id'], PatientStatus::AVAILABLE->value);
-
             return $createdDiagnoses;
         });
     }
@@ -122,6 +166,4 @@ class DiagnosisService
             throw new Exception('You are not authorized to process this diagnosis because the student is outside your assigned groups.', 403);
         }
     }
-
-
 }

@@ -24,8 +24,16 @@ class StoreFollowUpRequest extends FormRequest
     {
         return [
             'treatment_id' => 'required|exists:treatments,id',
-            'appointment_date' => 'required|date|after:today',
+            'appointment_date' => 'required|date|date_format:Y-m-d|after:today',
             'slot_number' => 'required|integer|between:1,4',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'appointment_date.after' => 'The follow-up date must be in the future.',
+            'slot_number.between' => 'Please select a valid clinic slot (1-4).',
         ];
     }
 }

@@ -40,56 +40,136 @@ class TreatmentService
         $this->diagnosisRepo = $diagnosisRepo;
     }
 
+    // public function bookFollowUpAppointment(array $data)
+    // {
+    //     $treatment = $this->treatmentRepo->find($data['treatment_id']);
+
+    //     if (! $treatment) {
+    //         throw new Exception('Treatment record not found.');
+    //     }
+
+    //     if ($treatment->status !== TreatmentStatus::IN_PROGRESS) {
+    //         throw new Exception('Cannot book a follow-up for inactive case.');
+    //     }
+
+    //     $firstApp = $treatment->appointments()->first();
+    //     if ($firstApp && $firstApp->student_id !== auth()->id()) {
+    //         throw new Exception('Unauthorized! Not your case.');
+    //     }
+
+    //     $lastAppointment = $treatment->appointments()
+    //         ->orderBy('appointment_date', 'desc')
+    //         ->first();
+
+    //     $newDate = Carbon::parse($data['appointment_date']);
+
+    //     if ($lastAppointment) {
+    //         $lastDate = Carbon::parse($lastAppointment->appointment_date);
+
+    //         if ($newDate->lessThanOrEqualTo($lastDate)) {
+    //             throw new \Exception(
+    //                 "The follow-up date must be after the date of the previous appointment (" .
+    //                     $lastDate->format('Y-m-d') . ")."
+    //             );
+    //         }
+    //     }
+    //     $dateOnly = Carbon::parse($data['appointment_date'])->format('Y-m-d');
+
+    //     $this->appointmentser->validateAppointmentTiming(
+    //         $dateOnly,
+    //         auth()->id(),
+    //         $treatment->diagnosis->department_id,
+    //         (int) $data['slot_number']
+    //     );
+
+    //     return $this->appointmentRepo->create([
+    //         'patient_id' => $treatment->diagnosis->patient_id,
+    //         'student_id' => auth()->id(),
+    //         'diagnosis_id' => $treatment->diagnosis_id,
+    //         'treatment_id' => $treatment->id,
+    //         'appointment_date' => $dateOnly,
+    //         'slot_number' => $data['slot_number'],
+    //         'status' => AppointmentStatus::SCHEDULED->value,
+    //     ]);
+    // }
+
+    private function getSlotStartTime(int $startSlot): \Carbon\Carbon
+    {
+        // أوقات البدء حسب نظامك
+        $times = [
+            1 => '08:00',
+            2 => '10:30',
+            3 => '13:00',
+            4 => '15:30',
+        ];
+
+        $time = $times[$startSlot] ?? '08:00';
+        return \Carbon\Carbon::createFromFormat('H:i', $time);
+    }
+    public function validateWorkingDays(string $dateString): void
+    {
+        $date = \Carbon\Carbon::parse($dateString);
+
+        if ($date->isFriday() || $date->isSaturday()) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'appointment_date' => ['Appointments can only be booked on university working days (Sunday to Thursday).'],
+            ]);
+        }
+    }
     public function bookFollowUpAppointment(array $data)
     {
         $treatment = $this->treatmentRepo->find($data['treatment_id']);
-
-        if (! $treatment) {
-            throw new Exception('Treatment record not found.');
+        if (! $treatment || $treatment->status !== TreatmentStatus::IN_PROGRESS) {
+            throw new \Exception('Invalid or inactive treatment.');
         }
 
-        if ($treatment->status !== TreatmentStatus::IN_PROGRESS) {
-            throw new Exception('Cannot book a follow-up for inactive case.');
+        // التحقق من الملكية
+        if ($treatment->appointments()->where('student_id', auth()->id())->doesntExist()) {
+            throw new \Exception('Unauthorized! Not your case.');
         }
 
-        $firstApp = $treatment->appointments()->first();
-        if ($firstApp && $firstApp->student_id !== auth()->id()) {
-            throw new Exception('Unauthorized! Not your case.');
-        }
-
-        $lastAppointment = $treatment->appointments()
-            ->orderBy('appointment_date', 'desc')
-            ->first();
-
+        // التحقق من التاريخ (يجب أن يكون بعد آخر موعد)
+        $lastAppointment = $treatment->appointments()->orderBy('appointment_date', 'desc')->first();
         $newDate = Carbon::parse($data['appointment_date']);
-
-        if ($lastAppointment) {
-            $lastDate = Carbon::parse($lastAppointment->appointment_date);
-
-            if ($newDate->lessThanOrEqualTo($lastDate)) {
-                throw new \Exception(
-                    "The follow-up date must be after the date of the previous appointment (" .
-                        $lastDate->format('Y-m-d') . ")."
-                );
-            }
+        if ($lastAppointment && $newDate->lessThanOrEqualTo(Carbon::parse($lastAppointment->appointment_date))) {
+            throw new \Exception("Follow-up date must be after " . $lastAppointment->appointment_date->format('Y-m-d'));
         }
-        $dateOnly = Carbon::parse($data['appointment_date'])->format('Y-m-d');
 
-        $this->appointmentser->validateAppointmentTiming(
-            $dateOnly,
-            auth()->id(),
-            $treatment->diagnosis->department_id,
-            (int) $data['slot_number']
-        );
+        $dateOnly = $newDate->format('Y-m-d');
+        $startSlot = (int) $data['slot_number'];
+        $slotsNeeded = 1; // المتابعة دائماً تستهلك 1 سلوت
+        $endSlot = $startSlot;
 
+        // 1. التحقق من أيام العمل (التي أضفناها)
+        $this->validateWorkingDays($dateOnly);
+
+        // 2. التحقق من الحد اليومي (2 سلوت)
+        $usedSlots = $this->appointmentRepo->getStudentDailyUsage(auth()->id(), $dateOnly);
+        if (($usedSlots + $slotsNeeded) > 2) {
+            throw new \Exception('You have reached the daily limit of 2 appointment slots.');
+        }
+
+        // 3. التحقق من التعارض (باستخدام المعادلة الذهبية)
+        if ($this->appointmentRepo->hasOverlap(auth()->id(), $dateOnly, $startSlot, $endSlot, 'student_id')) {
+            throw new \Exception('You have a scheduling conflict on this date.');
+        }
+
+        // فحص تعارض المريض
+        if ($this->appointmentRepo->hasOverlap($treatment->diagnosis->patient_id, $dateOnly, $startSlot, $endSlot, 'patient_id')) {
+            throw new \Exception('The patient is already booked at this time.');
+        }
+
+        // 4. الحجز بنظام النطاقات الجديد
         return $this->appointmentRepo->create([
-            'patient_id' => $treatment->diagnosis->patient_id,
-            'student_id' => auth()->id(),
+            'patient_id'   => $treatment->diagnosis->patient_id,
+            'student_id'   => auth()->id(),
             'diagnosis_id' => $treatment->diagnosis_id,
             'treatment_id' => $treatment->id,
             'appointment_date' => $dateOnly,
-            'slot_number' => $data['slot_number'],
-            'status' => AppointmentStatus::SCHEDULED->value,
+            'start_slot'   => $startSlot,
+            'end_slot'     => $endSlot,
+            'slots_count'  => $slotsNeeded,
+            'status'       => AppointmentStatus::SCHEDULED->value,
         ]);
     }
 
@@ -163,22 +243,46 @@ class TreatmentService
         if (! $appointment) {
             throw new ModelNotFoundException('Appointment not found.');
         }
+        // تأكد أن الحالة ليست "تم الحضور"
+
         if ($appointment->status === AppointmentStatus::ATTENDED) {
             throw new Exception('Cannot cancel started treatment.');
         }
 
+        // 1. تحديد التوقيت الحالي وتوقيت الموعد بنفس المنطقة الزمنية
+        $now = \Carbon\Carbon::now('Asia/Damascus');
+        $appointmentDate = \Carbon\Carbon::parse($appointment->appointment_date, 'Asia/Damascus');
+
+        // 2. التحقق فقط إذا كان الموعد في نفس اليوم
+        if ($appointmentDate->isToday()) {
+            $startTime = $this->getSlotStartTime($appointment->start_slot);
+
+            // دمج التاريخ مع وقت السلوت مع ضبط التوقيت
+            $fullStartDateTime = $appointmentDate->copy()->setTimeFrom($startTime);
+
+            // 3. منع الإلغاء إذا كان الوقت الحالي قد تجاوز (وقت الموعد - ساعتين)
+            if ($now->copy()->addHours(2)->greaterThan($fullStartDateTime)) {
+                throw new \Exception('Appointments cannot be cancelled within 2 hours of the scheduled time.');
+            }
+        }
+
         return DB::transaction(function () use ($appointment, $appointmentId) {
+            // 1. إلغاء الموعد
             $this->appointmentRepo->updateStatus(
                 $appointmentId,
                 AppointmentStatus::CANCELLED->value
             );
 
+            // 2. معالجة التشخيص
             if ($appointment->diagnosis_id) {
                 $activeCount = $this->appointmentRepo
                     ->countActiveAppointmentsForDiagnosis($appointment->diagnosis_id);
 
                 if ($activeCount === 0) {
                     $this->diagnosisRepo->makeAvailable($appointment->diagnosis_id);
+
+                    // 3. (الإضافة المطلوبة) إعادة تحديث حالة المريض
+                    $this->appointmentRepo->updatePatientAvailabilityStatus($appointment->patient_id);
                 }
             }
 
@@ -206,6 +310,8 @@ class TreatmentService
 
                 if ($activeCount === 0) {
                     $this->diagnosisRepo->makeAvailable($treatment->diagnosis_id);
+
+                    $this->appointmentRepo->updatePatientAvailabilityStatus($treatment->diagnosis->patient_id);
                 }
             }
 
@@ -327,8 +433,14 @@ class TreatmentService
 
     private function checkRollbackConstraints($treatment): void
     {
-        if ($treatment->created_at->diffInMinutes(now()) > 30) {
-            throw new Exception('Cancellation window (30 mins) expired.');
+        $now = \Carbon\Carbon::now('Asia/Damascus');
+
+        // 2. تحويل وقت إنشاء المعالجة لتوقيت دمشق قبل المقارنة
+        $createdAt = \Carbon\Carbon::parse($treatment->created_at)->timezone('Asia/Damascus');
+
+        // 3. مقارنة الفرق بالدقائق
+        if ($createdAt->diffInMinutes($now) > 30) {
+            throw new \Exception('Cancellation window (30 mins) expired.');
         }
 
         $st = $treatment->status;

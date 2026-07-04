@@ -8,6 +8,7 @@ use App\Http\Resources\CourseResource;
 use App\Http\Resources\PatientDiagnosisDetailsResource;
 use App\Http\Resources\PatientDiagnosisResource;
 use App\Http\Resources\PatientResource;
+use App\Http\Resources\StudentPatientDiagnosisResource;
 use App\Services\PatientService;
 use App\Services\StudentCourseService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
@@ -121,7 +122,7 @@ class StudentController extends Controller
 
             return response_success(
                 [
-                    "data" => PatientDiagnosisResource::collection($patients),
+                    "data" => StudentPatientDiagnosisResource::collection($patients),
                     'pagination' => [
                         'total' => $patients->total(),
                         'count' => $patients->count(),
