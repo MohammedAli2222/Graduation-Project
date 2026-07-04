@@ -138,37 +138,61 @@ class PatientRepository
 
     public function getDiagnosisDetailsWithPatientMedia(int $id)
     {
-        return PatientDiagnose::select(
-            'id',
-            'patient_id',
-            'case_type_id',
-            'department_id',
-            'instructor_id',
-            'status',
-            'estimated_cost',
-            'final_diagnosis',
-            'created_at'
-        )
-            ->with([
-                'patient' => function ($query) {
-                    $query->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address');
-                },
-                'patient.media',
-                'patient.medicalHistory',
-
-                'caseType' => function ($query) {
-                    $query->select('id', 'name');
-                },
-                'department' => function ($query) {
-                    $query->select('id', 'name');
-                },
-                'instructor' => function ($query) {
-                    $query->select('id', 'first_name', 'last_name');
-                },
-            ])
-            ->where('status', DiagnosisStatus::AVAILABLE->value)
+        return PatientDiagnose::with([
+            // ... نفس علاقاتك الحالية
+            'patient' => fn($q) => $q->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address'),
+            'patient.media',
+            'patient.medicalHistory',
+            'caseType' => fn($q) => $q->select('id', 'name'),
+            'department' => fn($q) => $q->select('id', 'name'),
+            'instructor' => fn($q) => $q->select('id', 'first_name', 'last_name'),
+        ])
+            ->where(function ($query) use ($id) {
+                $query->where('id', $id)
+                    ->where(function ($q) {
+                        // الحالة الأولى: التشخيص ما زال متاحاً للجميع
+                        $q->where('status', DiagnosisStatus::AVAILABLE->value)
+                            // الحالة الثانية: التشخيص محجوز من قبل المستخدم الحالي
+                            ->orWhereHas('appointments', function ($appointmentQuery) {
+                                $appointmentQuery->where('student_id', auth()->id());
+                            });
+                    });
+            })
             ->findOrFail($id);
     }
+    // public function getDiagnosisDetailsWithPatientMedia(int $id)
+    // {
+    //     return PatientDiagnose::select(
+    //         'id',
+    //         'patient_id',
+    //         'case_type_id',
+    //         'department_id',
+    //         'instructor_id',
+    //         'status',
+    //         'estimated_cost',
+    //         'final_diagnosis',
+    //         'created_at'
+    //     )
+    //         ->with([
+    //             'patient' => function ($query) {
+    //                 $query->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address');
+    //             },
+    //             'patient.media',
+    //             'patient.medicalHistory',
+
+    //             'caseType' => function ($query) {
+    //                 $query->select('id', 'name');
+    //             },
+    //             'department' => function ($query) {
+    //                 $query->select('id', 'name');
+    //             },
+    //             'instructor' => function ($query) {
+    //                 $query->select('id', 'first_name', 'last_name');
+    //             },
+    //         ])
+    //         ->where('status', DiagnosisStatus::AVAILABLE->value)
+    //         ->findOrFail($id);
+    // }
 
     public function getAvailableDiagnosesForPatient(int $patientId, int $studentId)
     {

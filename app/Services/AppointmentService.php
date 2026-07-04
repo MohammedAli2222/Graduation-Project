@@ -11,7 +11,6 @@ use App\Repositories\AppointmentRepository;
 use App\Repositories\DiagnosisRepository;
 use App\Repositories\PatientRepository;
 use Carbon\Carbon;
-use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -34,115 +33,77 @@ class AppointmentService
         $this->patientRepo = $patientRepo;
     }
 
-    public function validateAppointmentTiming(string $dateString, int $studentId, int $departmentId, int $slotNumber): void
-    {
-        $date = Carbon::parse($dateString);
 
-        if ($date->isFriday() || $date->isSaturday()) {
-            throw ValidationException::withMessages([
-                'appointment_date' => ['Appointments can only be booked on university working days (Sunday to Thursday).'],
-            ]);
-        }
-
-        $check = $this->appointmentRepo->hasConflict($studentId, $date->format('Y-m-d'), $slotNumber, $departmentId);
-
-        if ($check['conflict']) {
-            throw ValidationException::withMessages([
-                'appointment_date' => [$check['message']],
-            ]);
-        }
-    }
 
     public function reserveCase(array $data)
     {
         $diagnosisId = $data['diagnosis_id'];
-
         $lock = Cache::lock('lock:diagnosis:' . $diagnosisId, 10);
 
         try {
-
             $lock->block(3);
-
             return DB::transaction(function () use ($data) {
-                $student = auth()->user();
-                $profile = $student->studentProfile;
 
-                if (! $profile) {
-                    throw new \Exception('Student academic profile not found.');
+                $date = Carbon::parse($data['appointment_date']);
+
+                // منع الحجز في عطلة نهاية الأسبوع
+                if ($date->isFriday() || $date->isSaturday()) {
+                    throw ValidationException::withMessages([
+                        'appointment_date' => ['Appointments can only be booked on university working days (Sunday to Thursday).'],
+                    ]);
                 }
+                $student = auth()->user();
 
                 $diagnosis = $this->diagnosisRepo->findAvailableDiagnosis($data['diagnosis_id']);
                 if (! $diagnosis) {
-                    throw ValidationException::withMessages(['diagnosis' => ['This case is no longer available for booking.']]);
+                    throw ValidationException::withMessages(['diagnosis' => ['This case is no longer available.']]);
                 }
 
-                $departmentId = $diagnosis->department_id;
                 $startSlot = (int) $data['slot_number'];
+                $slotsNeeded = (int) $diagnosis->caseType->slots_needed;
+                $endSlot = $startSlot + $slotsNeeded - 1;
                 $dateOnly = Carbon::parse($data['appointment_date'])->format('Y-m-d');
 
-                $slotsNeeded = (int) $diagnosis->caseType->slots_needed;
+                // 1. فحص الحد اليومي (المجموع وليس العدد)
+                $usedSlots = $this->appointmentRepo->getStudentDailyUsage($student->id, $dateOnly);
+                if (($usedSlots + $slotsNeeded) > 2) {
+                    throw ValidationException::withMessages(['appointment_date' => ["Exceeds daily limit of 2 slots."]]);
+                }
 
-                $existingCount = $this->appointmentRepo->getActiveAppointmentsCountForStudent($student->id, $dateOnly);
+                // 2. فحص تعارض الطالب (باستخدام معادلة النطاقات)
+                if ($this->appointmentRepo->hasOverlap($student->id, $dateOnly, $startSlot, $endSlot, 'student_id')) {
+                    throw ValidationException::withMessages(['slot_number' => ['You have a scheduling conflict.']]);
+                }
 
-                if (($existingCount + $slotsNeeded) > 2) {
+                // 3. فحص تعارض المريض
+                if ($this->appointmentRepo->hasOverlap($diagnosis->patient_id, $dateOnly, $startSlot, $endSlot, 'patient_id')) {
+                    throw ValidationException::withMessages(['appointment_date' => ['Patient is booked at this time.']]);
+                }
+
+                // 4. فحص هل القسم ممتلئ؟
+                if ($this->appointmentRepo->isDepartmentFull($diagnosis->department_id, $dateOnly, $startSlot, $endSlot)) {
                     throw ValidationException::withMessages([
-                        'appointment_date' => ["Booking failed. This reservation requires {$slotsNeeded} slot(s), which will exceed your daily limit of 2 appointments. You currently have {$existingCount} appointment(s) on this day."],
+                        'appointment_date' => ['This time slot is fully booked. All chairs in this department are occupied.'],
                     ]);
                 }
 
-                for ($i = 0; $i < $slotsNeeded; $i++) {
-                    $currentSlot = $startSlot + $i;
-
-                    if ($currentSlot > 4) {
-                        throw ValidationException::withMessages([
-                            'slot_number' => ['This complex case requires consecutive slots that exceed university working hours.'],
-                        ]);
-                    }
-
-                    $this->validateAppointmentTiming(
-                        $data['appointment_date'],
-                        $student->id,
-                        $departmentId,
-                        $currentSlot
-                    );
-                }
-
-
-                $isAllowed = $this->patientRepo->checkIfCaseBelongsToActiveCourse(
-                    $diagnosis->case_type_id,
-                    $profile->id
-                );
-                if (! $isAllowed) {
-                    throw ValidationException::withMessages(['academic_standing' => ['Academic validation requirements failed for this case type.']]);
-                }
-
-                $createdAppointments = [];
-                for ($i = 0; $i < $slotsNeeded; $i++) {
-                    $currentSlot = $startSlot + $i;
-
-                    $appointment = $this->appointmentRepo->create([
-                        'patient_id' => $diagnosis->patient_id,
-                        'student_id' => $student->id,
-                        'diagnosis_id' => $diagnosis->id,
-                        'treatment_id' => null,
-                        'appointment_date' => $dateOnly,
-                        'slot_number' => $currentSlot,
-                        'status' => AppointmentStatus::SCHEDULED->value,
-                    ]);
-
-                    $createdAppointments[] = $appointment;
-                }
+                // 4. إنشاء سجل واحد فقط!
+                $appointment = $this->appointmentRepo->create([
+                    'patient_id'   => $diagnosis->patient_id,
+                    'student_id'   => $student->id,
+                    'diagnosis_id' => $diagnosis->id,
+                    'start_slot'   => $startSlot,
+                    'end_slot'     => $endSlot,
+                    'slots_count'  => $slotsNeeded,
+                    'appointment_date' => $dateOnly,
+                    'status'       => AppointmentStatus::SCHEDULED->value,
+                ]);
 
                 $diagnosis->update(['status' => DiagnosisStatus::RESERVED->value]);
-
                 $this->updatePatientStatusIfAllDiagnosesReserved($diagnosis->patient_id);
 
-                return $createdAppointments;
+                return [$appointment]; // نرجع مصفوفة لتتوافق مع الـ Resource
             });
-        } catch (LockTimeoutException $e) {
-            throw ValidationException::withMessages([
-                'diagnosis' => ['This case is currently being processed by another student. Please try again in a few moments.'],
-            ]);
         } finally {
             optional($lock)->release();
         }

@@ -37,6 +37,11 @@ class Patient extends Model implements HasMedia
         return $this->hasMany(PatientDiagnose::class);
     }
 
+    public function adder()
+    {
+        return $this->belongsTo(User::class, 'added_by');
+    }
+
     protected function casts(): array
     {
         return [
@@ -68,7 +73,7 @@ class Patient extends Model implements HasMedia
     public function registerMediaCollections(): void
     {
         $this->addMediaCollection('id_cards');
-        $this->addMediaCollection('clinical_images'); 
+        $this->addMediaCollection('clinical_images');
         $this->addMediaCollection('x_ray_images');
     }
 }

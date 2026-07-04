@@ -31,14 +31,10 @@ class StartTreatmentAction
         $this->mediaService = $mediaService;
     }
 
-    /**
-     * تنفيذ عملية بدء الجلسة العلاجية الأولى أو اللاحقة.
-     */
     public function execute(array $data): mixed
     {
-        $appointment = $this->appointmentRepo->findById(
-            $data['appointment_id']
-        );
+        // جلب الموعد مع قفل للبيانات لضمان عدم حدوث تضارب
+        $appointment = Appointment::where('id', $data['appointment_id'])->lockForUpdate()->first();
 
         if (! $appointment) {
             throw new Exception('Appointment not found.');
@@ -55,27 +51,18 @@ class StartTreatmentAction
         });
     }
 
-    /**
-     * التعامل مع جلسات المتابعة المتصلة بعلاج سابق.
-     */
     private function handleFollowUp($appointment): mixed
     {
         $appointment->update([
             'status' => AppointmentStatus::ATTENDED->value,
         ]);
 
-        return $appointment->treatment->load([
-            'diagnosis',
-            'appointments',
-        ]);
+        return $appointment->treatment->load(['diagnosis', 'appointments']);
     }
 
-    /**
-     * إنشاء سجل علاج جديد وربط الميديا والمواعيد.
-     */
     private function createNewTreatment($appointment, array $data): mixed
     {
-        if (! isset($data['before_images']) || count($data['before_images']) === 0) {
+        if (empty($data['before_images'])) {
             throw new Exception('Before-treatment images are required.');
         }
 
@@ -84,47 +71,30 @@ class StartTreatmentAction
             'instructor_id' => null,
             'status' => TreatmentStatus::IN_PROGRESS->value,
             'instructor_notes' => null,
-            'start_date' => now(),
+            'start_date' => Carbon::now('Asia/Damascus'),
         ]);
 
-        $this->mediaService->upload(
-            $treatment,
-            $data['before_images'],
-            'before_treatment_images'
-        );
+        $this->mediaService->upload($treatment, $data['before_images'], 'before_treatment_images');
 
         $this->linkAndCompleteAppointment($appointment, $treatment->id);
 
         return $treatment->load(['diagnosis', 'appointments']);
     }
 
-    /**
-     * ربط وتحديث المواعيد وتشخيص الحالة.
-     */
     private function linkAndCompleteAppointment($appointment, int $treatmentId): void
     {
-        $this->appointmentRepo->linkAppointmentsToTreatment(
-            $appointment->student_id,
-            $appointment->appointment_date,
-            $appointment->diagnosis_id,
-            $treatmentId
-        );
+        // تحديث الموعد الحالي مباشرة دون الحاجة للبحث مرة أخرى
+        $appointment->update([
+            'status' => AppointmentStatus::ATTENDED->value,
+            'treatment_id' => $treatmentId
+        ]);
 
-        Appointment::where('diagnosis_id', $appointment->diagnosis_id)
-            ->where('appointment_date', $appointment->appointment_date)
-            ->update([
-                'status' => AppointmentStatus::ATTENDED->value,
-                'treatment_id' => $treatmentId 
-            ]);
-
+        // تحديث حالة التشخيص
         $appointment->diagnosis()->update([
             'status' => DiagnosisStatus::CONVERTED_TO_TREATMENT->value,
         ]);
     }
 
-    /**
-     * التحقق من الصلاحية والحالة الحالية للموعد.
-     */
     private function validateAppointment($appointment): void
     {
         if ($appointment->student_id !== auth()->id()) {
@@ -138,37 +108,33 @@ class StartTreatmentAction
         $this->validateTimeSlot($appointment);
     }
 
-
-
     private function validateTimeSlot($appointment): void
     {
         $now = Carbon::now('Asia/Damascus');
         $appointmentDate = Carbon::parse($appointment->appointment_date, 'Asia/Damascus');
-        // 1. التحقق من التاريخ
+
         if (!$now->isSameDay($appointmentDate)) {
-            throw new \Exception('Treatment can only be started on the scheduled date: ' . $appointmentDate->format('Y-m-d'));
+            throw new Exception('Treatment can only be started on the scheduled date: ' . $appointmentDate->format('Y-m-d'));
         }
 
-        // // 2. تعريف جدول الـ Slots
-        // $slots = [
-        //     1 => ['start' => '08:00', 'end' => '10:00'],
-        //     2 => ['start' => '10:30', 'end' => '12:30'],
-        //     3 => ['start' => '13:00', 'end' => '15:00'],
-        //     4 => ['start' => '15:30', 'end' => '17:30'],
-        // ];
+        // أوقات السلوتس الثابتة
+        $slotTimes = [
+            1 => ['start' => '08:00', 'end' => '10:00'],
+            2 => ['start' => '10:30', 'end' => '12:30'],
+            3 => ['start' => '13:00', 'end' => '15:00'],
+            4 => ['start' => '15:30', 'end' => '17:30'],
+        ];
 
-        // if (!isset($slots[$appointment->slot_number])) {
-        //     throw new \Exception('Invalid slot number.');
-        // }
+        if (!isset($slotTimes[$appointment->start_slot]) || !isset($slotTimes[$appointment->end_slot])) {
+            throw new Exception('Invalid appointment slot range.');
+        }
 
-        // $slot = $slots[$appointment->slot_number];
-        // $startTime = \Carbon\Carbon::createFromTimeString($slot['start']);
-        // $endTime = \Carbon\Carbon::createFromTimeString($slot['end']);
+        $startTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->start_slot]['start'], 'Asia/Damascus');
+        $endTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->end_slot]['end'], 'Asia/Damascus');
 
-        // // السماح بالبدء من بداية الـ Slot وحتى نهايته
-        // // يمكنك إضافة سماحية (Buffer) إذا أردت
-        // if ($now->lessThan($startTime) || $now->greaterThan($endTime)) {
-        //     throw new \Exception('Treatment can only be started within the scheduled slot time (' . $slot['start'] . ' - ' . $slot['end'] . ').');
-        // }
+        // السماح بالبدء من بداية أول سلوت وحتى نهاية آخر سلوت
+        if ($now->lessThan($startTime) || $now->greaterThan($endTime)) {
+            throw new Exception("Treatment can only be started between {$slotTimes[$appointment->start_slot]['start']} and {$slotTimes[$appointment->end_slot]['end']}.");
+        }
     }
 }

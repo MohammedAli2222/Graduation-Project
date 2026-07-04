@@ -3,8 +3,12 @@
 namespace App\Repositories;
 
 use App\Enums\AppointmentStatus;
+use App\Enums\DiagnosisStatus;
+use App\Enums\PatientStatus;
 use App\Models\Appointment;
 use App\Models\Department;
+use App\Models\Patient;
+use App\Models\PatientDiagnose;
 use Carbon\Carbon;
 
 class AppointmentRepository
@@ -43,43 +47,7 @@ class AppointmentRepository
             ->count();
     }
 
-    public function hasConflict(int $studentId, string $dateString, int $slotNumber, int $departmentId): array
-    {
-        $dateOnly = Carbon::parse($dateString)->format('Y-m-d');
 
-        $hasSlotConflict = Appointment::where('student_id', $studentId)
-            ->whereIn('status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
-            ->whereDate('appointment_date', $dateOnly)
-            ->where('slot_number', $slotNumber)
-            ->exists();
-
-        if ($hasSlotConflict) {
-            return [
-                'conflict' => true,
-                'message' => 'Time conflict! You already have another appointment booked in this exact time slot.',
-            ];
-        }
-
-        $department = Department::find($departmentId);
-        $maxChairs = $department->total_chairs;
-
-        $reservedChairsCount = Appointment::whereIn('status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
-            ->whereDate('appointment_date', $dateOnly)
-            ->where('slot_number', $slotNumber)
-            ->whereHas('diagnosis', function ($query) use ($departmentId) {
-                $query->where('department_id', $departmentId);
-            })
-            ->count();
-
-        if ($reservedChairsCount >= $maxChairs) {
-            return [
-                'conflict' => true,
-                'message' => "This time slot is fully booked. All {$maxChairs} dental chairs in this department are occupied.",
-            ];
-        }
-
-        return ['conflict' => false, 'message' => ''];
-    }
 
     public function getActiveAppointmentsCountForStudent(int $studentId, string $date): int
     {
@@ -92,15 +60,7 @@ class AppointmentRepository
             ->count();
     }
 
-    public function linkAppointmentsToTreatment($studentId, $date, $diagnosisId, $treatmentId)
-    {
-        return Appointment::where('student_id', $studentId)
-            ->where('appointment_date', $date)
-            ->where('diagnosis_id', $diagnosisId)
-            ->update([
-                'treatment_id' => $treatmentId,
-            ]);
-    }
+    
 
     public function hasAppointmentWithPatient(int $studentId, int $patientId): bool
     {
@@ -140,7 +100,7 @@ class AppointmentRepository
                     ->orWhere(function ($q) use ($studentId, $today) {
                         $q->where('student_id', $studentId)
                             ->where('status', AppointmentStatus::SCHEDULED->value)
-                            ->where('appointment_date', '<', $today); 
+                            ->where('appointment_date', '<', $today);
                     });
             })
             ->with([
@@ -150,5 +110,69 @@ class AppointmentRepository
             ])
             ->orderBy('appointment_date', 'desc')
             ->paginate(10);
+    }
+
+    public function isPatientBusyAtSlot(int $patientId, string $date, int $slotNumber): bool
+    {
+        return Appointment::where('patient_id', $patientId)
+            ->whereDate('appointment_date', $date)
+            ->where('slot_number', $slotNumber)
+            ->whereIn('status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
+            ->exists();
+    }
+
+    public function getStudentDailyUsage(int $studentId, string $date): int
+    {
+        return Appointment::where('student_id', $studentId)
+            ->whereDate('appointment_date', $date)
+            ->whereIn('status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
+            ->sum('slots_count'); // مجموع السلوتس المحجوزة فعلياً
+    }
+
+    public function hasOverlap(int $ownerId, string $date, int $newStart, int $newEnd, string $column): bool
+    {
+        return Appointment::where($column, $ownerId)
+            ->whereDate('appointment_date', $date)
+            ->whereIn('status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
+            ->where(function ($query) use ($newStart, $newEnd) {
+                $query->where('start_slot', '<=', $newEnd)
+                    ->where('end_slot', '>=', $newStart);
+            })
+            ->exists();
+    }
+
+    public function isDepartmentFull(int $departmentId, string $date, int $start, int $end): bool
+    {
+        $department = Department::find($departmentId);
+        $maxChairs = $department->total_chairs;
+
+        // بما أن الموعد قد يغطي عدة سلوتس، يجب أن نتحقق من كل سلوت على حدة
+        for ($i = $start; $i <= $end; $i++) {
+            $reservedChairsCount = Appointment::whereIn('status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
+                ->whereDate('appointment_date', $date)
+                ->where('start_slot', '<=', $i) // الموعد بدأ قبل أو في هذا السلوت
+                ->where('end_slot', '>=', $i)   // الموعد انتهى بعد أو في هذا السلوت
+                ->whereHas('diagnosis', function ($query) use ($departmentId) {
+                    $query->where('department_id', $departmentId);
+                })
+                ->count();
+
+            if ($reservedChairsCount >= $maxChairs) {
+                return true; // القسم ممتلئ في هذا السلوت المحدد
+            }
+        }
+
+        return false;
+    }
+
+    public function updatePatientAvailabilityStatus(int $patientId)
+    {
+        $hasAvailableDiagnoses = PatientDiagnose::where('patient_id', $patientId)
+            ->where('status', DiagnosisStatus::AVAILABLE->value)
+            ->exists();
+
+        $newStatus = $hasAvailableDiagnoses ? PatientStatus::AVAILABLE : PatientStatus::FULLY_RESERVED;
+
+        Patient::where('id', $patientId)->update(['availability_status' => $newStatus->value]);
     }
 }
