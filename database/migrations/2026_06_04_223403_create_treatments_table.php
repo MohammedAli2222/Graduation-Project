@@ -17,9 +17,6 @@ return new class extends Migration
 
             $table->foreignId('instructor_id')->nullable()->constrained('users')->onDelete('set null');
 
-            $table->enum('status', array_column(TreatmentStatus::cases(), 'value'))
-                ->default(TreatmentStatus::IN_PROGRESS->value);
-
             $table->enum('status', array_column(TreatmentStatus
                 ::cases(), 'value'))
                 ->default(TreatmentStatus::IN_PROGRESS->value);
