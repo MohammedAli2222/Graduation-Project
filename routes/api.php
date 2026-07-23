@@ -145,7 +145,6 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/products/{product}', [StoreProductController::class, 'update']);
         Route::delete('/products/{product}', [StoreProductController::class, 'destroy']);
         Route::get('/products/{product}', [StoreProductController::class, 'show']);
-        Route::get('/categories', [StoreProductController::class, 'getCategoriesDropdown']);
 
         Route::get('/orders', [StoreOrderController::class, 'index']);
         Route::get('/orders/{order}', [StoreOrderController::class, 'show']);
@@ -159,3 +158,5 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/promotions/{promotion}', [StorePromotionController::class, 'destroy']);
     });
 });
+
+        Route::get('/categories', [StoreProductController::class, 'getCategoriesDropdown']);

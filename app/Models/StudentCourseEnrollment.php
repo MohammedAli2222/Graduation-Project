@@ -3,10 +3,13 @@
 namespace App\Models;
 
 use App\Enums\EnrollmentStatus;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class StudentCourseEnrollment extends Model
 {
+            use HasFactory;
+
     protected $fillable = ['student_id', 'course_id', 'status', 'attempts_count'];
 
     protected function casts(): array
