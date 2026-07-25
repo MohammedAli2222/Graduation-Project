@@ -13,6 +13,8 @@ use App\Http\Controllers\Store\StoreOrderController;
 use App\Http\Controllers\Store\StoreProductController;
 use App\Http\Controllers\Store\StorePromotionController;
 use App\Http\Controllers\Student\MarketplaceBrowseController;
+use App\Http\Controllers\Student\BrowseStoreController;
+use App\Http\Controllers\Student\StudentSellerBrowseController; // استدعاء متحكم سوق الطلاب
 use App\Http\Controllers\Student\StudentCartController;
 use App\Http\Controllers\Student\StudentCheckoutController;
 use App\Http\Controllers\Student\StudentProductController;
@@ -62,20 +64,24 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/checkout', [StudentCheckoutController::class, 'checkout']);
 
         Route::prefix('marketplace')->group(function () {
-
             Route::get('/my-products', [StudentProductController::class, 'index']);
-
             Route::post('/my-products', [StudentProductController::class, 'store']);
-
             Route::put('/my-products/{product}', [StudentProductController::class, 'update']);
-
             Route::delete('/my-products/{product}', [StudentProductController::class, 'destroy']);
         });
 
         Route::prefix('browse')->group(function () {
+            // السوق العام
             Route::get('/products', [MarketplaceBrowseController::class, 'index']);
-
             Route::get('/products/{id}', [MarketplaceBrowseController::class, 'show']);
+
+            // تصفح المتاجر الرسمية
+            Route::get('/stores', [BrowseStoreController::class, 'index']);
+            Route::get('/stores/{id}/products', [BrowseStoreController::class, 'showStoreProducts']);
+
+            // سوق الطلاب 
+            Route::get('/student-products', [StudentSellerBrowseController::class, 'index']);
+            Route::get('/student-products/{id}', [StudentSellerBrowseController::class, 'show']);
         });
 
         Route::middleware(['ensure.courses.setup'])->group(function () {
@@ -93,11 +99,8 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::post('/treatments/complete', [TreatmentController::class, 'completeTreatment']);
 
             Route::get('/patients/{patientId}/diagnoses', [StudentController::class, 'getPatientDiagnoses']);
-
             Route::get('/patients/{patient_id}/treatments/history', [TreatmentController::class, 'getPatientTreatmentHistory']);
-
             Route::patch('/appointments/{id}/cancel', [AppointmentController::class, 'cancelAppointment']);
-
             Route::post('/treatments/{id}/rollback', [TreatmentController::class, 'rollbackStartedTreatment']);
 
             Route::get('/dashboard/progress', [TreatmentController::class, 'getProgressStats']);
@@ -106,17 +109,13 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::middleware('role:instructor')->prefix('instructor')->group(function () {
-
-    Route::get('/dashboard/stats', [InstructorController::class, 'getStats']);
-
+        Route::get('/dashboard/stats', [InstructorController::class, 'getStats']);
         Route::get('/patients/student-pending', [InstructorController::class, 'studentPending']);
         Route::post('/diagnose', [InstructorController::class, 'diagnose']);
         Route::post('/patients/{id}/approve', [InstructorController::class, 'approve']);
         Route::post('/patients/{id}/reject', [InstructorController::class, 'reject']);
-
         Route::get('/treatments/pending', [InstructorController::class, 'getPendingTreatmentsList']);
         Route::get('/treatments/pending/{id}', [InstructorController::class, 'getTreatmentDetails']);
-
         Route::post('treatments/review', [InstructorController::class, 'reviewTreatment']);
     });
 
@@ -125,7 +124,6 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::middleware('role:department_head')->prefix('hod')->group(function () {
-
         Route::get('/case-types', [DepartmentRequirementController::class, 'indexCaseTypes']);
         Route::post('/case-types/{caseType}/requirement', [DepartmentRequirementController::class, 'update']);
 
@@ -138,17 +136,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/statistics', [DepartmentStatisticController::class, 'index']);
     });
 
-    Route::middleware(['auth:sanctum', 'role:store_owner'])->prefix('store')->group(function () {
-
+    Route::middleware(['role:store_owner'])->prefix('store')->group(function () {
         Route::get('/products', [StoreProductController::class, 'index']);
         Route::post('/products', [StoreProductController::class, 'store']);
         Route::put('/products/{product}', [StoreProductController::class, 'update']);
         Route::delete('/products/{product}', [StoreProductController::class, 'destroy']);
         Route::get('/products/{product}', [StoreProductController::class, 'show']);
-
-        Route::get('/orders', [StoreOrderController::class, 'index']);
-        Route::get('/orders/{order}', [StoreOrderController::class, 'show']);
-        Route::patch('/orders/{order}/status', [StoreOrderController::class, 'updateStatus']);
 
         // مسارات العروض الترويجية (Promotions)
         Route::get('/promotions', [StorePromotionController::class, 'index']);
@@ -157,6 +150,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::put('/promotions/{promotion}', [StorePromotionController::class, 'update']);
         Route::delete('/promotions/{promotion}', [StorePromotionController::class, 'destroy']);
     });
+
+
+    Route::middleware(['role:store_owner|student'])->prefix('store')->group(function () {
+        Route::get('/orders', [StoreOrderController::class, 'index']);
+        Route::get('/orders/{order}', [StoreOrderController::class, 'show']);
+        Route::patch('/orders/{order}/status', [StoreOrderController::class, 'updateStatus']);
+    });
 });
 
-        Route::get('/categories', [StoreProductController::class, 'getCategoriesDropdown']);
+Route::get('/categories', [StoreProductController::class, 'getCategoriesDropdown']);

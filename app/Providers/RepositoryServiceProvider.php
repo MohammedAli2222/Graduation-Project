@@ -4,17 +4,20 @@ declare(strict_types=1);
 
 namespace App\Providers;
 
+use App\Repositories\BrowseStoreRepository;
+use App\Repositories\Contracts\BrowseStoreRepositoryInterface;
 use Illuminate\Support\ServiceProvider;
 
 // استيراد الواجهات (Interfaces)
 use App\Repositories\Contracts\TreatmentRepositoryInterface;
 use App\Repositories\Contracts\CaseTypeRepositoryInterface;
 use App\Repositories\Contracts\InstructorRepositoryInterface;
-
+use App\Repositories\Contracts\StudentMarketplaceRepositoryInterface;
 // استيراد المستودعات (Eloquent Repositories)
 use App\Repositories\hod\TreatmentRepository;
 use App\Repositories\hod\CaseTypeRepository;
 use App\Repositories\hod\InstructorRepository;
+use App\Repositories\StudentMarketplaceRepository;
 
 class RepositoryServiceProvider extends ServiceProvider
 {
@@ -57,6 +60,15 @@ class RepositoryServiceProvider extends ServiceProvider
         $this->app->bind(
             \App\Repositories\Contracts\CartRepositoryInterface::class,
             \App\Repositories\CartRepository::class
+        );
+
+        $this->app->bind(
+            BrowseStoreRepositoryInterface::class,
+            BrowseStoreRepository::class
+        );
+        $this->app->bind(
+            StudentMarketplaceRepositoryInterface::class,
+            StudentMarketplaceRepository::class
         );
     }
 
