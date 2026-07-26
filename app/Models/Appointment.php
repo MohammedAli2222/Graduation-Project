@@ -71,4 +71,18 @@ class Appointment extends Model
         // إذا كان أكثر من سلوت، ندمجهم بطريقة جميلة
         return implode(' & ', $ranges);
     }
+
+    public function getIsFollowUpAttribute(): bool
+    {
+        // إذا لم يكن هناك علاج مرتبط، فهو ليس follow-up
+        if (! $this->treatment_id) {
+            return false;
+        }
+
+        // نفحص ما إذا كان هناك موعد بنفس الـ treatment_id أنشئ قبله
+        // نستخدم created_at أو id للمقارنة
+        return Appointment::where('treatment_id', $this->treatment_id)
+            ->where('id', '<', $this->id)
+            ->exists();
+    }
 }
