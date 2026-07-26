@@ -78,7 +78,14 @@ class AppointmentRepository
         return Appointment::where('student_id', $studentId)
             ->where('status', AppointmentStatus::SCHEDULED->value)
             ->where('appointment_date', '>=', $today)
+            ->addSelect([
+                'first_appointment_id' => Appointment::select('id')
+                    ->whereColumn('treatment_id', 'appointments.treatment_id')
+                    ->orderBy('id', 'asc')
+                    ->limit(1)
+            ])
             ->with([
+                'treatment:id,status',
                 'diagnosis.caseType:id,name',
                 'diagnosis.patient:id,full_name,phone',
                 'diagnosis.department:id,name'
@@ -103,7 +110,14 @@ class AppointmentRepository
                             ->where('appointment_date', '<', $today);
                     });
             })
+            ->addSelect([
+                'first_appointment_id' => Appointment::select('id')
+                    ->whereColumn('treatment_id', 'appointments.treatment_id')
+                    ->orderBy('id', 'asc')
+                    ->limit(1)
+            ])
             ->with([
+                'treatment:id,status',
                 'diagnosis.caseType:id,name',
                 'diagnosis.patient:id,full_name,phone',
                 'diagnosis.department:id,name'
