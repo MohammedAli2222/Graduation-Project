@@ -9,7 +9,7 @@ use App\Http\Requests\Store\StoreProductRequest;
 use App\Http\Requests\Store\UpdateStoreProductRequest;
 use App\Http\Resources\Store\ProductResource;
 use App\Models\Category;
-use App\Services\Store\StoreProductService;
+use App\Services\Unified\SellerProductService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -18,10 +18,12 @@ use Exception;
 
 class StoreProductController extends Controller
 {
+    /**
+     * حقن الخدمة الموحدة.
+     */
     public function __construct(
-        protected StoreProductService $productService
+        protected SellerProductService $productService
     ) {}
-
 
     public function index(Request $request): JsonResponse
     {
@@ -29,10 +31,9 @@ class StoreProductController extends Controller
             /** @var \App\Models\User $user */
             $user = Auth::user();
 
-            $page = (int) $request->query('page', 1);
             $perPage = (int) $request->query('per_page', 15);
 
-            $products = $this->productService->listStoreProducts($user->id, $perPage);
+            $products = $this->productService->listProducts($user->id, $perPage);
 
             $resourceData = ProductResource::collection($products)->response()->getData(true);
 
@@ -43,7 +44,6 @@ class StoreProductController extends Controller
         }
     }
 
-
     public function store(StoreProductRequest $request): JsonResponse
     {
         try {
@@ -51,14 +51,13 @@ class StoreProductController extends Controller
             $user = Auth::user();
 
             $validated = $request->validated();
-
             $images = $request->file('images');
 
             $product = $this->productService->createProduct($user->id, $validated, $images);
 
             return response_success(
                 new ProductResource($product),
-                201, // Created
+                201, 
                 'تم إضافة المنتج بنجاح.'
             );
         } catch (Exception $e) {
@@ -67,15 +66,16 @@ class StoreProductController extends Controller
         }
     }
 
-
     public function update(UpdateStoreProductRequest $request, int $productId): JsonResponse
     {
         try {
             /** @var \App\Models\User $user */
             $user = Auth::user();
+            
             $validated = $request->validated();
+            $images = $request->file('images');
 
-            $product = $this->productService->updateProduct($user->id, $productId, $validated);
+            $product = $this->productService->updateProduct($user->id, $productId, $validated, $images);
 
             return response_success(
                 new ProductResource($product),
@@ -102,11 +102,7 @@ class StoreProductController extends Controller
 
             $this->productService->deleteProduct($user->id, $productId);
 
-            return response_success(
-                null,
-                200,
-                'تم حذف المنتج بنجاح.'
-            );
+            return response_success(null, 200, 'تم حذف المنتج بنجاح.');
         } catch (Exception $e) {
             $statusCode = ($e->getCode() === 404) ? 404 : 500;
 
@@ -137,7 +133,6 @@ class StoreProductController extends Controller
     public function getCategoriesDropdown(): JsonResponse
     {
         $categories = Category::select('id', 'name')->get();
-
         return response_success($categories, 200, 'تم جلب الفئات بنجاح.');
     }
 }

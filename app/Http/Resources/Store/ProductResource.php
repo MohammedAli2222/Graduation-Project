@@ -23,6 +23,7 @@ class ProductResource extends JsonResource
             'brand'               => $this->brand,
             'availability_status' => $this->availability_status?->value ?? $this->availability_status,
             'condition'           => $this->condition?->value ?? $this->condition,
+            'quantity' => (int) $this->quantity,
 
             'category'            => $this->whenLoaded('category', function () {
                 return [
@@ -30,7 +31,7 @@ class ProductResource extends JsonResource
                     'name' => $this->category->name,
                 ];
             }),
-           // الجدار الأمني/البيانات: إرجاع بيانات البائع مع رقم الهاتف الصحيح
+            // الجدار الأمني/البيانات: إرجاع بيانات البائع مع رقم الهاتف الصحيح
             'seller'              => $this->whenLoaded('seller', function () {
 
                 $phone = 'رقم الهاتف غير متوفر';

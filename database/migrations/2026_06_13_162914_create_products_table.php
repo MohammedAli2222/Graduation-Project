@@ -29,14 +29,16 @@ return new class extends Migration
 
             // حالات المنتج باستخدام الـ Enums
             $table->enum('availability_status', array_column(ProductAvailability::cases(), 'value'))
-                  ->default(ProductAvailability::AVAILABLE->value);
+                ->default(ProductAvailability::AVAILABLE->value);
 
             $table->enum('condition', array_column(ProductCondition::cases(), 'value'))
-                  ->default(ProductCondition::NEW->value);
+                ->default(ProductCondition::NEW->value);
+
+            $table->unsignedInteger('quantity')->default(1);
 
             $table->timestamps();
 
-        
+
             $table->index('store_id');
             $table->index('category_id');
             $table->index('availability_status');

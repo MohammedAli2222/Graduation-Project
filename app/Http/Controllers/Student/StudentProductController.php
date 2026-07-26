@@ -5,11 +5,11 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Student;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\Store\StoreProductRequest; // تم الاستيراد بنجاح
+use App\Http\Requests\Store\StoreProductRequest;
 use App\Http\Requests\Store\UpdateStoreProductRequest;
 use App\Http\Resources\Store\ProductResource;
 use App\Models\Product;
-use App\Repositories\Contracts\ProductRepositoryInterface;
+use App\Services\Unified\SellerProductService; // استدعاء الخدمة الموحدة
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -18,13 +18,10 @@ use Exception;
 
 class StudentProductController extends Controller
 {
-    /**
-     * حقن مستودع المنتجات.
-     */
+  
     public function __construct(
-        protected ProductRepositoryInterface $productRepo
+        protected SellerProductService $productService
     ) {}
-
 
     public function index(): JsonResponse
     {
@@ -32,44 +29,31 @@ class StudentProductController extends Controller
             /** @var \App\Models\User $user */
             $user = Auth::user();
 
-            $products = Product::query()
-                ->where('store_id', $user->id)
-                ->latest()
-                ->get();
+            $products = $this->productService->listProducts($user->id, 50);
 
-            return response_success(
-                ProductResource::collection($products),
-                200,
-                'تم جلب منتجاتك المعروضة للبيع بنجاح.'
-            );
+            $resourceData = ProductResource::collection($products)->response()->getData(true);
+
+            return response_success($resourceData, 200, 'تم جلب منتجاتك المعروضة للبيع بنجاح.');
         } catch (Exception $e) {
             Log::error("خطأ في جلب منتجات الطالب البائع: " . $e->getMessage());
             return response_error(null, 500, 'حدث خطأ داخلي أثناء جلب البيانات.');
         }
     }
 
-    /**
-     * إضافة أداة طبية جديدة من قبل الطالب لغرض البيع باستخدام التحقق الموحد.
-     */
     public function store(StoreProductRequest $request): JsonResponse
     {
         try {
             /** @var \App\Models\User $user */
             $user = Auth::user();
 
-            // التحقق من الصلاحية الأمنية عبر الـ Policy
             if (! Gate::allows('create', Product::class)) {
                 return response_error(null, 403, 'غير مصرح لك بنشر منتجات للبيع.');
             }
 
-            // استخراج البيانات بعد التحقق منها عبر StoreProductRequest
             $validated = $request->validated();
+            $images = $request->file('images'); // استخراج الصور
 
-            // ربط المنتج بالطالب مباشرة
-            $validated['store_id'] = $user->id;
-
-            // إنشاء المنتج
-            $product = Product::create($validated);
+            $product = $this->productService->createProduct($user->id, $validated, $images);
 
             return response_success(
                 new ProductResource($product),
@@ -82,25 +66,21 @@ class StudentProductController extends Controller
         }
     }
 
-    /**
-     * تحديث بيانات أداة معروضة من قبل الطالب باستخدام التحقق الموحد.
-     */
     public function update(UpdateStoreProductRequest $request, Product $product): JsonResponse
     {
         try {
-            // الجدار الأمني: التأكد أن الطالب هو صاحب المنتج
             if (! Gate::allows('update', $product)) {
                 return response_error(null, 403, 'عملية مرفوضة أمنياً: لا تمتلك صلاحية تعديل هذا المنتج.');
             }
 
-            // استخراج البيانات المحدثة (يفترض أن واجهة الفلاتر ترسل جميع الحقول المطلوبة كـ PUT Request)
             $validated = $request->validated();
+            $images = $request->file('images');
 
-            // تحديث البيانات
-            $product->update($validated);
+            // تحديث البيانات ومعالجة أي صور جديدة عبر الطابور
+            $updatedProduct = $this->productService->updateProduct($user->id, $product->id, $validated, $images);
 
             return response_success(
-                new ProductResource($product),
+                new ProductResource($updatedProduct),
                 200,
                 'تم تحديث بيانات الأداة الطبية بنجاح.'
             );
@@ -110,18 +90,17 @@ class StudentProductController extends Controller
         }
     }
 
-    /**
-     * حذف الأداة الطبية المعروضة.
-     */
     public function destroy(Product $product): JsonResponse
     {
         try {
-            // الجدار الأمني: التحقق من ملكية الطالب للمنتج
             if (! Gate::allows('delete', $product)) {
                 return response_error(null, 403, 'عملية مرفوضة أمنياً: لا يمكنك حذف منتج لا تملكه.');
             }
 
-            $product->delete();
+            /** @var \App\Models\User $user */
+            $user = Auth::user();
+
+            $this->productService->deleteProduct($user->id, $product->id);
 
             return response_success(null, 200, 'تم سحب الأداة وحذفها من المنصة بنجاح.');
         } catch (Exception $e) {

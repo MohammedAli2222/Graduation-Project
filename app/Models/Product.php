@@ -28,15 +28,42 @@ class Product extends Model implements HasMedia
         'brand',
         'availability_status',
         'condition',
+        'quantity',
     ];
 
     protected $casts = [
         'price'               => 'float',
         'availability_status' => ProductAvailability::class,
         'condition'           => ProductCondition::class,
+        'quantity' => 'integer',
     ];
 
     protected $with = ['media'];
+
+
+    protected static function booted(): void
+    {
+        static::saving(function (Product $product) {
+            
+            // 1. حماية المخزون: منع الكمية من أن تكون أقل من الصفر أبداً
+            if ($product->quantity <= 0) {
+                $product->quantity = 0;
+                $product->availability_status = ProductAvailability::OUT_OF_STOCK->value;
+            } 
+            
+            elseif ($product->quantity > 0) {
+                // استخراج القيمة النصية للحالة سواء كانت Enum Object أو String
+                $currentStatus = $product->availability_status instanceof ProductAvailability 
+                    ? $product->availability_status->value 
+                    : $product->availability_status;
+
+                // إذا كانت الحالة الحالية "نفد من المخزون"، نقوم بإعادتها فوراً إلى "متوفر"
+                if ($currentStatus === ProductAvailability::OUT_OF_STOCK->value) {
+                    $product->availability_status = ProductAvailability::AVAILABLE->value;
+                }
+            }
+        });
+    }
 
     /**
      * علاقة المنتج بصاحب المتجر الرسمي.

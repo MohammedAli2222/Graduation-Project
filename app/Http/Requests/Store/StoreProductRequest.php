@@ -42,6 +42,7 @@ class StoreProductRequest extends FormRequest
             'description'         => ['required', 'string'],
             'price'               => ['required', 'numeric', 'min:0.01', 'max:999999.99'],
             'brand'               => ['nullable', 'string', 'max:255'],
+            'quantity'            => ['required', 'integer', 'min:1'],
 
             // التحقق المتقدم من الـ Enums (سيمر بنجاح دائماً بفضل القيمة الافتراضية في الأعلى)
             'availability_status' => ['required', Rule::enum(ProductAvailability::class)],

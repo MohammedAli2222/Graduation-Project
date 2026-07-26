@@ -48,4 +48,25 @@ class OrderRepository implements OrderRepositoryInterface
     {
         return $this->model->create($orderData);
     }
+
+    public function getStudentPurchasesOptimized(int $studentId, int $perPage = 15): LengthAwarePaginator
+    {
+        return $this->model->newQuery()
+            ->where('student_id', $studentId)
+            ->with(['store.storeProfile', 'store.studentProfile', 'orderItems.product:id,name'])
+            ->latest()
+            ->paginate($perPage);
+    }
+
+    /**
+     * جلب تفاصيل طلب محدد ضمن مشتريات الطالب.
+     */
+    public function findStudentPurchase(int $studentId, int $orderId): ?Order
+    {
+        return $this->model->newQuery()
+            ->where('student_id', $studentId)
+            ->where('id', $orderId)
+            ->with(['store.storeProfile', 'store.studentProfile', 'orderItems.product:id,name'])
+            ->first();
+    }
 }
