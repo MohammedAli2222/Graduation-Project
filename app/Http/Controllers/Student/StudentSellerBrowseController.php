@@ -25,16 +25,15 @@ class StudentSellerBrowseController extends Controller
     {
         try {
             $perPage = (int) $request->query('per_page', 15);
+            // 1. استقبال الفلاتر
+            $filters = $request->only(['search', 'category_id', 'condition']);
 
-            $products = $this->marketplaceService->getAllStudentProducts($perPage);
+            // 2. تمرير الفلاتر للخدمة
+            $products = $this->marketplaceService->getAllStudentProducts($filters, $perPage);
 
             $paginatedData = ProductResource::collection($products)->response()->getData(true);
 
-            return response_success(
-                $paginatedData,
-                200,
-                'تم جلب منتجات الزملاء الطلاب بنجاح.'
-            );
+            return response_success($paginatedData, 200, 'تم جلب منتجات الزملاء الطلاب بنجاح.');
         } catch (Exception $e) {
             Log::error("خطأ أثناء جلب منتجات الطلاب: " . $e->getMessage());
             return response_error(null, 500, 'حدث خطأ داخلي أثناء جلب البيانات.');

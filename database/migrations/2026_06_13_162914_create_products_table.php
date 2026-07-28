@@ -9,15 +9,15 @@ use Illuminate\Support\Facades\Schema;
 return new class extends Migration
 {
     /**
-     * Run the migrations.
+     * تشغيل التهجير وإنشاء الجداول مع الفهارس المحسنة.
      */
     public function up(): void
     {
         Schema::create('products', function (Blueprint $table) {
             $table->id();
 
+            // المفاتيح الأجنبية (تقوم Laravel بإنشاء فهارس لها تلقائياً بسبب استخدام constrained)
             $table->foreignId('store_id')->constrained('users')->cascadeOnDelete();
-
             $table->foreignId('category_id')->constrained('categories')->restrictOnDelete();
 
             $table->string('name');
@@ -38,16 +38,16 @@ return new class extends Migration
 
             $table->timestamps();
 
-
-            $table->index('store_id');
-            $table->index('category_id');
             $table->index('availability_status');
             $table->index('condition');
+            $table->index('created_at');
+
+            $table->fullText(['name', 'description']);
         });
     }
 
     /**
-     * Reverse the migrations.
+     * التراجع عن التهجير.
      */
     public function down(): void
     {
