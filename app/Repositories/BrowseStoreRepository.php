@@ -18,7 +18,7 @@ class BrowseStoreRepository implements BrowseStoreRepositoryInterface
         protected Product $productModel
     ) {}
 
-    
+
     public function getAllStores(int $perPage = 15): LengthAwarePaginator
     {
         $page = Paginator::resolveCurrentPage();
@@ -34,15 +34,19 @@ class BrowseStoreRepository implements BrowseStoreRepositoryInterface
         });
     }
 
-    public function getStoreProducts(int $storeId, int $perPage = 15): LengthAwarePaginator
+   public function getStoreProducts(int $storeId, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
         $page = Paginator::resolveCurrentPage();
-        $cacheKey = "store_{$storeId}_products_per_page_{$perPage}_page_{$page}";
 
-        return Cache::tags(['stores', 'b2c', "store_{$storeId}"])->remember($cacheKey, 86400, function () use ($storeId, $perPage) {
+        // استخدام نفس استراتيجية الهاش للفلاتر
+        $filterHash = md5(json_encode($filters));
+        $cacheKey = "store_{$storeId}_products_per_page_{$perPage}_page_{$page}_filters_{$filterHash}";
+
+        return Cache::tags(['stores', 'b2c', "store_{$storeId}"])->remember($cacheKey, 86400, function () use ($storeId, $filters, $perPage) {
             return $this->productModel->newQuery()
                 ->where('store_id', $storeId)
                 ->where('availability_status', 'available')
+                ->filter($filters) // السكوب السحري يعمل هنا أيضاً
                 ->with(['category', 'media', 'seller.storeProfile'])
                 ->latest()
                 ->paginate($perPage);

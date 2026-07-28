@@ -13,15 +13,15 @@ class BrowseStoreService
         protected BrowseStoreRepositoryInterface $browseStoreRepo
     ) {}
 
-  
+
     public function getStores(int $perPage = 15): LengthAwarePaginator
     {
         return $this->browseStoreRepo->getAllStores($perPage);
     }
 
 
-    public function getStoreProducts(int $storeId, int $perPage = 15): LengthAwarePaginator
+    public function getStoreProducts(int $storeId, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        return $this->browseStoreRepo->getStoreProducts($storeId, $perPage);
+        return $this->browseStoreRepo->getStoreProducts($storeId, $filters, $perPage);
     }
 }

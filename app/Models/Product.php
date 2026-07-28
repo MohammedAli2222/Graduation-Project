@@ -44,17 +44,15 @@ class Product extends Model implements HasMedia
     protected static function booted(): void
     {
         static::saving(function (Product $product) {
-            
+
             // 1. حماية المخزون: منع الكمية من أن تكون أقل من الصفر أبداً
             if ($product->quantity <= 0) {
                 $product->quantity = 0;
                 $product->availability_status = ProductAvailability::OUT_OF_STOCK->value;
-            } 
-            
-            elseif ($product->quantity > 0) {
+            } elseif ($product->quantity > 0) {
                 // استخراج القيمة النصية للحالة سواء كانت Enum Object أو String
-                $currentStatus = $product->availability_status instanceof ProductAvailability 
-                    ? $product->availability_status->value 
+                $currentStatus = $product->availability_status instanceof ProductAvailability
+                    ? $product->availability_status->value
                     : $product->availability_status;
 
                 // إذا كانت الحالة الحالية "نفد من المخزون"، نقوم بإعادتها فوراً إلى "متوفر"
@@ -63,6 +61,23 @@ class Product extends Model implements HasMedia
                 }
             }
         });
+    }
+
+
+    public function scopeFilter($query, array $filters): void
+    {
+        $query->when($filters['search'] ?? null, function ($q, $search) {
+            $q->where(function ($query) use ($search) {
+                $query->where('name', 'like', "%{$search}%")
+                    ->orWhere('description', 'like', "%{$search}%");
+            });
+        })
+            ->when($filters['category_id'] ?? null, function ($q, $categoryId) {
+                $q->where('category_id', $categoryId);
+            })
+            ->when($filters['condition'] ?? null, function ($q, $condition) {
+                $q->where('condition', $condition);
+            });
     }
 
     /**

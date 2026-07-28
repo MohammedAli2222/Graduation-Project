@@ -17,17 +17,21 @@ class StudentMarketplaceRepository implements StudentMarketplaceRepositoryInterf
         protected Product $model
     ) {}
 
-    public function getAllStudentProducts(int $perPage = 15): LengthAwarePaginator
+   public function getAllStudentProducts(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
         $page = Paginator::resolveCurrentPage();
-        $cacheKey = "student_products_per_page_{$perPage}_page_{$page}";
 
-        return Cache::tags(['student_products', 'c2c'])->remember($cacheKey, 300, function () use ($perPage) {
+        // هندسة مفتاح الكاش: نقوم بتوليد Hash من الفلاتر لضمان عدم اختلاط النتائج
+        $filterHash = md5(json_encode($filters));
+        $cacheKey = "student_products_per_page_{$perPage}_page_{$page}_filters_{$filterHash}";
+
+        return Cache::tags(['student_products', 'c2c'])->remember($cacheKey, 300, function () use ($filters, $perPage) {
             return $this->model->newQuery()
                 ->where('availability_status', 'available')
                 ->whereHas('seller', function ($query) {
                     $query->role('student');
                 })
+                ->filter($filters) // استدعاء السكوب السحري هنا!
                 ->with(['category', 'media', 'seller.studentProfile'])
                 ->latest()
                 ->paginate($perPage);

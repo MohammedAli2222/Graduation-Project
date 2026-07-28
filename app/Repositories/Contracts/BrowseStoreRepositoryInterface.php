@@ -10,5 +10,5 @@ interface BrowseStoreRepositoryInterface
 {
     public function getAllStores(int $perPage = 15): LengthAwarePaginator;
 
-    public function getStoreProducts(int $storeId, int $perPage = 15): LengthAwarePaginator;
+    public function getStoreProducts( int $storeId,array $filters = [],int $perPage = 15): LengthAwarePaginator;
 }

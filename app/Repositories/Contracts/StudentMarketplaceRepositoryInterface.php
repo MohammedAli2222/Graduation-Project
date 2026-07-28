@@ -13,7 +13,7 @@ interface StudentMarketplaceRepositoryInterface
     /**
      * جلب جميع الأدوات المعروضة للبيع من قبل الطلاب فقط (وليس المتاجر).
      */
-    public function getAllStudentProducts(int $perPage = 15): LengthAwarePaginator;
+    public function getAllStudentProducts(array $filters = [] , int $perPage = 15): LengthAwarePaginator;
 
     /**
      * جلب تفاصيل أداة محددة.

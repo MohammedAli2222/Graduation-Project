@@ -47,8 +47,9 @@ class BrowseStoreController extends Controller
     public function showStoreProducts(Request $request, int $id): JsonResponse
     {
         $perPage = (int) $request->query('per_page', 15);
+        $filters = $request->only(['search', 'category_id', 'condition']); // استقبال الفلاتر
 
-        $products = $this->browseStoreService->getStoreProducts($id, $perPage);
+        $products = $this->browseStoreService->getStoreProducts($id, $filters, $perPage);
 
         return response()->json([
             'status'  => 200,

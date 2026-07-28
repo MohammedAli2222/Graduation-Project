@@ -16,12 +16,12 @@ class StudentMarketplaceService
     /**
      * جلب جميع الأدوات المعروضة في سوق الطلاب.
      */
-    public function getAllStudentProducts(int $perPage = 15): LengthAwarePaginator
+  public function getAllStudentProducts(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        return $this->repository->getAllStudentProducts($perPage);
+        return $this->repository->getAllStudentProducts($filters, $perPage);
     }
 
-    
+
     public function getProductWithSellerOthers(int $productId): array
     {
         $product = $this->repository->getProductDetails($productId);
