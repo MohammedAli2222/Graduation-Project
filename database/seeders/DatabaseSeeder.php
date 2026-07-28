@@ -14,20 +14,11 @@ class DatabaseSeeder extends Seeder
 {
     use WithoutModelEvents;
 
-    /**
-     * Seed the application's database.
-     *
-     * Order matters: each group below depends on rows created by the
-     * previous one, so this must stay sequential to avoid FK violations.
-     *   1. Roles, groups, permissions, departments/courses, case types, categories.
-     *   2. Marketplace participants (stores, students) — depend on roles + groups.
-     *   3. Catalog (products) — depends on stores + categories.
-     *   4. Transactions (orders + order items) — depend on students + products.
-     */
     public function run(): void
     {
         Cache::flush();
 
+        // 1. الأساسيات والبيانات المرجعية (Base Data & Lookups)
         $this->call([
             RoleSeeder::class,
             GroupSeeder::class,
@@ -37,16 +28,26 @@ class DatabaseSeeder extends Seeder
             CategorySeeder::class,
         ]);
 
+        // 2. إنشاء المستخدمين والهيكل الأكاديمي المتقدم
         $this->call([
             StoreSeeder::class,
             StudentSeeder::class,
+            AcademicModuleSeeder::class, // ينشئ المشرفين ويربطهم بالمجموعات والأقسام
         ]);
 
+        // 3. القسم الطبي الشامل (Medical Module)
+        $this->call([
+            MedicalModuleSeeder::class, // ينشئ المرضى، التشخيصات، العلاجات، والمواعيد
+        ]);
+
+        // 4. التجارة الإلكترونية الأساسية والمتقدمة (E-commerce Module)
         $this->call([
             ProductSeeder::class,
             OrderSeeder::class,
+            EcommerceModuleSeeder::class, // ينشئ العروض الترويجية والسلات للطلاب
         ]);
 
+        // 5. إنشاء حساب موظف الاستقبال (Receptionist)
         $receptionist = User::firstOrCreate(
             ['email' => 'receptionist@hospital.com'],
             [
