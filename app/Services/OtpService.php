@@ -11,7 +11,7 @@ class OtpService
     public function generateAndSendOtp(User $user): void
     {
 
-        $otpCode = (string) rand(100000, 999999);
+        $otpCode = (string) random_int(100000, 999999);
 
         Cache::put('otp_user_'.$user->id, $otpCode, 300);
 

@@ -1,7 +1,5 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Database\Seeders;
 
 use App\Models\Category;
@@ -9,11 +7,20 @@ use Illuminate\Database\Seeder;
 
 class CategorySeeder extends Seeder
 {
-    /**
-     * Seed the full 20-category dental supplies taxonomy.
-     */
     public function run(): void
     {
-        Category::factory()->count(20)->create();
+        $categories = [
+            ['name' => 'أدوات طب الأسنان', 'description' => 'كافة الأدوات اليدوية والمستلزمات العيادية'],
+            ['name' => 'مواد الحشو والترميم', 'description' => 'مواد الكومبوزيت والأملغم والمواد الرابطة'],
+            ['name' => 'معدات الوقاية والتعقيم', 'description' => 'كمامات، قفازات، ومواد التعقيم والتطهير'],
+            ['name' => 'أجهزة طب الأسنان', 'description' => 'الأجهزة الكبيرة والصغيرة المستخدمة في العيادة'],
+            ['name' => 'مستلزمات الأشعة', 'description' => 'أفلام الأشعة وحواملها ومواد التحميض'],
+            ['name' => 'أدوات تقويم الأسنان', 'description' => 'أسلاك، حاصرات، ومطاط التقويم'],
+            ['name' => 'مواد التخدير', 'description' => 'أمبولات التخدير الموضعي والإبر السنية'],
+        ];
+
+        foreach ($categories as $category) {
+            Category::create($category);
+        }
     }
 }

@@ -58,6 +58,21 @@ class CartRepository implements CartRepositoryInterface
     }
 
 
+    public function updateItemQuantity(Cart $cart, int $cartItemId, int $quantity): ?CartItem
+    {
+        $item = $this->itemModel->where('cart_id', $cart->id)
+            ->where('id', $cartItemId)
+            ->first();
+
+        if ($item) {
+            $item->quantity = $quantity;
+            $item->save();
+            return $item;
+        }
+
+        return null;
+    }
+
     public function clearCart(Cart $cart): bool
     {
         return $this->itemModel->where('cart_id', $cart->id)->delete() > 0;

@@ -22,9 +22,7 @@ class AuthService
 
         $this->otpService->verifyOtp($userId, $code);
 
-        $user->update([
-            'email_verified_at' => now(),
-        ]);
+        $user->forceFill(['email_verified_at' => now()])->save();
         $user->load($this->getRelationName($user->roles->first()->name));
 
         $user->tokens()->delete();
@@ -49,6 +47,9 @@ class AuthService
             $this->otpService->generateAndSendOtp($user);
 
             $token = $user->createToken('verification_token', ['verify-otp'])->plainTextToken;
+
+            // إرسال مهمة خلفية مؤجلة لمدة 1 ساعة لحذف المستخدم وتوكنه إذا لم يقم بتأكيد الـ OTP
+            \App\Jobs\DeleteUnverifiedUserJob::dispatch($user->id)->delay(now()->addHour());
 
             return [
                 'user' => $user->load($this->getRelationName($data['role'])),

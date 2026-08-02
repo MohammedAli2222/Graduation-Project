@@ -158,21 +158,22 @@ class AppointmentRepository
     public function isDepartmentFull(int $departmentId, string $date, int $start, int $end): bool
     {
         $department = Department::find($departmentId);
-        $maxChairs = $department->total_chairs;
+        $maxChairs  = $department->total_chairs;
 
-        // بما أن الموعد قد يغطي عدة سلوتس، يجب أن نتحقق من كل سلوت على حدة
+        // التحقق من كل slot باستخدام JOIN مباشر بدلاً من whereHas (subquery)
+        // هذا يُنفذ query واحدة لكل slot مع أداء أفضل
         for ($i = $start; $i <= $end; $i++) {
-            $reservedChairsCount = Appointment::whereIn('status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
-                ->whereDate('appointment_date', $date)
-                ->where('start_slot', '<=', $i) // الموعد بدأ قبل أو في هذا السلوت
-                ->where('end_slot', '>=', $i)   // الموعد انتهى بعد أو في هذا السلوت
-                ->whereHas('diagnosis', function ($query) use ($departmentId) {
-                    $query->where('department_id', $departmentId);
-                })
+            $reservedCount = \DB::table('appointments')
+                ->join('patient_diagnoses', 'appointments.diagnosis_id', '=', 'patient_diagnoses.id')
+                ->whereIn('appointments.status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
+                ->whereDate('appointments.appointment_date', $date)
+                ->where('patient_diagnoses.department_id', $departmentId)
+                ->where('appointments.start_slot', '<=', $i)
+                ->where('appointments.end_slot', '>=', $i)
                 ->count();
 
-            if ($reservedChairsCount >= $maxChairs) {
-                return true; // القسم ممتلئ في هذا السلوت المحدد
+            if ($reservedCount >= $maxChairs) {
+                return true; // القسم ممتلئ في هذا السلوت
             }
         }
 

@@ -1,77 +1,76 @@
 <?php
 
-declare(strict_types=1);
-
 namespace Database\Factories;
 
-use App\Models\StoreProfile;
-use App\Models\StudentProfile;
-use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
 
-/**
- * @extends Factory<User>
- */
 class UserFactory extends Factory
 {
-    protected $model = User::class;
-
-    /**
-     * تخزين كلمة المرور المشفرة مؤقتاً لتجنب إعادة تشفيرها 500+ مرة أثناء الـ Seeding.
-     */
-    protected static ?string $password = null;
+    protected static ?string $password;
 
     public function definition(): array
     {
+        $maleFirstNames = ['محمد', 'أحمد', 'خالد', 'عمر', 'يامن', 'فراس', 'وائل', 'مصطفى', 'إبراهيم', 'علي', 'حسن', 'يزن', 'عبد الله', 'نور الدين', 'طارق', 'سامر', 'باسل', 'رامي', 'عماد', 'زياد'];
+        $femaleFirstNames = ['مريم', 'فاطمة', 'شام', 'ريم', 'لانا', 'تالا', 'نرمين', 'جوري', 'أمل', 'سارة', 'هلا', 'رفيف', 'ميرال', 'دانا', 'نجاح', 'سوار', 'إيمان', 'رهف', 'يارا', 'لجين'];
+        $lastNames = ['الأحمد', 'الخطيب', 'السيد', 'الزين', 'العمر', 'المصري', 'الأسعد', 'النابلسي', 'الشيخ', 'البني', 'الحسين', 'الصالح', 'الكردي', 'القاضي', 'السلمان', 'الرفاعي', 'الجابر', 'العثمان', 'الدرويش', 'الحمصي'];
+
+        $isMale = fake()->boolean();
+        $firstName = $isMale ? fake()->randomElement($maleFirstNames) : fake()->randomElement($femaleFirstNames);
+        $lastName = fake()->randomElement($lastNames);
+
         return [
-            'first_name' => $this->faker->firstName(),
-            'last_name' => $this->faker->lastName(),
-            'email' => $this->faker->unique()->safeEmail(),
+            'first_name' => $firstName,
+            'last_name' => $lastName,
+            'email' => fake()->unique()->safeEmail(),
             'email_verified_at' => now(),
-            'password' => self::$password ??= Hash::make('password'),
+            'password' => static::$password ??= Hash::make('password'),
             'remember_token' => Str::random(10),
         ];
     }
 
     public function unverified(): static
     {
-        return $this->state(fn (array $attributes): array => [
+        return $this->state(fn (array $attributes) => [
             'email_verified_at' => null,
         ]);
     }
 
-    /**
-     * تحويل هذا المستخدم إلى صاحب متجر أدوات سنية رسمي،
-     * مع تعيين الصلاحيات (Role) وإنشاء ملف المتجر الشخصي.
-     */
     public function asStoreOwner(): static
     {
-        return $this->afterCreating(function (User $user): void {
+        return $this->afterCreating(function (\App\Models\User $user) {
             if (! $user->hasRole('store_owner')) {
                 $user->assignRole('store_owner');
             }
-
             if (! $user->storeProfile) {
-                StoreProfile::factory()->for($user)->create();
+                $user->storeProfile()->create([
+                    'store_name' => 'مستودع ' . $user->last_name . ' للوازم طب الأسنان',
+                    'store_phone' => '011' . rand(2000000, 9999999),
+                    'store_address' => 'دمشق - ' . fake()->randomElement(['البحصة', 'الحريقة', 'المزة', 'كفرسوسة']),
+                ]);
             }
         });
     }
 
-    /**
-     * تحويل هذا المستخدم إلى طالب طب أسنان في الجامعة،
-     * مع تعيين الصلاحيات وإنشاء الملف الشخصي للطالب.
-     */
     public function student(): static
     {
-        return $this->afterCreating(function (User $user): void {
+        return $this->afterCreating(function (\App\Models\User $user) {
             if (! $user->hasRole('student')) {
                 $user->assignRole('student');
             }
-
             if (! $user->studentProfile) {
-                StudentProfile::factory()->for($user)->create();
+                $academicYear = fake()->randomElement([4, 5]);
+                $group = \App\Models\Group::where('academic_year', $academicYear)->inRandomOrder()->first();
+
+                $user->studentProfile()->create([
+                    'group_id' => $group?->id ?? 1,
+                    'phone' => '09' . rand(3, 9) . rand(1000000, 9999999),
+                    'university' => 'جامعة دمشق - كلية طب الأسنان',
+                    'exam_number' => fake()->unique()->numerify('2024#####'),
+                    'academic_year' => $academicYear,
+                    'semester' => fake()->randomElement([1, 2]),
+                ]);
             }
         });
     }

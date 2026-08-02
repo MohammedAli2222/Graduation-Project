@@ -27,6 +27,7 @@ class UpdateStoreProductRequest extends FormRequest
             'name'                => ['sometimes', 'string', 'max:255'],
             'description'         => ['sometimes', 'string'],
             'price'               => ['sometimes', 'numeric', 'min:0.01', 'max:999999.99'],
+            'quantity'            => ['sometimes', 'integer', 'min:0'],
             'brand'               => ['nullable', 'string', 'max:255'],
 
             'availability_status' => ['sometimes', Rule::enum(ProductAvailability::class)],

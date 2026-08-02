@@ -3,101 +3,55 @@
 namespace Database\Seeders;
 
 use App\Models\Department;
+use App\Models\Course;
 use Illuminate\Database\Seeder;
 
 class DepartmentAndCourseSeeder extends Seeder
 {
-    /**
-     * Run the database seeds.
-     */
     public function run(): void
     {
-        // ==========================================================================
-        // 1. قسم المداواة والترميم
-        // ==========================================================================
-        $restorative = Department::create([
-            'name' => 'قسم المداواة والترميم',
-            'description' => 'يشمل الحشوات التجميلية، ترميم الأسنان، وعلاج الجذور وسحب العصب.',
-        ]);
+        $departmentsData = [
+            'Restorative' => Department::create(['name' => 'قسم المداواة والترميم', 'total_chairs' => 12, 'description' => 'يعنى هذا القسم بالمداواة الترميمية واللبية']),
+            'Oral Surgery' => Department::create(['name' => 'قسم جراحة الفم والفكين', 'total_chairs' => 8, 'description' => 'يعنى بقلع الأسنان والعمليات الجراحية الصغرى والكبرى']),
+            'Prosthodontics' => Department::create(['name' => 'قسم التعويضات السنية', 'total_chairs' => 10, 'description' => 'يختص بالتعويضات الثابتة والمتحركة']),
+            'Pediatric' => Department::create(['name' => 'قسم طب أسنان الأطفال والوقائي', 'total_chairs' => 6, 'description' => 'مختص بمعالجة أسنان الأطفال والإجراءات الوقائية']),
+            'Orthodontics' => Department::create(['name' => 'قسم تقويم الأسنان والفكين', 'total_chairs' => 8, 'description' => 'يعنى بتقويم الأسنان وتعديل التشوهات الفكية']),
+            'Periodontics' => Department::create(['name' => 'قسم أمراض النسج حول السنية', 'total_chairs' => 10, 'description' => 'مختص بأمراض اللثة والنسج الداعمة']),
+            'Oral Medicine' => Department::create(['name' => 'قسم طب الفم وأمراضه', 'total_chairs' => 6, 'description' => 'مختص بالتشخيص وأمراض الفم والأشعة']),
+        ];
 
-        $restorative->courses()->createMany([
-            ['name' => 'Operative Dentistry I (مداواة ترميمية 1)', 'year' => '4', 'semester' => '1'],
-            ['name' => 'Endodontics I (مداواة لبية 1)', 'year' => '4', 'semester' => '1'],
-            ['name' => 'Operative Dentistry II (مداواة ترميمية 2)', 'year' => '4', 'semester' => '2'],
-            ['name' => 'Endodontics II (مداواة لبية 2)', 'year' => '4', 'semester' => '2'],
-            ['name' => 'Clinical Operative Dentistry (مداواة ترميمية سريرية)', 'year' => '5', 'semester' => '1'],
-            ['name' => 'Clinical Endodontics (مداواة لبية سريرية)', 'year' => '5', 'semester' => '1'],
-        ]);
+        $coursesData = [
+            // Year 4 Semester 1
+            ['name' => 'المداواة الترميمية (3)', 'department_id' => $departmentsData['Restorative']->id, 'year' => 4, 'semester' => 1],
+            ['name' => 'المداواة اللبية (1)', 'department_id' => $departmentsData['Restorative']->id, 'year' => 4, 'semester' => 1],
+            ['name' => 'جراحة الفم (التخدير والقلع 1)', 'department_id' => $departmentsData['Oral Surgery']->id, 'year' => 4, 'semester' => 1],
+            ['name' => 'التعويضات الثابتة (3)', 'department_id' => $departmentsData['Prosthodontics']->id, 'year' => 4, 'semester' => 1],
+            ['name' => 'أمراض النسج حول السنية (2)', 'department_id' => $departmentsData['Periodontics']->id, 'year' => 4, 'semester' => 1],
+            ['name' => 'طب الفم وأمراضه (1)', 'department_id' => $departmentsData['Oral Medicine']->id, 'year' => 4, 'semester' => 1],
+            
+            // Year 4 Semester 2
+            ['name' => 'المداواة اللبية (2)', 'department_id' => $departmentsData['Restorative']->id, 'year' => 4, 'semester' => 2],
+            ['name' => 'التعويضات المتحركة (2)', 'department_id' => $departmentsData['Prosthodontics']->id, 'year' => 4, 'semester' => 2],
+            ['name' => 'جراحة الفم (التخدير والقلع 2)', 'department_id' => $departmentsData['Oral Surgery']->id, 'year' => 4, 'semester' => 2],
+            ['name' => 'طب أسنان الأطفال (2)', 'department_id' => $departmentsData['Pediatric']->id, 'year' => 4, 'semester' => 2],
+            ['name' => 'تقويم الأسنان (1)', 'department_id' => $departmentsData['Orthodontics']->id, 'year' => 4, 'semester' => 2],
 
-        // ==========================================================================
-        // 2. قسم جراحة الفم والفكين
-        // ==========================================================================
-        $surgery = Department::create([
-            'name' => 'قسم جراحة الفم والفكين',
-            'description' => 'يشمل التخدير، القلع البسيط والجراحي، والعمليات الجراحية الفموية الصغرى والكبرى.',
-        ]);
+            // Year 5 Semester 1
+            ['name' => 'المداواة الترميمية السريرية (4)', 'department_id' => $departmentsData['Restorative']->id, 'year' => 5, 'semester' => 1],
+            ['name' => 'المداواة اللبية السريرية (3)', 'department_id' => $departmentsData['Restorative']->id, 'year' => 5, 'semester' => 1],
+            ['name' => 'التعويضات الثابتة السريرية (4)', 'department_id' => $departmentsData['Prosthodontics']->id, 'year' => 5, 'semester' => 1],
+            ['name' => 'التعويضات المتحركة السريرية (3)', 'department_id' => $departmentsData['Prosthodontics']->id, 'year' => 5, 'semester' => 1],
+            ['name' => 'أمراض النسج حول السنية السريرية (3)', 'department_id' => $departmentsData['Periodontics']->id, 'year' => 5, 'semester' => 1],
 
-        $surgery->courses()->createMany([
-            ['name' => 'Oral Surgery I (جراحة الفم 1 - تخدير وقلع)', 'year' => '4', 'semester' => '1'],
-            ['name' => 'Oral Surgery II (جراحة الفم 2)', 'year' => '4', 'semester' => '2'],
-            ['name' => 'Oral and Maxillofacial Surgery I (جراحة فم وفكين 1)', 'year' => '5', 'semester' => '1'],
-            ['name' => 'Oral and Maxillofacial Surgery II (جراحة فم وفكين 2)', 'year' => '5', 'semester' => '2'],
-        ]);
+            // Year 5 Semester 2
+            ['name' => 'جراحة الفم والفكين السريرية (2)', 'department_id' => $departmentsData['Oral Surgery']->id, 'year' => 5, 'semester' => 2],
+            ['name' => 'طب أسنان الأطفال السريري (3)', 'department_id' => $departmentsData['Pediatric']->id, 'year' => 5, 'semester' => 2],
+            ['name' => 'تقويم الأسنان والفكين (2)', 'department_id' => $departmentsData['Orthodontics']->id, 'year' => 5, 'semester' => 2],
+            ['name' => 'العيادة الشاملة', 'department_id' => $departmentsData['Oral Medicine']->id, 'year' => 5, 'semester' => 2],
+        ];
 
-        // ==========================================================================
-        // 3. قسم التعويضات السنية
-        // ==========================================================================
-        $prosthodontics = Department::create([
-            'name' => 'قسم التعويضات السنية',
-            'description' => 'يشمل التعويضات الثابتة (التيجان والجسور) والتعويضات المتحركة (الكاملة والجزئية).',
-        ]);
-
-        $prosthodontics->courses()->createMany([
-            ['name' => 'Fixed Prosthodontics I (تعويضات ثابتة 1)', 'year' => '4', 'semester' => '1'],
-            ['name' => 'Fixed Prosthodontics II (تعويضات ثابتة 2)', 'year' => '4', 'semester' => '2'],
-            ['name' => 'Removable Partial Prosthodontics (تعويضات متحركة)', 'year' => '5', 'semester' => '1'],
-        ]);
-
-        // ==========================================================================
-        // 4. قسم طب أسنان الأطفال والوقائي والتقويم
-        // ==========================================================================
-        $pedodonticsAndOrtho = Department::create([
-            'name' => 'قسم طب أسنان الأطفال وتقويم الأسنان',
-            'description' => 'يشمل معالجة أسنان الأطفال، الأجهزة الوقائية، وتقويم الأسنان وتعديل الإطباق.',
-        ]);
-
-        $pedodonticsAndOrtho->courses()->createMany([
-            ['name' => 'Pedodontics I (طب أسنان الأطفال 1)', 'year' => '4', 'semester' => '2'],
-            ['name' => 'Orthodontics I (تقويم الأسنان 1)', 'year' => '5', 'semester' => '1'],
-            ['name' => 'Pedodontics II (طب أسنان الأطفال 2)', 'year' => '5', 'semester' => '2'],
-            ['name' => 'Orthodontics II (تقويم الأسنان 2)', 'year' => '5', 'semester' => '2'],
-        ]);
-
-        // ==========================================================================
-        // 5. قسم أمراض اللثة والأنسجة المحيطة بالأسنان
-        // ==========================================================================
-        $periodontics = Department::create([
-            'name' => 'قسم أمراض اللثة',
-            'description' => 'يشمل تجريف اللثة، تقليح الأسنان (تنظيف اللثة)، وعلاجات الأنسجة الداعمة.',
-        ]);
-
-        $periodontics->courses()->createMany([
-            ['name' => 'Periodontology I (أمراض اللثة 1)', 'year' => '4', 'semester' => '1'],
-            ['name' => 'Periodontology II (أمراض اللثة 2)', 'year' => '5', 'semester' => '2'],
-        ]);
-
-        // ==========================================================================
-        // 6. العيادة الشاملة (قسم عام ومستقل)
-        // ==========================================================================
-        $comprehensive = Department::create([
-            'name' => 'قسم العيادات الشاملة',
-            'description' => 'العيادة النهائية لطلاب السنة الخامسة التي تشمل خطة علاج متكاملة للمريض من ألف إلى الياء.',
-        ]);
-
-        $comprehensive->courses()->create([
-            'name' => 'Comprehensive Clinical Dentistry (العيادة الشاملة)',
-            'year' => '5',
-            'semester' => '2',
-        ]);
+        foreach ($coursesData as $course) {
+            Course::create($course);
+        }
     }
 }

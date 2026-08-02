@@ -4,6 +4,7 @@ namespace App\Repositories;
 
 use App\Enums\TreatmentStatus;
 use App\Models\Treatment;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class TreatmentRepository
@@ -85,6 +86,22 @@ class TreatmentRepository
 
     public function getStudentProgressStats(int $userId)
     {
+        // Cache لمدة 5 دقائق لتقليل الضغط على قاعدة البيانات — key مرتبط بـ userId
+        return Cache::remember("student_progress_stats_{$userId}", 300, function () use ($userId) {
+            return $this->fetchStudentProgressStats($userId);
+        });
+    }
+
+    /**
+     * تسمح بمسح الـ Cache بعد أي تغيير على بيانات الطالب.
+     */
+    public function clearStudentProgressCache(int $userId): void
+    {
+        Cache::forget("student_progress_stats_{$userId}");
+    }
+
+    private function fetchStudentProgressStats(int $userId)
+    {
         // 0. جلب الـ student_profile_id الخاص بالمستخدم الحالي أولاً
         $studentProfile = \DB::table('student_profiles')->where('user_id', $userId)->first();
 
@@ -154,11 +171,12 @@ class TreatmentRepository
             ->first();
 
         return [
-            'treatments' => $treatmentsCount,
+            'treatments'   => $treatmentsCount,
             'types_detail' => $casesByType,
             'appointments' => $appointmentsCount,
         ];
-    }
+    } // end fetchStudentProgressStats
+
 
     public function getStudentTreatmentsList(int $userId, string $statusType, int $perPage = 10)
     {

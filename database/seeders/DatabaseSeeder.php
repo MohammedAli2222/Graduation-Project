@@ -26,13 +26,13 @@ class DatabaseSeeder extends Seeder
             DepartmentAndCourseSeeder::class,
             CaseTypeSeeder::class,
             CategorySeeder::class,
+            UserSeeder::class,
         ]);
 
         // 2. إنشاء المستخدمين والهيكل الأكاديمي المتقدم
         $this->call([
             StoreSeeder::class,
             StudentSeeder::class,
-            AcademicModuleSeeder::class, // ينشئ المشرفين ويربطهم بالمجموعات والأقسام
         ]);
 
         // 3. القسم الطبي الشامل (Medical Module)
@@ -48,15 +48,16 @@ class DatabaseSeeder extends Seeder
         ]);
 
         // 5. إنشاء حساب موظف الاستقبال (Receptionist)
-        $receptionist = User::firstOrCreate(
-            ['email' => 'receptionist@hospital.com'],
-            [
+        $receptionist = User::where('email', 'receptionist@hospital.com')->first();
+        if (! $receptionist) {
+            $receptionist = User::forceCreate([
+                'email' => 'receptionist@hospital.com',
                 'first_name' => 'Receptionist',
                 'last_name' => 'Hospital',
                 'password' => Hash::make('password123'),
                 'email_verified_at' => now(),
-            ]
-        );
+            ]);
+        }
 
         if (! $receptionist->hasRole('receptionist')) {
             $receptionist->assignRole('receptionist');

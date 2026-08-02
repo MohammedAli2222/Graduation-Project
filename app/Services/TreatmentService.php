@@ -213,6 +213,9 @@ class TreatmentService
                 'status' => TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value,
             ]);
 
+            // مسح الـ Cache حتى تظهر الإحصائيات محدّثة في الـ Dashboard
+            $this->treatmentRepo->clearStudentProgressCache(auth()->id());
+
             return $treatment->load(['diagnosis', 'appointments']);
         });
     }

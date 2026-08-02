@@ -2,13 +2,13 @@
 
 namespace Database\Seeders;
 
-use App\Models\Patient;
 use App\Models\User;
+use App\Models\Patient;
 use App\Models\CaseType;
-use App\Enums\DiagnosisStatus;
 use App\Enums\PatientStatus;
+use App\Enums\DiagnosisStatus;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Str;
+use Illuminate\Support\Carbon;
 
 class PatientSeeder extends Seeder
 {
@@ -16,115 +16,141 @@ class PatientSeeder extends Seeder
     {
         $receptionist = User::role('receptionist')->first();
         $students = User::role('student')->get();
-
-        // 1. إنشاء 10 مرضى من الاستقبال
-        for ($i = 0; $i < 10; $i++) {
-            $patient = Patient::create([
-                'patient_code' => date('Y') . '-' . Str::upper(Str::random(4)),
-                'full_name' => 'مريض استقبال ' . ($i + 1),
-                'birth_date' => fake()->date(),
-                'gender' => fake()->randomElement(['male', 'female']),
-                'address' => fake()->address(),
-                'phone' => fake()->phoneNumber(),
-                'preliminary_diagnosis' => null,
-                'added_by' => $receptionist ? $receptionist->id : null,
-                'availability_status' => PatientStatus::WAITING_DIAGNOSIS,
-            ]);
-
-            // إنشاء السجل الطبي
-            // داخل الـ Loop في PatientSeeder
-
-            $hasGeneral = fake()->boolean();
-            $isSpecial = fake()->boolean();
-            $takesMeds = fake()->boolean();
-            $hasAllergies = fake()->boolean();
-
-            $patient->medicalHistory()->create([
-                'has_general_diseases' => $hasGeneral,
-                'general_diseases_details' => $hasGeneral ? 'تفاصيل عن الأمراض العامة: ' . fake()->sentence(3) : null,
-
-                'is_special_needs' => $isSpecial,
-                'special_needs_details' => $isSpecial ? 'نوع الاحتياجات الخاصة: ' . fake()->word() : null,
-
-                'takes_medications' => $takesMeds,
-                'medications_details' => $takesMeds ? 'الأدوية: ' . fake()->words(2, true) : null,
-
-                'has_allergies' => $hasAllergies,
-                'allergies_details' => $hasAllergies ? 'نوع الحساسية: ' . fake()->word() : null,
-            ]);
-
-            $patient->addMedia(public_path('seeders/images/patient_avatar.jpg'))
-                ->preservingOriginal()
-                ->toMediaCollection('id_cards');
-
-            $patient->addMedia(public_path('seeders/images/clinical_demo.jpg'))
-                ->preservingOriginal()
-                ->toMediaCollection('clinical_images');
-
-            $patient->addMedia(public_path('seeders/images/xray_demo.jpg'))
-                ->preservingOriginal()
-                ->toMediaCollection('x_ray_images');
+        
+        if (!$receptionist || $students->isEmpty()) {
+            return;
         }
 
-        // 2. إنشاء 20 مريض من الطلاب
-        for ($i = 0; $i < 20; $i++) {
-            $student = $students->random();
-            $studentProfile = $student->studentProfile;
+        $names = [
+            ['first' => 'سعيد', 'last' => 'المصري', 'gender' => 'male'],
+            ['first' => 'لينا', 'last' => 'الأحمد', 'gender' => 'female'],
+            ['first' => 'ياسر', 'last' => 'الشيخ', 'gender' => 'male'],
+            ['first' => 'منى', 'last' => 'الخطيب', 'gender' => 'female'],
+            ['first' => 'رامي', 'last' => 'الزين', 'gender' => 'male'],
+            ['first' => 'هبة', 'last' => 'السيد', 'gender' => 'female'],
+            ['first' => 'نادر', 'last' => 'العمر', 'gender' => 'male'],
+            ['first' => 'سماح', 'last' => 'الأسعد', 'gender' => 'female'],
+            ['first' => 'طارق', 'last' => 'النابلسي', 'gender' => 'male'],
+            ['first' => 'رندة', 'last' => 'البني', 'gender' => 'female'],
+            ['first' => 'بهاء', 'last' => 'الحسين', 'gender' => 'male'],
+            ['first' => 'عبير', 'last' => 'الصالح', 'gender' => 'female'],
+            ['first' => 'ماهر', 'last' => 'الكردي', 'gender' => 'male'],
+            ['first' => 'سلوى', 'last' => 'القاضي', 'gender' => 'female'],
+            ['first' => 'وسيم', 'last' => 'السلمان', 'gender' => 'male'],
+            ['first' => 'ناديا', 'last' => 'الرفاعي', 'gender' => 'female'],
+            ['first' => 'غسان', 'last' => 'الجابر', 'gender' => 'male'],
+            ['first' => 'ريما', 'last' => 'العثمان', 'gender' => 'female'],
+            ['first' => 'فؤاد', 'last' => 'الدرويش', 'gender' => 'male'],
+            ['first' => 'مايا', 'last' => 'الحمصي', 'gender' => 'female'],
+            ['first' => 'زياد', 'last' => 'نجار', 'gender' => 'male'],
+            ['first' => 'دانيا', 'last' => 'حداد', 'gender' => 'female'],
+            ['first' => 'حسن', 'last' => 'شامي', 'gender' => 'male'],
+            ['first' => 'رشا', 'last' => 'حمصي', 'gender' => 'female'],
+            ['first' => 'عادل', 'last' => 'ديب', 'gender' => 'male'],
+            ['first' => 'لمى', 'last' => 'عباس', 'gender' => 'female'],
+            ['first' => 'سامي', 'last' => 'سليمان', 'gender' => 'male'],
+            ['first' => 'مرح', 'last' => 'إبراهيم', 'gender' => 'female'],
+            ['first' => 'مجد', 'last' => 'محمود', 'gender' => 'male'],
+            ['first' => 'غنى', 'last' => 'يوسف', 'gender' => 'female'],
+            ['first' => 'وائل', 'last' => 'صالح', 'gender' => 'male'],
+            ['first' => 'يارا', 'last' => 'طالب', 'gender' => 'female'],
+            ['first' => 'قيس', 'last' => 'علي', 'gender' => 'male'],
+            ['first' => 'جنى', 'last' => 'حسن', 'gender' => 'female'],
+            ['first' => 'أيهم', 'last' => 'حسين', 'gender' => 'male'],
+            ['first' => 'شام', 'last' => 'قاسم', 'gender' => 'female'],
+            ['first' => 'كرم', 'last' => 'خليل', 'gender' => 'male'],
+            ['first' => 'روان', 'last' => 'عثمان', 'gender' => 'female'],
+            ['first' => 'نور', 'last' => 'سعد', 'gender' => 'male'],
+            ['first' => 'لين', 'last' => 'منصور', 'gender' => 'female'],
+        ];
 
-            $caseType = CaseType::whereHas('course', function ($query) use ($studentProfile) {
-                $query->where('year', $studentProfile->academic_year)
-                    ->where('semester', $studentProfile->semester);
-            })->inRandomOrder()->first();
+        $addresses = [
+            'دمشق - المزة - شارع الجلاء', 'دمشق - كفرسوسة - حي المطار', 'دمشق - المالكي - شارع أبو رمانة',
+            'دمشق - باب توما - الحريقة', 'دمشق - ركن الدين - شارع المدارس', 'دمشق - المهاجرين - شارع الروضة',
+            'ريف دمشق - جرمانا', 'ريف دمشق - داريا', 'دمشق - برزة - شارع فيصل', 'دمشق - القابون - شارع الثورة'
+        ];
 
-            if (!$caseType) continue;
+        $medicalConditions = [
+            'داء السكري النوع الثاني', 'ارتفاع ضغط الدم', 'الربو القصبي', 'حساسية من البنسلين',
+            'أمراض القلب التاجية', 'فقر الدم المنجلي', 'أمراض الغدة الدرقية', 'حساسية من مواد التخدير الموضعي'
+        ];
+        
+        $preliminaryDiagnoses = [
+            'ألم حاد في السن السفلي الأيمن مع تورم',
+            'تسوس عميق في الضاحك العلوي',
+            'نخور متعددة في الأسنان الأمامية',
+            'التهاب لثة ونزف عند التفريش',
+            'فقدان أسنان خلفية وحاجة للتعويض',
+            'ألم عند شرب البارد والساخن',
+            'انطمار في ضرس العقل',
+            'تصبغات سنية وتراكم جير'
+        ];
 
+        $caseTypes = CaseType::with('course')->get();
+
+        // 10 patients from receptionist (waiting diagnosis)
+        for ($i = 0; $i < 10; $i++) {
+            $name = $names[$i];
             $patient = Patient::create([
-                'patient_code' => date('Y') . '-' . Str::upper(Str::random(4)),
-                'full_name' => 'مريض طالب ' . ($i + 1),
-                'birth_date' => fake()->date(),
-                'gender' => fake()->randomElement(['male', 'female']),
-                'address' => fake()->address(),
-                'phone' => fake()->phoneNumber(),
-                'preliminary_diagnosis' => 'تشخيص أولي للشكوى رقم ' . ($i + 1),
-                'added_by' => $student->id,
-                'availability_status' => PatientStatus::WAITING_DIAGNOSIS,
+                'patient_code' => 'DU-' . date('Y') . '-' . str_pad($i + 1, 4, '0', STR_PAD_LEFT),
+                'full_name' => $name['first'] . ' ' . $name['last'],
+                'birth_date' => Carbon::now()->subYears(rand(18, 70))->subDays(rand(1, 365)),
+                'gender' => $name['gender'],
+                'phone' => '09' . rand(3,9) . rand(1000000, 9999999),
+                'address' => $addresses[array_rand($addresses)],
+                'preliminary_diagnosis' => $preliminaryDiagnoses[array_rand($preliminaryDiagnoses)],
+                'availability_status' => PatientStatus::WAITING_DIAGNOSIS->value,
+                'added_by' => $receptionist->id,
             ]);
 
-            // إنشاء السجل الطبي
-            $hasDiseases = fake()->boolean();
-            $takesMeds = fake()->boolean();
-
+            $hasCondition = rand(0, 1);
             $patient->medicalHistory()->create([
-                'has_general_diseases' => $hasDiseases,
-                'general_diseases_details' => $hasDiseases ? 'تفاصيل الأمراض التجريبية رقم ' . ($i + 1) : null,
-
-                'takes_medications' => $takesMeds,
-                'medications_details' => $takesMeds ? 'أسماء الأدوية التجريبية: باراسيتامول، إيبوبروفين' : null,
-
-                'has_allergies' => false,
+                'has_general_diseases' => $hasCondition,
+                'general_diseases_details' => $hasCondition ? $medicalConditions[array_rand($medicalConditions)] : null,
                 'is_special_needs' => false,
+                'takes_medications' => $hasCondition,
+                'medications_details' => $hasCondition ? 'أدوية متعلقة بالحالة العامة' : null,
+                'has_allergies' => false,
+            ]);
+        }
+
+        // 30 patients from students (with diagnoses)
+        for ($i = 10; $i < 40; $i++) {
+            $name = $names[$i];
+            $student = $students->random();
+            
+            $patient = Patient::create([
+                'patient_code' => 'DU-' . date('Y') . '-' . str_pad($i + 1, 4, '0', STR_PAD_LEFT),
+                'full_name' => $name['first'] . ' ' . $name['last'],
+                'birth_date' => Carbon::now()->subYears(rand(18, 70))->subDays(rand(1, 365)),
+                'gender' => $name['gender'],
+                'phone' => '09' . rand(3,9) . rand(1000000, 9999999),
+                'address' => $addresses[array_rand($addresses)],
+                'preliminary_diagnosis' => $preliminaryDiagnoses[array_rand($preliminaryDiagnoses)],
+                'availability_status' => PatientStatus::AVAILABLE->value,
+                'added_by' => $student->id,
             ]);
 
-            // إنشاء التشخيص والربط الأكاديمي
-            $diagnosis = $patient->diagnoses()->create([
-                'suggested_by_student_id' => $student->id,
-                'case_type_id' => $caseType->id,
-                'department_id' => $caseType->course->department_id,
-                'status' => DiagnosisStatus::WAITING_APPROVAL,
-                'estimated_cost' => rand(100, 1000),
+            $hasCondition = rand(0, 1);
+            $patient->medicalHistory()->create([
+                'has_general_diseases' => $hasCondition,
+                'general_diseases_details' => $hasCondition ? $medicalConditions[array_rand($medicalConditions)] : null,
+                'is_special_needs' => false,
+                'takes_medications' => false,
+                'has_allergies' => false,
             ]);
 
-            $patient->addMedia(public_path('seeders/images/patient_avatar.jpg'))
-                ->preservingOriginal()
-                ->toMediaCollection('id_cards');
-
-            $diagnosis->addMedia(public_path('seeders/images/clinical_demo.jpg'))
-                ->preservingOriginal()
-                ->toMediaCollection('clinical_images');
-
-            $diagnosis->addMedia(public_path('seeders/images/xray_demo.jpg'))
-                ->preservingOriginal()
-                ->toMediaCollection('x_ray_images');
+            if ($caseTypes->isNotEmpty()) {
+                $caseType = $caseTypes->random();
+                $patient->diagnoses()->create([
+                    'case_type_id' => $caseType->id,
+                    'department_id' => $caseType->course->department_id,
+                    'suggested_by_student_id' => $student->id,
+                    'final_diagnosis' => 'تم تشخيص الحالة بناء على الفحص السريري والشعاعي',
+                    'estimated_cost' => rand(10000, 50000),
+                    'status' => DiagnosisStatus::AVAILABLE->value,
+                ]);
+            }
         }
     }
 }

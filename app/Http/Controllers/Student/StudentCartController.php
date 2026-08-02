@@ -83,6 +83,31 @@ class StudentCartController extends Controller
     }
 
     /**
+     * تحديث كمية عنصر في السلة.
+     */
+    public function updateQuantity(\App\Http\Requests\Student\UpdateCartItemRequest $request, int $cartItemId): JsonResponse
+    {
+        try {
+            /** @var \App\Models\User $user */
+            $user = Auth::user();
+            $validated = $request->validated();
+
+            $this->cartService->updateCartItemQuantity(
+                $user->id,
+                $cartItemId,
+                (int) $validated['quantity']
+            );
+
+            $cart = $this->cartService->getMyCart($user->id);
+
+            return response_success(new CartResource($cart), 200, 'تم تحديث كمية المنتج بالسلة بنجاح.');
+        } catch (Exception $e) {
+            $statusCode = in_array($e->getCode(), [400, 404]) ? $e->getCode() : 500;
+            return response_error(null, $statusCode, $e->getMessage());
+        }
+    }
+
+    /**
      * إفراغ السلة بالكامل.
      */
     public function clear(): JsonResponse

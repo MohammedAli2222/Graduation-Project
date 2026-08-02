@@ -78,6 +78,27 @@ class StudentCartService
     }
 
     /**
+     * تحديث كمية عنصر محدد في سلة الطالب.
+     */
+    public function updateCartItemQuantity(int $studentId, int $cartItemId, int $quantity): void
+    {
+        $cart = $this->cartRepo->findOrCreateForStudent($studentId);
+        $cartWithDetails = $this->cartRepo->getStudentCartWithDetails($studentId);
+
+        $cartItem = $cartWithDetails?->items->firstWhere('id', $cartItemId);
+
+        if (! $cartItem || ! $cartItem->product) {
+            throw new Exception('العنصر غير موجود في سلتك.', 404);
+        }
+
+        if ($cartItem->product->quantity < $quantity) {
+            throw new Exception("الكمية المطلوبة غير متوفرة في المستودع. المتاح حالياً: {$cartItem->product->quantity}", 400);
+        }
+
+        $this->cartRepo->updateItemQuantity($cart, $cartItemId, $quantity);
+    }
+
+    /**
      * إفراغ السلة بالكامل.
      */
     public function clearMyCart(int $studentId): void

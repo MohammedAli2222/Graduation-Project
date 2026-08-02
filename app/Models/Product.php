@@ -38,7 +38,7 @@ class Product extends Model implements HasMedia
         'quantity' => 'integer',
     ];
 
-    protected $with = ['media'];
+    protected $with = [];
 
 
     protected static function booted(): void

@@ -30,6 +30,11 @@ interface CartRepositoryInterface
     public function removeItem(Cart $cart, int $cartItemId): bool;
 
     /**
+     * تحديث كمية عنصر محدد في السلة مباشرة.
+     */
+    public function updateItemQuantity(Cart $cart, int $cartItemId, int $quantity): ?CartItem;
+
+    /**
      * تفريغ السلة بالكامل.
      */
     public function clearCart(Cart $cart): bool;

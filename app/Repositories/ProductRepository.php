@@ -26,7 +26,7 @@ class ProductRepository implements ProductRepositoryInterface
     {
         return $this->model->newQuery()
             ->where('store_id', $storeId)
-            ->with('category:id,name')
+            ->with(['category:id,name', 'media'])
             ->latest()
             ->paginate($perPage);
     }
@@ -37,6 +37,7 @@ class ProductRepository implements ProductRepositoryInterface
         return $this->model->newQuery()
             ->where('store_id', $storeId)
             ->where('id', $productId)
+            ->with('media')
             ->first();
     }
 
@@ -93,6 +94,7 @@ class ProductRepository implements ProductRepositoryInterface
 
     public function findById(int $productId): ?Product
     {
-        return $this->model->find($productId);
+        return $this->model->with('media')->find($productId);
     }
 }
+
