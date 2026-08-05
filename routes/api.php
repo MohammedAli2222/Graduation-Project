@@ -24,6 +24,50 @@ use App\Http\Controllers\TreatmentController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
+
+use Illuminate\Support\Facades\Artisan;
+use Symfony\Component\HttpFoundation\Response;
+
+/**
+ * نقطة نهاية آمنة ومحمية لتنفيذ مهام الصيانة والتحديث (Deployment Webhook)
+ */
+Route::post('/run-deployment', function (Request $request): Response {
+    // التحقق الآمن من التوقيت لمنع هجمات مقارنة النصوص (Timing Attacks)
+    $providedSecret = (string) $request->input('secret', '');
+    $expectedSecret = config('app.deployment_secret', 'fdd1e7fc37037945b199ba383023275f0142831c');
+
+    if (!hash_equals($expectedSecret, $providedSecret)) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'تصريح مرفوض: مفتاح الأمان غير صحيح.'
+        ], Response::HTTP_UNAUTHORIZED);
+    }
+
+    try {
+        // 1. مسح وتفريغ كافة أنواع الكاش لضمان تحميل التحديثات البرمجية الجديدة
+        Artisan::call('optimize:clear');
+
+        // 2. تنفيذ التحديثات على قاعدة البيانات بأمان ودون فقدان للبيانات القديمة
+        Artisan::call('migrate', [
+            '--force' => true,
+        ]);
+
+        // 3. إعادة إنشاء وتأكيد ربط مجلد التخزين
+        Artisan::call('storage:link');
+
+        return response()->json([
+            'status' => 'success',
+            'message' => 'تم تنفيذ التحديثات، مسح الكاش، وربط التخزين بنجاح تام.',
+        ], Response::HTTP_OK);
+
+    } catch (\Throwable $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'فشل تنفيذ التحديث: ' . $e->getMessage(),
+        ], Response::HTTP_INTERNAL_SERVER_ERROR);
+    }
+})->middleware('throttle:5,1'); // تقييد المحاولات لمنع هجمات القوة العمياء (Brute Force)
+
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:strict_auth');
 
