@@ -1,24 +1,24 @@
 <?php
 
-use App\Http\Controllers\Hod\DepartmentTreatmentController;
 use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\GroupController;
 use App\Http\Controllers\Hod\DepartmentDelegationController;
 use App\Http\Controllers\Hod\DepartmentRequirementController;
 use App\Http\Controllers\Hod\DepartmentStatisticController;
+use App\Http\Controllers\Hod\DepartmentTreatmentController;
 use App\Http\Controllers\InstructorController;
 use App\Http\Controllers\ReceptionistController;
 use App\Http\Controllers\Store\StoreOrderController;
 use App\Http\Controllers\Store\StoreProductController;
 use App\Http\Controllers\Store\StorePromotionController;
-use App\Http\Controllers\Student\MarketplaceBrowseController;
 use App\Http\Controllers\Student\BrowseStoreController;
-use App\Http\Controllers\Student\StudentSellerBrowseController;
+use App\Http\Controllers\Student\MarketplaceBrowseController;
 use App\Http\Controllers\Student\StudentCartController;
 use App\Http\Controllers\Student\StudentCheckoutController;
 use App\Http\Controllers\Student\StudentProductController;
 use App\Http\Controllers\Student\StudentPurchaseController;
+use App\Http\Controllers\Student\StudentSellerBrowseController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\TreatmentController;
 use Illuminate\Http\Request;
