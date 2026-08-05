@@ -16,13 +16,9 @@ return new class extends Migration
             $table->foreignId('student_id')->constrained('users')->onDelete('cascade');
             $table->foreignId('diagnosis_id')->constrained('patient_diagnoses')->onDelete('cascade');
 
+            $table->tinyInteger('slot_number');
 
             $table->date('appointment_date');
-            $table->integer('start_slot');
-
-            $table->integer('end_slot');
-
-            $table->integer('slots_count');
 
             $table->foreignId('treatment_id')
                   ->nullable()
@@ -33,6 +29,13 @@ return new class extends Migration
                 ->default(AppointmentStatus::SCHEDULED->value);
             $table->timestamps();
 
+            $table->unique(['student_id', 'appointment_date', 'slot_number'], 'student_daily_slot_unique');
+
+            // فهرس مركب لتسريع فحص سعة عيادة القسم (عدد الكراسي المحجوزة) في تاريخ وسلوت معيّنين
+            // عبر جميع الطلاب دفعة واحدة؛ فهرس الـ unique أعلاه لا يخدم هذا الاستعلام لأنه يبدأ
+            // بعمود student_id، بينما فحص السعة (hasConflict -> reservedChairsCount) لا يُصفّي
+            // حسب طالب معيّن إطلاقاً
+            $table->index(['appointment_date', 'slot_number', 'status'], 'appointments_date_slot_status_idx');
         });
     }
 

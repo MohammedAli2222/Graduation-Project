@@ -14,9 +14,7 @@ class Appointment extends Model
         'student_id',
         'diagnosis_id',
         'treatment_id',
-        'start_slot',
-        'end_slot',
-        'slots_count',
+        'slot_number',
         'appointment_date',
         'status',
     ];
@@ -56,22 +54,7 @@ class Appointment extends Model
             4 => '03:30 PM - 05:30 PM',
         ];
 
-        $ranges = [];
-
-        // نقوم بالدوران من بداية السلوت إلى نهايته
-        for ($i = $this->start_slot; $i <= $this->end_slot; $i++) {
-            if (isset($slotDefinitions[$i])) {
-                $ranges[] = $slotDefinitions[$i];
-            }
-        }
-
-        // إذا كان الموعد سلوت واحد، نرجعه مباشرة
-        if (count($ranges) === 1) {
-            return $ranges[0];
-        }
-
-        // إذا كان أكثر من سلوت، ندمجهم بطريقة جميلة
-        return implode(' & ', $ranges);
+        return $slotDefinitions[$this->slot_number] ?? '';
     }
 
 }

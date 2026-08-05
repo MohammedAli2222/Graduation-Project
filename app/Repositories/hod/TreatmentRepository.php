@@ -45,6 +45,21 @@ class TreatmentRepository implements TreatmentRepositoryInterface
             ->paginate($perPage);
     }
 
+    public function findDetailedForDepartment(int $treatmentId): ?Treatment
+    {
+        return $this->model->newQuery()
+            ->with([
+                'diagnosis:id,patient_id,suggested_by_student_id,case_type_id,department_id,final_diagnosis,status',
+                'diagnosis.student:id,first_name,last_name,email',
+                'diagnosis.patient:id,full_name,patient_code,gender,phone',
+                'diagnosis.caseType:id,name,required_count',
+                'diagnosis.department:id,name',
+                'instructor:id,first_name,last_name,email',
+                'media',
+            ])
+            ->find($treatmentId);
+    }
+
     public function getDepartmentTreatmentStatistics(int $departmentId): array
     {
         return $this->model->newQuery()

@@ -63,4 +63,36 @@ class DepartmentTreatmentController extends Controller
             return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة البيانات.');
         }
     }
+
+    /**
+     * تفاصيل معالجة واحدة كاملة (رئيس القسم فقط): الطالب، المعيد المشرف، نوع الحالة، إلخ.
+     */
+    public function show(int $treatmentId): JsonResponse
+    {
+        try {
+            /** @var \App\Models\User $user */
+            $user = Auth::user();
+            $hodProfile = $user->departmentHeadProfile;
+
+            if (! $hodProfile) {
+                return response_error(null, 403, 'غير مصرح لك: حسابك لا يملك صلاحيات رئيس قسم.');
+            }
+
+            $treatment = $this->hodService->getTreatmentDetailForDepartment(
+                $hodProfile->department_id,
+                $treatmentId
+            );
+
+            return response_success(new TreatmentResource($treatment), 200, 'تم جلب تفاصيل المعالجة بنجاح.');
+        } catch (Exception $e) {
+            $statusCode = ($e->getCode() >= 400 && $e->getCode() <= 500) ? $e->getCode() : 500;
+
+            if ($statusCode === 500) {
+                Log::error("خطأ داخلي أثناء جلب تفاصيل معالجة: " . $e->getMessage());
+                return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة الطلب.');
+            }
+
+            return response_error(null, $statusCode, $e->getMessage());
+        }
+    }
 }

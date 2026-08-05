@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Repositories;
 
 use App\Enums\AppointmentStatus;
@@ -10,9 +12,27 @@ use App\Models\Department;
 use App\Models\Patient;
 use App\Models\PatientDiagnose;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache;
 
 class AppointmentRepository
 {
+    /**
+     * مدة كاش الإعدادات الثابتة للقسم (كعدد الكراسي)، لأنها بيانات نادرة التغيير.
+     */
+    private const DEPARTMENT_CONFIG_CACHE_TTL_SECONDS = 86400; // 24 ساعة
+
+    /**
+     * جلب بيانات القسم (خاصة total_chairs) من الكاش بدل قاعدة البيانات في كل عملية حجز،
+     * لأن هذا الاستعلام يُنفَّذ على كل محاولة حجز موعد (hasConflict) وبيانات القسم شبه ثابتة.
+     */
+    private function getCachedDepartment(int $departmentId): ?Department
+    {
+        return Cache::remember(
+            "department_{$departmentId}_config",
+            self::DEPARTMENT_CONFIG_CACHE_TTL_SECONDS,
+            fn () => Department::find($departmentId)
+        );
+    }
     public function create(array $data)
     {
         return Appointment::create($data);
@@ -91,7 +111,7 @@ class AppointmentRepository
                 'diagnosis.department:id,name'
             ])
             ->orderBy('appointment_date', 'asc') // ترتيب حسب التاريخ
-            ->orderBy('start_slot', 'asc')       // ترتيب حسب السلوت الأول
+            ->orderBy('slot_number', 'asc')      // ترتيب حسب السلوت
             ->paginate(10);
     }
 
@@ -126,58 +146,52 @@ class AppointmentRepository
             ->paginate(10);
     }
 
-    public function isPatientBusyAtSlot(int $patientId, string $date, int $slotNumber): bool
+    public function hasConflict(int $studentId, string $dateString, int $slotNumber, int $departmentId): array
     {
-        return Appointment::where('patient_id', $patientId)
-            ->whereDate('appointment_date', $date)
+        $dateOnly = Carbon::parse($dateString)->format('Y-m-d');
+
+        $hasSlotConflict = Appointment::where('student_id', $studentId)
+            ->whereIn('status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
+            ->whereDate('appointment_date', $dateOnly)
             ->where('slot_number', $slotNumber)
-            ->whereIn('status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
             ->exists();
-    }
 
-    public function getStudentDailyUsage(int $studentId, string $date): int
-    {
-        return Appointment::where('student_id', $studentId)
-            ->whereDate('appointment_date', $date)
-            ->whereIn('status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
-            ->sum('slots_count'); // مجموع السلوتس المحجوزة فعلياً
-    }
-
-    public function hasOverlap(int $ownerId, string $date, int $newStart, int $newEnd, string $column): bool
-    {
-        return Appointment::where($column, $ownerId)
-            ->whereDate('appointment_date', $date)
-            ->whereIn('status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
-            ->where(function ($query) use ($newStart, $newEnd) {
-                $query->where('start_slot', '<=', $newEnd)
-                    ->where('end_slot', '>=', $newStart);
-            })
-            ->exists();
-    }
-
-    public function isDepartmentFull(int $departmentId, string $date, int $start, int $end): bool
-    {
-        $department = Department::find($departmentId);
-        $maxChairs  = $department->total_chairs;
-
-        // التحقق من كل slot باستخدام JOIN مباشر بدلاً من whereHas (subquery)
-        // هذا يُنفذ query واحدة لكل slot مع أداء أفضل
-        for ($i = $start; $i <= $end; $i++) {
-            $reservedCount = \DB::table('appointments')
-                ->join('patient_diagnoses', 'appointments.diagnosis_id', '=', 'patient_diagnoses.id')
-                ->whereIn('appointments.status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
-                ->whereDate('appointments.appointment_date', $date)
-                ->where('patient_diagnoses.department_id', $departmentId)
-                ->where('appointments.start_slot', '<=', $i)
-                ->where('appointments.end_slot', '>=', $i)
-                ->count();
-
-            if ($reservedCount >= $maxChairs) {
-                return true; // القسم ممتلئ في هذا السلوت
-            }
+        if ($hasSlotConflict) {
+            return [
+                'conflict' => true,
+                'message' => 'Time conflict! You already have another appointment booked in this exact time slot.',
+            ];
         }
 
-        return false;
+        $department = $this->getCachedDepartment($departmentId);
+        $maxChairs = $department->total_chairs;
+
+        $reservedChairsCount = Appointment::whereIn('status', [AppointmentStatus::SCHEDULED->value, AppointmentStatus::ATTENDED->value])
+            ->whereDate('appointment_date', $dateOnly)
+            ->where('slot_number', $slotNumber)
+            ->whereHas('diagnosis', function ($query) use ($departmentId) {
+                $query->where('department_id', $departmentId);
+            })
+            ->count();
+
+        if ($reservedChairsCount >= $maxChairs) {
+            return [
+                'conflict' => true,
+                'message' => "This time slot is fully booked. All {$maxChairs} dental chairs in this department are occupied.",
+            ];
+        }
+
+        return ['conflict' => false, 'message' => ''];
+    }
+
+    public function linkAppointmentsToTreatment($studentId, $date, $diagnosisId, $treatmentId)
+    {
+        return Appointment::where('student_id', $studentId)
+            ->where('appointment_date', $date)
+            ->where('diagnosis_id', $diagnosisId)
+            ->update([
+                'treatment_id' => $treatmentId,
+            ]);
     }
 
     public function updatePatientAvailabilityStatus(int $patientId)

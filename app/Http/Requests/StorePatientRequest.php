@@ -39,6 +39,7 @@ class StorePatientRequest extends FormRequest
             'has_allergies' => 'required|boolean',
             'allergies_details' => 'nullable|required_if:has_allergies,true|string',
 
+            'is_pregnant' => 'nullable|boolean|prohibited_if:gender,male',
 
             'id_card' => ['required', 'image', 'mimes:jpeg,png,jpg', 'max:5120'],
 

@@ -1,0 +1,53 @@
+name: 🚀 Auto Deploy Laravel
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  web-deploy:
+    name: 🎉 Build and Deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: 🚚 Get latest code
+        uses: actions/checkout@v3
+
+      - name: 🛠 Setup PHP 8.3
+        uses: shivammathur/setup-php@v2
+        with:
+          # ترقية الإصدار إلى 8.3 لضمان أعلى أداء وتوافق تام مع Laravel 11
+          php-version: "8.3"
+          # إضافة pdo_mysql و bcmath لأنها متطلبات أساسية لعمليات الدفع وقواعد بيانات لارافل
+          extensions: mbstring, dom, fileinfo, mysql, pdo_mysql, bcmath
+
+      - name: 📦 Install Dependencies
+        # تثبيت الحزم بدون حزم التطوير لتحسين الأداء
+        run: composer install --no-dev --optimize-autoloader
+
+      - name: 📂 Sync files via FTP
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          # نستخدم ./ لأن الحساب "مسجون" داخل المجلد المستهدف أصلاً
+          server-dir: ./
+          protocol: ftp
+          port: 21
+          timeout: 90000
+          # لتجنب خطأ 550 في حال كان المجلد جديداً
+          dangerous-clean-slate: false
+        exclude: |
+            **/.git*
+            **/.git*/**
+            **/node_modules/**
+            /tests/**
+            /.claude/**
+            /.github/**
+            .env
+            /Dentex_API_Collection.json
+            /export_context.php
+            /phpunit.xml
+            /.editorconfig
+            /README.md

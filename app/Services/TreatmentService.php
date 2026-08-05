@@ -106,16 +106,6 @@ class TreatmentService
         $time = $times[$startSlot] ?? '08:00';
         return \Carbon\Carbon::createFromFormat('H:i', $time);
     }
-    public function validateWorkingDays(string $dateString): void
-    {
-        $date = \Carbon\Carbon::parse($dateString);
-
-        if ($date->isFriday() || $date->isSaturday()) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
-                'appointment_date' => ['Appointments can only be booked on university working days (Sunday to Thursday).'],
-            ]);
-        }
-    }
     public function bookFollowUpAppointment(array $data)
     {
         $treatment = $this->treatmentRepo->find($data['treatment_id']);
@@ -136,39 +126,31 @@ class TreatmentService
         }
 
         $dateOnly = $newDate->format('Y-m-d');
-        $startSlot = (int) $data['slot_number'];
+        $slotNumber = (int) $data['slot_number'];
         $slotsNeeded = 1; // المتابعة دائماً تستهلك 1 سلوت
-        $endSlot = $startSlot;
 
-        // 1. التحقق من أيام العمل (التي أضفناها)
-        $this->validateWorkingDays($dateOnly);
+        // 1. التحقق من أيام العمل والتعارض (سلوت الطالب وامتلاء القسم)
+        $this->appointmentser->validateAppointmentTiming(
+            $dateOnly,
+            auth()->id(),
+            $treatment->diagnosis->department_id,
+            $slotNumber
+        );
 
         // 2. التحقق من الحد اليومي (2 سلوت)
-        $usedSlots = $this->appointmentRepo->getStudentDailyUsage(auth()->id(), $dateOnly);
-        if (($usedSlots + $slotsNeeded) > 2) {
+        $existingCount = $this->appointmentRepo->getActiveAppointmentsCountForStudent(auth()->id(), $dateOnly);
+        if (($existingCount + $slotsNeeded) > 2) {
             throw new \Exception('You have reached the daily limit of 2 appointment slots.');
         }
 
-        // 3. التحقق من التعارض (باستخدام المعادلة الذهبية)
-        if ($this->appointmentRepo->hasOverlap(auth()->id(), $dateOnly, $startSlot, $endSlot, 'student_id')) {
-            throw new \Exception('You have a scheduling conflict on this date.');
-        }
-
-        // فحص تعارض المريض
-        if ($this->appointmentRepo->hasOverlap($treatment->diagnosis->patient_id, $dateOnly, $startSlot, $endSlot, 'patient_id')) {
-            throw new \Exception('The patient is already booked at this time.');
-        }
-
-        // 4. الحجز بنظام النطاقات الجديد
+        // 3. الحجز بنظام السلوت الفردي
         return $this->appointmentRepo->create([
             'patient_id'   => $treatment->diagnosis->patient_id,
             'student_id'   => auth()->id(),
             'diagnosis_id' => $treatment->diagnosis_id,
             'treatment_id' => $treatment->id,
             'appointment_date' => $dateOnly,
-            'start_slot'   => $startSlot,
-            'end_slot'     => $endSlot,
-            'slots_count'  => $slotsNeeded,
+            'slot_number'  => $slotNumber,
             'status'       => AppointmentStatus::SCHEDULED->value,
         ]);
     }
@@ -258,7 +240,7 @@ class TreatmentService
 
         // 2. التحقق فقط إذا كان الموعد في نفس اليوم
         if ($appointmentDate->isToday()) {
-            $startTime = $this->getSlotStartTime($appointment->start_slot);
+            $startTime = $this->getSlotStartTime($appointment->slot_number);
 
             // دمج التاريخ مع وقت السلوت مع ضبط التوقيت
             $fullStartDateTime = $appointmentDate->copy()->setTimeFrom($startTime);

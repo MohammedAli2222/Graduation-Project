@@ -13,6 +13,8 @@ use App\Repositories\DiagnosisRepository;
 use App\Repositories\PatientRepository;
 use Spatie\MediaLibrary\MediaCollections\Models\Media;
 use Exception;
+use Illuminate\Contracts\Cache\LockTimeoutException;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class DiagnosisService
@@ -53,73 +55,103 @@ class DiagnosisService
      */
     public function storeMultiple(array $data, int $instructorId)
     {
-        $hasPendingStudentDiagnosis = PatientDiagnose::where('patient_id', $data['patient_id'])
-            ->where('status', DiagnosisStatus::WAITING_APPROVAL->value)
-            ->exists();
+        $lock = Cache::lock('lock:diagnose_patient:' . $data['patient_id'], 10);
 
-        if ($hasPendingStudentDiagnosis) {
-            throw new Exception('This patient has a pending diagnosis from a student. Please approve or reject it from the pending requests list.', 422);
-        }
+        try {
 
-        if (! auth()->user()->instructorProfile?->id) {
-            throw new Exception('Instructor profile not found.', 404);
-        }
+            $lock->block(3);
 
-        return DB::transaction(function () use ($data, $instructorId) {
-            $createdDiagnoses = [];
+            return DB::transaction(function () use ($data, $instructorId) {
+                // تحقق فوري وحديث من حالة المريض بعد الحصول على القفل لمنع التشخيص المزدوج
+                $patient = $this->patientRepo->FindOrFail($data['patient_id']);
 
-            foreach ($data['diagnoses'] as $item) {
-                $caseType = CaseType::with('course')->findOrFail($item['case_type_id']);
-
-                $diagnosis = $this->diagnosisRepo->create([
-                    'patient_id' => $data['patient_id'],
-                    'instructor_id' => $instructorId,
-                    'case_type_id' => $item['case_type_id'],
-                    'department_id' => $caseType->course->department_id,
-                    'final_diagnosis' => $item['final_diagnosis'],
-                    'status' => DiagnosisStatus::AVAILABLE->value,
-                ]);
-
-                // نسخ الصور المختارة من المريض إلى التشخيص الجديد
-                if (!empty($item['media_ids'])) {
-                    foreach ($item['media_ids'] as $mediaId) {
-                        $media = Media::where('id', $mediaId)
-                            ->where('model_id', $data['patient_id'])
-                            ->where('model_type', Patient::class)
-                            ->first();
-
-                        if ($media) {
-                            $media->copy($diagnosis, $media->collection_name);
-                        }
-                    }
+                if ($patient->availability_status !== PatientStatus::WAITING_DIAGNOSIS->value) {
+                    throw new Exception('This patient is no longer waiting for diagnosis.', 409);
                 }
 
-                $createdDiagnoses[] = $diagnosis;
-            }
+                $hasPendingStudentDiagnosis = PatientDiagnose::where('patient_id', $data['patient_id'])
+                    ->where('status', DiagnosisStatus::WAITING_APPROVAL->value)
+                    ->exists();
 
-            $this->patientRepo->updateAvailability($data['patient_id'], PatientStatus::AVAILABLE->value);
-            return $createdDiagnoses;
-        });
+                if ($hasPendingStudentDiagnosis) {
+                    throw new Exception('This patient has a pending diagnosis from a student. Please approve or reject it from the pending requests list.', 422);
+                }
+
+                if (! auth()->user()->instructorProfile?->id) {
+                    throw new Exception('Instructor profile not found.', 404);
+                }
+
+                $createdDiagnoses = [];
+
+                foreach ($data['diagnoses'] as $item) {
+                    $caseType = CaseType::with('course')->findOrFail($item['case_type_id']);
+
+                    $diagnosis = $this->diagnosisRepo->create([
+                        'patient_id' => $data['patient_id'],
+                        'instructor_id' => $instructorId,
+                        'case_type_id' => $item['case_type_id'],
+                        'department_id' => $caseType->course->department_id,
+                        'final_diagnosis' => $item['final_diagnosis'],
+                        'status' => DiagnosisStatus::AVAILABLE->value,
+                    ]);
+
+                    // نسخ الصور المختارة من المريض إلى التشخيص الجديد
+                    if (!empty($item['media_ids'])) {
+                        foreach ($item['media_ids'] as $mediaId) {
+                            $media = Media::where('id', $mediaId)
+                                ->where('model_id', $data['patient_id'])
+                                ->where('model_type', Patient::class)
+                                ->first();
+
+                            if ($media) {
+                                $media->copy($diagnosis, $media->collection_name);
+                            }
+                        }
+                    }
+
+                    $createdDiagnoses[] = $diagnosis;
+                }
+
+                $this->patientRepo->updateAvailability($data['patient_id'], PatientStatus::AVAILABLE->value);
+                return $createdDiagnoses;
+            });
+        } catch (LockTimeoutException $e) {
+            throw new Exception('This patient is currently being diagnosed by another instructor.', 409);
+        } finally {
+            optional($lock)->release();
+        }
     }
 
     public function approveCase(int $id, array $data, int $instructorId, int $instructorProfileId)
     {
-        $diagnosis = $this->diagnosisRepo->FindOrFail($id);
+        $lock = Cache::lock('lock:review_diagnosis:' . $id, 10);
 
-        $this->validatePendingStatus($diagnosis);
-        $this->authorizeInstructorForStudent($diagnosis, $instructorProfileId);
+        try {
 
-        DB::transaction(function () use ($diagnosis, $data, $instructorId) {
-            $this->diagnosisRepo->update($diagnosis, [
-                'status' => DiagnosisStatus::AVAILABLE->value,
-                'instructor_id' => $instructorId,
-                'final_diagnosis' => $data['final_diagnosis'],
-            ]);
+            $lock->block(3);
 
-            $this->patientRepo->updateAvailability($diagnosis->patient_id, PatientStatus::AVAILABLE->value);
-        });
+            return DB::transaction(function () use ($id, $data, $instructorId, $instructorProfileId) {
+                // جلب التشخيص والتحقق من حالته الفعلية داخل القفل لضمان عدم مراجعته من مدرّس آخر بالتوازي
+                $diagnosis = $this->diagnosisRepo->FindOrFail($id);
 
-        return true;
+                $this->validatePendingStatus($diagnosis);
+                $this->authorizeInstructorForStudent($diagnosis, $instructorProfileId);
+
+                $this->diagnosisRepo->update($diagnosis, [
+                    'status' => DiagnosisStatus::AVAILABLE->value,
+                    'instructor_id' => $instructorId,
+                    'final_diagnosis' => $data['final_diagnosis'],
+                ]);
+
+                $this->patientRepo->updateAvailability($diagnosis->patient_id, PatientStatus::AVAILABLE->value);
+
+                return true;
+            });
+        } catch (LockTimeoutException $e) {
+            throw new Exception('This diagnosis request is currently being reviewed by another instructor.', 409);
+        } finally {
+            optional($lock)->release();
+        }
     }
 
     /**
@@ -127,22 +159,34 @@ class DiagnosisService
      */
     public function rejectCase(int $id, array $data, int $instructorId, int $instructorProfileId)
     {
-        $diagnosis = $this->diagnosisRepo->FindOrFail($id);
+        $lock = Cache::lock('lock:review_diagnosis:' . $id, 10);
 
-        $this->validatePendingStatus($diagnosis);
-        $this->authorizeInstructorForStudent($diagnosis, $instructorProfileId);
+        try {
 
-        return DB::transaction(function () use ($diagnosis, $data, $instructorId) {
-            $this->diagnosisRepo->update($diagnosis, [
-                'status' => DiagnosisStatus::REJECTED->value,
-                'instructor_id' => $instructorId,
-                'rejection_reason' => $data['rejection_reason'],
-            ]);
+            $lock->block(3);
 
-            $this->patientRepo->updateAvailability($diagnosis->patient_id, PatientStatus::WAITING_DIAGNOSIS->value);
+            return DB::transaction(function () use ($id, $data, $instructorId, $instructorProfileId) {
+                // جلب التشخيص والتحقق من حالته الفعلية داخل القفل لضمان عدم مراجعته من مدرّس آخر بالتوازي
+                $diagnosis = $this->diagnosisRepo->FindOrFail($id);
 
-            return true;
-        });
+                $this->validatePendingStatus($diagnosis);
+                $this->authorizeInstructorForStudent($diagnosis, $instructorProfileId);
+
+                $this->diagnosisRepo->update($diagnosis, [
+                    'status' => DiagnosisStatus::REJECTED->value,
+                    'instructor_id' => $instructorId,
+                    'rejection_reason' => $data['rejection_reason'],
+                ]);
+
+                $this->patientRepo->updateAvailability($diagnosis->patient_id, PatientStatus::WAITING_DIAGNOSIS->value);
+
+                return true;
+            });
+        } catch (LockTimeoutException $e) {
+            throw new Exception('This diagnosis request is currently being reviewed by another instructor.', 409);
+        } finally {
+            optional($lock)->release();
+        }
     }
 
     private function validatePendingStatus($diagnosis)

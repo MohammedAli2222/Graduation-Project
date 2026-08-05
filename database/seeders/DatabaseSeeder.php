@@ -36,9 +36,9 @@ class DatabaseSeeder extends Seeder
         ]);
 
         // 3. القسم الطبي الشامل (Medical Module)
-        $this->call([
-            MedicalModuleSeeder::class, // ينشئ المرضى، التشخيصات، العلاجات، والمواعيد
-        ]);
+        // $this->call([
+        //     MedicalModuleSeeder::class, // ينشئ المرضى، التشخيصات، العلاجات، والمواعيد
+        // ]);
 
         // 4. التجارة الإلكترونية الأساسية والمتقدمة (E-commerce Module)
         $this->call([

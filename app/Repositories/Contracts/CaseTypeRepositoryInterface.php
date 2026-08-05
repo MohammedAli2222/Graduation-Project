@@ -11,4 +11,6 @@ interface CaseTypeRepositoryInterface
     public function findByIdWithCourse(int $id): ?CaseType;
     public function updateRequiredCount(CaseType $caseType, int $newCount): bool;
     public function getCaseTypesByDepartment(int $departmentId): Collection;
+    public function create(array $data): CaseType;
+    public function delete(CaseType $caseType): bool;
 }

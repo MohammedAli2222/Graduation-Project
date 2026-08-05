@@ -83,10 +83,15 @@ class StartTreatmentAction
 
     private function linkAndCompleteAppointment($appointment, int $treatmentId): void
     {
-        // تحديث الموعد الحالي مباشرة دون الحاجة للبحث مرة أخرى
+        $this->appointmentRepo->linkAppointmentsToTreatment(
+            $appointment->student_id,
+            $appointment->appointment_date,
+            $appointment->diagnosis_id,
+            $treatmentId
+        );
+
         $appointment->update([
             'status' => AppointmentStatus::ATTENDED->value,
-            'treatment_id' => $treatmentId
         ]);
 
         // تحديث حالة التشخيص
@@ -125,16 +130,16 @@ class StartTreatmentAction
             4 => ['start' => '15:30', 'end' => '17:30'],
         ];
 
-        if (!isset($slotTimes[$appointment->start_slot]) || !isset($slotTimes[$appointment->end_slot])) {
-            throw new Exception('Invalid appointment slot range.');
+        if (!isset($slotTimes[$appointment->slot_number])) {
+            throw new Exception('Invalid appointment slot.');
         }
 
-        $startTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->start_slot]['start'], 'Asia/Damascus');
-        $endTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->end_slot]['end'], 'Asia/Damascus');
+        $startTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->slot_number]['start'], 'Asia/Damascus');
+        $endTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->slot_number]['end'], 'Asia/Damascus');
 
-        // // السماح بالبدء من بداية أول سلوت وحتى نهاية آخر سلوت
+        // // السماح بالبدء من بداية السلوت وحتى نهايته
         // if ($now->lessThan($startTime) || $now->greaterThan($endTime)) {
-        //     throw new Exception("Treatment can only be started between {$slotTimes[$appointment->start_slot]['start']} and {$slotTimes[$appointment->end_slot]['end']}.");
+        //     throw new Exception("Treatment can only be started between {$slotTimes[$appointment->slot_number]['start']} and {$slotTimes[$appointment->slot_number]['end']}.");
         // }
     }
 }

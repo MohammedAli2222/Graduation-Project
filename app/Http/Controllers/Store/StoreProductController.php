@@ -8,7 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\StoreProductRequest;
 use App\Http\Requests\Store\UpdateStoreProductRequest;
 use App\Http\Resources\Store\ProductResource;
-use App\Models\Category;
+use App\Repositories\CategoryRepository;
 use App\Services\Unified\SellerProductService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,10 +19,11 @@ use Exception;
 class StoreProductController extends Controller
 {
     /**
-     * حقن الخدمة الموحدة.
+     * حقن الخدمة الموحدة ومستودع الفئات.
      */
     public function __construct(
-        protected SellerProductService $productService
+        protected SellerProductService $productService,
+        protected CategoryRepository $categoryRepo
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -132,7 +133,8 @@ class StoreProductController extends Controller
 
     public function getCategoriesDropdown(): JsonResponse
     {
-        $categories = Category::select('id', 'name')->get();
+        // القراءة تمر عبر المستودع الذي يتكفّل بالكاش داخلياً (24 ساعة) بدل ضرب القاعدة مباشرة
+        $categories = $this->categoryRepo->getDropdown();
         return response_success($categories, 200, 'تم جلب الفئات بنجاح.');
     }
 }

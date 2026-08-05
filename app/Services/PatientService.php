@@ -50,6 +50,7 @@ class PatientService
                 'medications_details'      => $data['medications_details'] ?? null,
                 'has_allergies'            => $data['has_allergies'],
                 'allergies_details'        => $data['allergies_details'] ?? null,
+                'is_pregnant'              => $data['gender'] === 'female' ? filter_var($data['is_pregnant'] ?? false, FILTER_VALIDATE_BOOLEAN) : null,
             ]);
 
             // 3. رفع صورة الهوية (مشتركة للجميع)
@@ -105,6 +106,66 @@ class PatientService
                         $this->mediaService->upload($diagnosis, $files['x_ray_images'][$index], 'x_ray_images');
                     }
                 }
+            }
+
+            return $patient->load(['medicalHistory', 'diagnoses.media', 'media']);
+        });
+    }
+
+    public function addDiagnosesToExistingPatient(int $patientId, array $data, array $files = [])
+    {
+        return DB::transaction(function () use ($patientId, $data, $files) {
+
+            // 1. جلب المريض الحالي، مع رمي استثناء إن لم يكن موجوداً
+            $patient = $this->repository->FindOrFail($patientId);
+
+            // 2. جلب الملف الأكاديمي للطالب المصادق عليه للتحقق من صلاحيته
+            $user = auth()->user();
+            $student = $user->studentProfile;
+
+            if (! $student) {
+                throw new \Exception('Student academic profile not found.', 404);
+            }
+
+            $studentYear = (int) $student->academic_year;
+            $studentSemester = (int) $student->semester;
+
+            $createdDiagnoses = [];
+
+            // 3. المرور على كل تشخيص مطلوب لإنشائه بشكل منفصل
+            foreach ($data['case_type_ids'] as $index => $caseTypeId) {
+                $caseType = CaseType::with('course')->findOrFail($caseTypeId);
+                $course = $caseType->course;
+
+                // التحقق من الصلاحية الأكاديمية (نفس منطق registerPatient تماماً)
+                $isAllowed = ($course->year < $studentYear) || ($course->year == $studentYear && $course->semester <= $studentSemester);
+
+                if (! $isAllowed) {
+                    throw new \Exception("Unauthorized: Cannot register for '{$caseType->name}'.", 403);
+                }
+
+                $diagnosis = $patient->diagnoses()->create([
+                    'case_type_id' => $caseTypeId,
+                    'department_id' => $course->department_id,
+                    'suggested_by_student_id' => $user->id,
+                    'status' => DiagnosisStatus::WAITING_APPROVAL->value,
+                    'estimated_cost' => $data['estimated_costs'][$index] ?? 0,
+                ]);
+
+                // 4. رفع الصور الخاصة بهذا التشخيص
+                if (isset($files['clinical_images'][$index])) {
+                    $this->mediaService->upload($diagnosis, $files['clinical_images'][$index], 'clinical_images');
+                }
+                if (isset($files['x_ray_images'][$index])) {
+                    $this->mediaService->upload($diagnosis, $files['x_ray_images'][$index], 'x_ray_images');
+                }
+
+                $createdDiagnoses[] = $diagnosis;
+            }
+
+            // 5. تحديث حالة إتاحة المريض إن كانت "مكتملة" أو "محجوزة بالكامل"
+            if (in_array($patient->availability_status, [PatientStatus::COMPLETED->value, PatientStatus::FULLY_RESERVED->value], true)) {
+                $patient->update(['availability_status' => PatientStatus::WAITING_DIAGNOSIS->value]);
             }
 
             return $patient->load(['medicalHistory', 'diagnoses.media', 'media']);
@@ -186,6 +247,10 @@ class PatientService
             } elseif (array_key_exists($detailField, $data)) {
                 $medicalData[$detailField] = $data[$detailField];
             }
+        }
+
+        if ($patient->gender === 'female' && array_key_exists('is_pregnant', $data)) {
+            $medicalData['is_pregnant'] = filter_var($data['is_pregnant'], FILTER_VALIDATE_BOOLEAN);
         }
 
         if (! empty($medicalData)) {

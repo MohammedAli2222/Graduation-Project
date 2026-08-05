@@ -20,6 +20,11 @@ return new class extends Migration
             $table->unsignedInteger('year');
             $table->unsignedInteger('semester');
             $table->timestamps();
+
+            // فهرس مركب لأن التسجيل التلقائي بالمقررات (autoEnrollStudentCourses) وتصنيف
+            // أنواع الحالات حسب الفصل الحالي/السابق (getCategorizedCaseTypes) يُصفّيان باستمرار
+            // حسب السنة والفصل الدراسي معاً، وهما استعلامان يُنفَّذان مع كل طالب تقريباً
+            $table->index(['year', 'semester'], 'courses_year_semester_idx');
         });
     }
 

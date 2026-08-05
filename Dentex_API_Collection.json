@@ -1,0 +1,2278 @@
+{
+    "info": {
+        "_postman_id": "3f1e9a6d-2c4a-4a9b-9d3e-8e5b6c1a7d21",
+        "name": "Dentex API",
+        "description": "Comprehensive Postman collection for the Dentex dental-school clinical management backend (Laravel).\n\nCovers Auth, Receptionist, Student (courses, cart, marketplace, appointments, diagnoses, treatments), Instructor (diagnosis review, treatment review), Head of Department (case type / delegation / statistics management), and Store Owner (products, promotions, orders).\n\nSetup:\n1. Set `base_url` (defaults to http://127.0.0.1:8000/api).\n2. Run the relevant Register + Login requests in 'Auth & Profile' for each role, then paste the returned token into the matching *_token collection variable (student_token, instructor_token, receptionist_token, hod_token, store_owner_token).\n3. Each folder's Authorization tab is pre-wired to the matching token variable, so every request inside it just works once the variable is set.",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Auth & Profile",
+            "item": [
+                {
+                    "name": "Register - Student",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/register",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"first_name\": \"Ahmed\",\n    \"last_name\": \"Khaled\",\n    \"email\": \"ahmed.student@dentex.test\",\n    \"password\": \"Password123\",\n    \"role\": \"student\",\n    \"phone\": \"0999123456\",\n    \"group_id\": 1,\n    \"exam_number\": \"EX-2026-001\",\n    \"academic_year\": 5,\n    \"semester\": 1,\n    \"university\": \"Damascus University\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        },
+                        "description": "Registers a new STUDENT account. The `role` field controls which conditional fields are required (see the other Register examples in this folder for instructor / department_head / store_owner payloads)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Register - Instructor",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/register",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"first_name\": \"Sara\",\n    \"last_name\": \"Youssef\",\n    \"email\": \"sara.instructor@dentex.test\",\n    \"password\": \"Password123\",\n    \"role\": \"instructor\",\n    \"phone\": \"0999654321\",\n    \"specialty\": \"Orthodontics\",\n    \"specialty_year\": \"2020\",\n    \"group_ids\": [\n        1,\n        2\n    ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Register - Department Head",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/register",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"first_name\": \"Omar\",\n    \"last_name\": \"Hassan\",\n    \"email\": \"omar.hod@dentex.test\",\n    \"password\": \"Password123\",\n    \"role\": \"department_head\",\n    \"department_id\": 1\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Register - Store Owner",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/register",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"first_name\": \"Layla\",\n    \"last_name\": \"Ibrahim\",\n    \"email\": \"layla.store@dentex.test\",\n    \"password\": \"Password123\",\n    \"role\": \"store_owner\",\n    \"store_name\": \"Dentex Supplies\",\n    \"store_phone\": \"0988112233\",\n    \"store_address\": \"Damascus, Syria\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Login",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/login",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"email\": \"ahmed.student@dentex.test\",\n    \"password\": \"Password123\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "auth": {
+                            "type": "noauth"
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get All Groups",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/instructor/groups",
+                        "auth": {
+                            "type": "noauth"
+                        },
+                        "description": "Public helper endpoint (no role guard) used mainly to populate group dropdowns."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Groups By Academic Year",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/students/groups?academic_year=5",
+                        "auth": {
+                            "type": "noauth"
+                        },
+                        "description": "academic_year must be 4 or 5. Used by the registration screen to populate the group dropdown for students."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Authenticated User",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/user"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Verify OTP",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/verify-otp",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"otp_code\": \"123456\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Activates the account after registration using the 6-digit OTP code emailed to the user."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Logout",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/logout"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Update My Profile (Student)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/student/update-profile",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"first_name\": \"Ahmed\",\n    \"last_name\": \"Khaled\",\n    \"email\": \"ahmed.updated@dentex.test\",\n    \"phone\": \"0999123456\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "All fields are optional (sometimes|required). Only send the fields you want to change."
+                    },
+                    "response": []
+                }
+            ],
+            "auth": {
+                "type": "bearer",
+                "bearer": [
+                    {
+                        "key": "token",
+                        "value": "{{student_token}}",
+                        "type": "string"
+                    }
+                ]
+            },
+            "description": "Public authentication endpoints plus session/profile endpoints usable by any authenticated role. Register & Login require no token; the rest use the student_token by default (swap the Authorization tab token as needed for other roles)."
+        },
+        {
+            "name": "Receptionist",
+            "item": [
+                {
+                    "name": "Get Daily Dashboard Stats",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/receptionist/stats"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Search Patient (by code or phone)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/receptionist/patients/search?q=0999123456"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Store New Patient",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/receptionist/patients/store",
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "full_name",
+                                    "value": "Khaled Ahmad",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "gender",
+                                    "value": "male",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "phone",
+                                    "value": "0977889900",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "preliminary_diagnosis",
+                                    "value": "Routine dental checkup",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "birth_date",
+                                    "value": "1998-05-14",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "address",
+                                    "value": "Damascus, Al-Mazzeh",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "has_general_diseases",
+                                    "value": "0",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "is_special_needs",
+                                    "value": "0",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "takes_medications",
+                                    "value": "0",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "has_allergies",
+                                    "value": "0",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "id_card",
+                                    "type": "file",
+                                    "src": null
+                                },
+                                {
+                                    "key": "clinical_images[]",
+                                    "type": "file",
+                                    "src": null
+                                },
+                                {
+                                    "key": "clinical_images[]",
+                                    "type": "file",
+                                    "src": null
+                                },
+                                {
+                                    "key": "x_ray_images[]",
+                                    "type": "file",
+                                    "src": null
+                                },
+                                {
+                                    "key": "x_ray_images[]",
+                                    "type": "file",
+                                    "src": null
+                                }
+                            ]
+                        },
+                        "description": "Creates a patient record (receptionist flow). Images are uploaded directly onto the patient (not per-diagnosis)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Show Patient Profile",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/receptionist/patients/1"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Update Patient",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/receptionist/patients/update/1",
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "full_name",
+                                    "value": "Khaled Ahmad Al-Sayed",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "phone",
+                                    "value": "0977889901",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "preliminary_diagnosis",
+                                    "value": "Follow-up checkup",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "has_general_diseases",
+                                    "value": "1",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "general_diseases_details",
+                                    "value": "Type 2 diabetes",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "is_special_needs",
+                                    "value": "0",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "takes_medications",
+                                    "value": "0",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "has_allergies",
+                                    "value": "0",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "images[]",
+                                    "type": "file",
+                                    "src": null
+                                }
+                            ]
+                        },
+                        "description": "All fields are optional (sometimes). Only send what changed. Replaces the patient_records media collection if images are provided."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Receptionist Waiting List",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/receptionistWaiting",
+                        "description": "Accessible to both receptionist and instructor roles."
+                    },
+                    "response": []
+                }
+            ],
+            "auth": {
+                "type": "bearer",
+                "bearer": [
+                    {
+                        "key": "token",
+                        "value": "{{receptionist_token}}",
+                        "type": "string"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "Student",
+            "item": [
+                {
+                    "name": "Courses & Setup",
+                    "item": [
+                        {
+                            "name": "Setup Academic Courses (Auto-Enroll)",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/setup-courses",
+                                "description": "Automatically enrolls the student into the correct courses based on their current academic_year/semester and prior enrollment history. No body required."
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Enroll In Courses (Manual / Carry-over)",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    },
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/courses/enroll",
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n    \"course_ids\": [\n        3,\n        5,\n        7\n    ]\n}",
+                                    "options": {
+                                        "raw": {
+                                            "language": "json"
+                                        }
+                                    }
+                                },
+                                "description": "Manually enrolls the student in specific courses (e.g. failed/carry-over courses from previous years)."
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Get Case Types Dropdown",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/case-types"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Get My Active Courses",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/my-courses"
+                            },
+                            "response": []
+                        }
+                    ]
+                },
+                {
+                    "name": "Cart",
+                    "item": [
+                        {
+                            "name": "Show Cart",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/cart"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Add To Cart",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    },
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/cart/add",
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n    \"product_id\": 4,\n    \"quantity\": 2\n}",
+                                    "options": {
+                                        "raw": {
+                                            "language": "json"
+                                        }
+                                    }
+                                }
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Update Cart Item Quantity",
+                            "request": {
+                                "method": "PUT",
+                                "header": [
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    },
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/cart/items/1",
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n    \"quantity\": 3\n}",
+                                    "options": {
+                                        "raw": {
+                                            "language": "json"
+                                        }
+                                    }
+                                }
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Remove Cart Item",
+                            "request": {
+                                "method": "DELETE",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/cart/items/1"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Clear Cart",
+                            "request": {
+                                "method": "DELETE",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/cart/clear"
+                            },
+                            "response": []
+                        }
+                    ]
+                },
+                {
+                    "name": "Checkout & Purchases",
+                    "item": [
+                        {
+                            "name": "Checkout (Cart -> Order)",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/checkout",
+                                "description": "Converts the current cart into a finalized order. No body required."
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "List My Purchases",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/purchases?per_page=15"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Show Purchase Details",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/purchases/1"
+                            },
+                            "response": []
+                        }
+                    ]
+                },
+                {
+                    "name": "Marketplace (Sell My Tools)",
+                    "item": [
+                        {
+                            "name": "List My Listed Products",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/marketplace/my-products"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Create Product Listing",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/marketplace/my-products",
+                                "body": {
+                                    "mode": "formdata",
+                                    "formdata": [
+                                        {
+                                            "key": "category_id",
+                                            "value": "2",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "name",
+                                            "value": "Dental Extraction Forceps Set",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "description",
+                                            "value": "Slightly used, high quality stainless steel forceps set.",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "price",
+                                            "value": "45.50",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "brand",
+                                            "value": "Hu-Friedy",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "quantity",
+                                            "value": "1",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "availability_status",
+                                            "value": "available",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "condition",
+                                            "value": "used",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "images[]",
+                                            "type": "file",
+                                            "src": null
+                                        },
+                                        {
+                                            "key": "images[]",
+                                            "type": "file",
+                                            "src": null
+                                        }
+                                    ]
+                                }
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Update Product Listing",
+                            "request": {
+                                "method": "PUT",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/marketplace/my-products/1",
+                                "body": {
+                                    "mode": "formdata",
+                                    "formdata": [
+                                        {
+                                            "key": "name",
+                                            "value": "Dental Extraction Forceps Set - Updated",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "price",
+                                            "value": "40.00",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "quantity",
+                                            "value": "1",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "condition",
+                                            "value": "used",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "images[]",
+                                            "type": "file",
+                                            "src": null
+                                        }
+                                    ]
+                                },
+                                "description": "All fields are optional (sometimes). Laravel does not natively support multipart PUT; if your client cannot send PUT+formdata, use POST with _method=PUT."
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Delete Product Listing",
+                            "request": {
+                                "method": "DELETE",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/marketplace/my-products/1"
+                            },
+                            "response": []
+                        }
+                    ]
+                },
+                {
+                    "name": "Browse (Buy Tools)",
+                    "item": [
+                        {
+                            "name": "Browse General Marketplace",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/browse/products?search=forceps&category_id=2&condition=used"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Browse Product Details",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/browse/products/1"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Browse Official Stores",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/browse/stores?per_page=15"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Browse Store Products",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/browse/stores/1/products?search=&category_id=&condition="
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Browse Student Sellers Marketplace",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/browse/student-products?per_page=15"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Browse Student Product Details",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/browse/student-products/1"
+                            },
+                            "response": []
+                        }
+                    ]
+                },
+                {
+                    "name": "Patients & Diagnoses",
+                    "item": [
+                        {
+                            "name": "Get Available Patients By Case Type",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/case-types/3/available-patients"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Get Patient Case Details",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/patient-case-details/1"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Register New Patient + Diagnosis",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/patients/store",
+                                "body": {
+                                    "mode": "formdata",
+                                    "formdata": [
+                                        {
+                                            "key": "full_name",
+                                            "value": "Nour Al-Sabbagh",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "gender",
+                                            "value": "female",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "phone",
+                                            "value": "0933112244",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "preliminary_diagnosis",
+                                            "value": "Suspected cavity in lower molar",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "birth_date",
+                                            "value": "2000-02-20",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "address",
+                                            "value": "Damascus, Al-Midan",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "has_general_diseases",
+                                            "value": "0",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "is_special_needs",
+                                            "value": "0",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "takes_medications",
+                                            "value": "0",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "has_allergies",
+                                            "value": "0",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "is_pregnant",
+                                            "value": "0",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "case_type_ids[]",
+                                            "value": "3",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "case_type_ids[]",
+                                            "value": "5",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "estimated_costs[]",
+                                            "value": "50000",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "estimated_costs[]",
+                                            "value": "75000",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "id_card",
+                                            "type": "file",
+                                            "src": null
+                                        },
+                                        {
+                                            "key": "clinical_images[0][]",
+                                            "type": "file",
+                                            "src": null,
+                                            "description": "Clinical image(s) for the 1st case_type_ids entry"
+                                        },
+                                        {
+                                            "key": "clinical_images[1][]",
+                                            "type": "file",
+                                            "src": null,
+                                            "description": "Clinical image(s) for the 2nd case_type_ids entry"
+                                        },
+                                        {
+                                            "key": "x_ray_images[0][]",
+                                            "type": "file",
+                                            "src": null,
+                                            "description": "X-Ray image(s) for the 1st case_type_ids entry"
+                                        },
+                                        {
+                                            "key": "x_ray_images[1][]",
+                                            "type": "file",
+                                            "src": null,
+                                            "description": "X-Ray image(s) for the 2nd case_type_ids entry"
+                                        }
+                                    ]
+                                },
+                                "description": "Creates a brand-new patient AND simultaneously suggests one or more diagnoses for them. clinical_images / x_ray_images are indexed to line up positionally with case_type_ids."
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Add Diagnosis To Existing Patient",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/patients/1/diagnoses",
+                                "body": {
+                                    "mode": "formdata",
+                                    "formdata": [
+                                        {
+                                            "key": "case_type_ids[]",
+                                            "value": "3",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "estimated_costs[]",
+                                            "value": "60000",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "clinical_images[0][]",
+                                            "type": "file",
+                                            "src": null
+                                        },
+                                        {
+                                            "key": "x_ray_images[0][]",
+                                            "type": "file",
+                                            "src": null
+                                        }
+                                    ]
+                                },
+                                "description": "For a patient that already exists in the system. Only diagnosis-related data is accepted here (no patient personal info)."
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Get Patient Diagnoses",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/patients/1/diagnoses"
+                            },
+                            "response": []
+                        }
+                    ]
+                },
+                {
+                    "name": "Appointments",
+                    "item": [
+                        {
+                            "name": "Book Appointment (Reserve Case)",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    },
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/appointments/book",
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n    \"diagnosis_id\": 10,\n    \"appointment_date\": \"2026-08-10\",\n    \"slot_number\": 1\n}",
+                                    "options": {
+                                        "raw": {
+                                            "language": "json"
+                                        }
+                                    }
+                                }
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Get My Upcoming Appointments",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/appointments"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Get Appointment History",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/appointments/history"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Cancel Appointment",
+                            "request": {
+                                "method": "PATCH",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/appointments/5/cancel",
+                                "description": "Only allowed before the appointment has been attended. No body required."
+                            },
+                            "response": []
+                        }
+                    ]
+                },
+                {
+                    "name": "Treatments",
+                    "item": [
+                        {
+                            "name": "Start Treatment",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/treatments/start",
+                                "body": {
+                                    "mode": "formdata",
+                                    "formdata": [
+                                        {
+                                            "key": "appointment_id",
+                                            "value": "5",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "before_images[]",
+                                            "type": "file",
+                                            "src": null
+                                        },
+                                        {
+                                            "key": "before_images[]",
+                                            "type": "file",
+                                            "src": null
+                                        }
+                                    ]
+                                }
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Book Follow-Up Appointment",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Content-Type",
+                                        "value": "application/json"
+                                    },
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/treatments/follow-up",
+                                "body": {
+                                    "mode": "raw",
+                                    "raw": "{\n    \"treatment_id\": 7,\n    \"appointment_date\": \"2026-08-20\",\n    \"slot_number\": 2\n}",
+                                    "options": {
+                                        "raw": {
+                                            "language": "json"
+                                        }
+                                    }
+                                }
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Complete Treatment",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/treatments/complete",
+                                "body": {
+                                    "mode": "formdata",
+                                    "formdata": [
+                                        {
+                                            "key": "treatment_id",
+                                            "value": "7",
+                                            "type": "text"
+                                        },
+                                        {
+                                            "key": "after_images[]",
+                                            "type": "file",
+                                            "src": null
+                                        },
+                                        {
+                                            "key": "after_images[]",
+                                            "type": "file",
+                                            "src": null
+                                        }
+                                    ]
+                                },
+                                "description": "Marks the student side of the treatment as done; awaits instructor review/approval."
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Rollback Started Treatment",
+                            "request": {
+                                "method": "POST",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/treatments/7/rollback",
+                                "description": "Reverts a mistakenly started treatment back to a cancelled state and frees up the appointment. No body required."
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Get Patient Treatment History",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/patients/1/treatments/history"
+                            },
+                            "response": []
+                        }
+                    ]
+                },
+                {
+                    "name": "Dashboard",
+                    "item": [
+                        {
+                            "name": "Get Progress Stats",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/dashboard/progress"
+                            },
+                            "response": []
+                        },
+                        {
+                            "name": "Get Cases List",
+                            "request": {
+                                "method": "GET",
+                                "header": [
+                                    {
+                                        "key": "Accept",
+                                        "value": "application/json"
+                                    }
+                                ],
+                                "url": "{{base_url}}/student/dashboard/cases?type=remaining",
+                                "description": "type query param accepts 'remaining' or other supported case-status filters."
+                            },
+                            "response": []
+                        }
+                    ]
+                }
+            ],
+            "auth": {
+                "type": "bearer",
+                "bearer": [
+                    {
+                        "key": "token",
+                        "value": "{{student_token}}",
+                        "type": "string"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "Instructor",
+            "item": [
+                {
+                    "name": "Get Dashboard Stats",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/instructor/dashboard/stats"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Case Types Dropdown",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/instructor/case-types"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Student Pending Patients",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/instructor/patients/student-pending"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Diagnose Patient (Multiple Cases)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/instructor/diagnose",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"patient_id\": 12,\n    \"diagnoses\": [\n        {\n            \"case_type_id\": 3,\n            \"final_diagnosis\": \"Deep caries requiring root canal treatment on tooth #36.\",\n            \"media_ids\": [\n                101,\n                102\n            ]\n        },\n        {\n            \"case_type_id\": 5,\n            \"final_diagnosis\": \"Mild gingivitis requiring scaling and polishing.\",\n            \"media_ids\": [\n                103\n            ]\n        }\n    ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Instructor diagnoses a patient coming from the receptionist, creating one or more available cases. media_ids reference existing media already uploaded to the patient (copied onto each new diagnosis)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Approve Student-Suggested Case",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/instructor/patients/1/approve",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"final_diagnosis\": \"Confirmed diagnosis: root canal treatment required for tooth #36.\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "The {id} in the URL is the patient_diagnoses.id (the student-suggested diagnosis), not the patient id."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Reject Student-Suggested Case",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/instructor/patients/1/reject",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"rejection_reason\": \"The suggested case does not match the student's current academic level.\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "The {id} in the URL is the patient_diagnoses.id (the student-suggested diagnosis), not the patient id."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Pending Treatments List",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/instructor/treatments/pending"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Treatment Details",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/instructor/treatments/pending/1"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Review Treatment - Approve",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/instructor/treatments/review",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"treatment_id\": 7,\n    \"action\": \"approve\",\n    \"instructor_notes\": \"Excellent work, treatment completed according to clinical standards.\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Review Treatment - Reject",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/instructor/treatments/review",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"treatment_id\": 7,\n    \"action\": \"reject\",\n    \"instructor_notes\": \"Please retake the after-treatment images; the current ones are unclear.\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                }
+            ],
+            "auth": {
+                "type": "bearer",
+                "bearer": [
+                    {
+                        "key": "token",
+                        "value": "{{instructor_token}}",
+                        "type": "string"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "Head of Department - HOD",
+            "item": [
+                {
+                    "name": "Get Completed Treatments (List)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/hod/completed-treatments?page=1&per_page=15",
+                        "description": "Also reachable by an instructor who has been delegated the view-department-treatments permission."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Completed Treatment Details",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/hod/completed-treatments/1"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Department Case Types",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/hod/case-types"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Create Case Type",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/hod/case-types",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"name\": \"Root Canal Treatment - Molar\",\n    \"course_id\": 4,\n    \"required_count\": 3\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Delete Case Type",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/hod/case-types/3"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Update Case Requirement Count",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/hod/case-types/3/requirement",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"required_count\": 5\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Department Courses",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/hod/courses"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Instructors List",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/hod/instructors"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Delegate Permission To Instructor",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/hod/instructors/2/delegate",
+                        "description": "Grants the instructor the view-department-treatments permission. No body required."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Revoke Permission From Instructor",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/hod/instructors/2/revoke",
+                        "description": "No body required."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Department Statistics",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/hod/statistics"
+                    },
+                    "response": []
+                }
+            ],
+            "auth": {
+                "type": "bearer",
+                "bearer": [
+                    {
+                        "key": "token",
+                        "value": "{{hod_token}}",
+                        "type": "string"
+                    }
+                ]
+            }
+        },
+        {
+            "name": "Store Owner",
+            "item": [
+                {
+                    "name": "List Store Products",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/products?per_page=15"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Create Product",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/products",
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "category_id",
+                                    "value": "1",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "name",
+                                    "value": "Dental Composite Resin Kit",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "description",
+                                    "value": "Brand new A2 shade composite resin kit, includes bonding agent.",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "price",
+                                    "value": "89.99",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "brand",
+                                    "value": "3M ESPE",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "quantity",
+                                    "value": "25",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "availability_status",
+                                    "value": "available",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "condition",
+                                    "value": "new",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "images[]",
+                                    "type": "file",
+                                    "src": null
+                                },
+                                {
+                                    "key": "images[]",
+                                    "type": "file",
+                                    "src": null
+                                }
+                            ]
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Update Product",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/products/1",
+                        "body": {
+                            "mode": "formdata",
+                            "formdata": [
+                                {
+                                    "key": "name",
+                                    "value": "Dental Composite Resin Kit - Restocked",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "price",
+                                    "value": "84.99",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "quantity",
+                                    "value": "40",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "condition",
+                                    "value": "new",
+                                    "type": "text"
+                                },
+                                {
+                                    "key": "images[]",
+                                    "type": "file",
+                                    "src": null
+                                }
+                            ]
+                        },
+                        "description": "All fields are optional (sometimes). Laravel does not natively support multipart PUT; if your client cannot send PUT+formdata, use POST with _method=PUT."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Delete Product",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/products/1"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Show Product Details",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/products/1"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "List Promotions",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/promotions?per_page=15"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Show Promotion Details",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/promotions/1"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Create Promotion",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/promotions",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"title\": \"Back To Clinic Season Sale\",\n    \"description\": \"20% off on all composite resin kits this week only.\",\n    \"discount_percentage\": 20,\n    \"start_date\": \"2026-08-05 00:00:00\",\n    \"end_date\": \"2026-08-15 23:59:59\",\n    \"is_active\": true,\n    \"product_ids\": [\n        1,\n        2,\n        3\n    ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Update Promotion",
+                    "request": {
+                        "method": "PUT",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/promotions/1",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"title\": \"Back To Clinic Season Sale - Extended\",\n    \"discount_percentage\": 25,\n    \"end_date\": \"2026-08-20 23:59:59\",\n    \"is_active\": true,\n    \"product_ids\": [\n        1,\n        2\n    ]\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "All fields are optional (sometimes)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Delete Promotion",
+                    "request": {
+                        "method": "DELETE",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/promotions/1"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "List Orders",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/orders?per_page=15",
+                        "description": "Shared route: reachable by both store_owner (their own store orders) and student (their own purchase orders)."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Show Order Details",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/orders/1"
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Update Order Status - Reject",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/orders/1/status",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"status\": \"rejected\",\n    \"rejection_reason\": \"Item currently out of stock, unable to fulfill this order.\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        }
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Update Order Status - Processing",
+                    "request": {
+                        "method": "PATCH",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/orders/1/status",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"status\": \"processing\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "status accepts: pending, processing, ready, completed, rejected. rejection_reason is required only when status = rejected."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Categories Dropdown",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/categories",
+                        "auth": {
+                            "type": "noauth"
+                        },
+                        "description": "Public endpoint, no authentication required."
+                    },
+                    "response": []
+                }
+            ],
+            "auth": {
+                "type": "bearer",
+                "bearer": [
+                    {
+                        "key": "token",
+                        "value": "{{store_owner_token}}",
+                        "type": "string"
+                    }
+                ]
+            }
+        }
+    ],
+    "variable": [
+        {
+            "key": "base_url",
+            "value": "http://127.0.0.1:8000/api",
+            "type": "string"
+        },
+        {
+            "key": "student_token",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "instructor_token",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "receptionist_token",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "hod_token",
+            "value": "",
+            "type": "string"
+        },
+        {
+            "key": "store_owner_token",
+            "value": "",
+            "type": "string"
+        }
+    ]
+}

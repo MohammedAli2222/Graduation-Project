@@ -10,6 +10,7 @@ use App\Http\Resources\PatientDiagnosisResource;
 use App\Http\Resources\PatientResource;
 use App\Http\Resources\TreatmentListResource;
 use App\Http\Resources\TreatmentResource;
+use App\Models\CaseType;
 use App\Services\DiagnosisService;
 use App\Actions\Treatment\ReviewTreatmentAction;
 use App\Services\PatientService;
@@ -32,6 +33,23 @@ class InstructorController extends Controller
         }
 
         return $id;
+    }
+
+    public function getCaseTypesDropdown()
+    {
+        $caseTypes = CaseType::with('course')->orderBy('name')->get();
+
+        return response_success(
+            $caseTypes->map(fn (CaseType $caseType) => [
+                'id' => $caseType->id,
+                'name' => $caseType->name,
+                'course' => $caseType->course
+                    ? ['id' => $caseType->course->id, 'name' => $caseType->course->name]
+                    : null,
+            ]),
+            200,
+            'Case types retrieved successfully.'
+        );
     }
 
     public function getStats(Request $request)

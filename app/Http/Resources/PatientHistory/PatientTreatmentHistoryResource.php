@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\PatientHistory;
 
+use App\Enums\TreatmentStatus;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -17,6 +18,14 @@ class PatientTreatmentHistoryResource extends JsonResource
         return [
             'id' => $this->id,
             'status' => $this->status,
+
+            // سبب الرفض: يُقرأ من instructor_notes لأن هذا هو الحقل الفعلي الذي
+            // يُخزَّن فيه سبب رفض المشرف حالياً (عمود rejection_reason غير مستخدم في الكتابة)
+            'rejection_reason' => $this->when(
+                $this->status === TreatmentStatus::REJECTED,
+                $this->instructor_notes
+            ),
+
             'start_date' => $this->start_date->format('Y-m-d H:i'),
             'end_date' => $this->end_date,
             'before_images' => $this->getMedia('before_treatment_images')->map(function ($media) {

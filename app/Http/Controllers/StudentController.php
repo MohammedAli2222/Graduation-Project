@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\EnrollStudentCoursesRequest;
+use App\Http\Requests\StoreExistingPatientDiagnosisRequest;
 use App\Http\Requests\StudentStorePatientRequest;
 use App\Http\Resources\CaseTypeResource;
 use App\Http\Resources\CourseResource;
@@ -93,6 +95,36 @@ class StudentController extends Controller
         }
     }
 
+    public function storeExistingPatientDiagnosis(StoreExistingPatientDiagnosisRequest $request, int $patientId)
+    {
+        try {
+            $validatedData = $request->validated();
+
+            $files = [
+                'clinical_images' => $request->file('clinical_images'),
+                'x_ray_images'    => $request->file('x_ray_images'),
+            ];
+
+            $patient = $this->patientService->addDiagnosesToExistingPatient(
+                $patientId,
+                $validatedData,
+                $files
+            );
+
+            return response_success(new PatientResource($patient), 201, 'Diagnosis request submitted successfully.');
+        } catch (ModelNotFoundException $e) {
+            return response_error(null, 404, 'Patient not found.');
+        } catch (ValidationException $e) {
+            return response_error($e->errors(), 422, 'Validation failed.');
+        } catch (\Exception $e) {
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? $e->getCode()
+                : 500;
+
+            return response_error(null, $statusCode, $e->getMessage());
+        }
+    }
+
     public function setupAcademicCourses(Request $request)
     {
         $student = $request->user()->studentProfile;
@@ -113,6 +145,27 @@ class StudentController extends Controller
             200,
             $result['message']
         );
+    }
+
+    public function enrollInCourses(EnrollStudentCoursesRequest $request)
+    {
+        try {
+            $student = $request->user()->studentProfile;
+
+            if (! $student) {
+                return response_error(null, 404, 'Student profile not found.');
+            }
+
+            $result = $this->courseService->manualEnrollCourses($student, $request->validated()['course_ids']);
+
+            return response_success($result, 200, 'Courses enrolled successfully.');
+        } catch (\Exception $e) {
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? $e->getCode()
+                : 500;
+
+            return response_error(null, $statusCode, $e->getMessage());
+        }
     }
 
     public function getAvailablePatients(int $caseTypeId)

@@ -42,6 +42,8 @@ class UpdatePatientRequest extends FormRequest
             'has_allergies' => 'sometimes|boolean',
             'allergies_details' => 'required_if:has_allergies,1|nullable|string',
 
+            'is_pregnant' => 'nullable|boolean',
+
             'images' => 'nullable|array',
             'images.*' => 'image|mimes:jpeg,png,jpg|max:5120',
         ];

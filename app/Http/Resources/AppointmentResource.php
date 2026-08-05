@@ -2,6 +2,8 @@
 
 namespace App\Http\Resources;
 
+use App\Enums\DiagnosisStatus;
+use App\Enums\TreatmentStatus;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -21,9 +23,7 @@ class AppointmentResource extends JsonResource
             'status'           => $this->status->value,
             'appointment_date' => $this->appointment_date->format('Y-m-d'),
 
-            'start_slot'       => $this->start_slot,
-            'end_slot'         => $this->end_slot,
-            'slots_count'      => $this->slots_count,
+            'slot_number'      => $this->slot_number,
 
             'slot_time'        => $this->getSlotTimeRange(),
 
@@ -39,12 +39,25 @@ class AppointmentResource extends JsonResource
                 return [
                     'id'     => $this->treatment_id,
                     'status' => $this->treatment->status->value ?? $this->treatment->status ?? 'in_progress',
+
+                    // سبب الرفض يظهر فقط عندما تكون حالة الجلسة العلاجية "مرفوضة"
+                    // (يُقرأ من instructor_notes لأنه الحقل الفعلي المستخدم لتخزين ملاحظة الرفض)
+                    'rejection_reason' => $this->when(
+                        optional($this->treatment)->status === TreatmentStatus::REJECTED,
+                        optional($this->treatment)->instructor_notes
+                    ),
                 ];
             }, null),
             'diagnosis' => [
                 'id'   => $this->diagnosis_id,
                 'name' => $this->diagnosis->caseType->name ?? 'غير محدد',
                 'final_diagnosis' => $this->diagnosis->final_diagnosis ?? 'لا يوجد تشخيص نهائي',
+
+                // سبب الرفض يظهر فقط عندما تكون حالة التشخيص "مرفوضة"
+                'rejection_reason' => $this->when(
+                    optional($this->diagnosis)->status === DiagnosisStatus::REJECTED,
+                    optional($this->diagnosis)->rejection_reason
+                ),
             ],
 
             'created_at' => $this->created_at->format('Y-m-d H:i:s'),

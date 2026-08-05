@@ -49,6 +49,7 @@ class PatientResource extends JsonResource
                     'special_needs' => ['has' => (bool) $this->medicalHistory->is_special_needs, 'details' => $this->medicalHistory->special_needs_details],
                     'medications' => ['has' => (bool) $this->medicalHistory->takes_medications, 'details' => $this->medicalHistory->medications_details],
                     'allergies' => ['has' => (bool) $this->medicalHistory->has_allergies, 'details' => $this->medicalHistory->allergies_details],
+                    'is_pregnant' => $this->gender === 'female' ? (bool) $this->medicalHistory->is_pregnant : null,
                 ];
             }),
 

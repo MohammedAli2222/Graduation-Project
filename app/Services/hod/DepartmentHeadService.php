@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Services\hod;
 
 use App\Enums\TreatmentStatus;
+use App\Models\CaseType;
+use App\Models\Course;
 use App\Repositories\Contracts\TreatmentRepositoryInterface;
 use App\Repositories\Contracts\CaseTypeRepositoryInterface;
 use App\Repositories\Contracts\InstructorRepositoryInterface;
@@ -40,6 +42,25 @@ class DepartmentHeadService
     }
 
     /**
+     * جلب تفاصيل معالجة واحدة كاملة (الطالب، المعيد المشرف، نوع الحالة، إلخ)
+     * بعد التحقق من أنها تابعة لقسم رئيس القسم الحالي.
+     */
+    public function getTreatmentDetailForDepartment(int $hodDepartmentId, int $treatmentId): \App\Models\Treatment
+    {
+        $treatment = $this->treatmentRepo->findDetailedForDepartment($treatmentId);
+
+        if (! $treatment) {
+            throw new Exception('المعالجة غير موجودة.', 404);
+        }
+
+        if ($treatment->diagnosis?->department_id !== $hodDepartmentId) {
+            throw new Exception('غير مصرح لك: هذه المعالجة تتبع لقسم آخر.', 403);
+        }
+
+        return $treatment;
+    }
+
+    /**
      * جلب قائمة أنواع الحالات التابعة للقسم.
      */
     public function getCaseTypesForDepartment(int $departmentId): Collection
@@ -49,6 +70,71 @@ class DepartmentHeadService
             now()->addHours(2),
             fn() => $this->caseTypeRepo->getCaseTypesByDepartment($departmentId)
         );
+    }
+
+    /**
+     * جلب مقررات القسم (لاستخدامها عند إنشاء نوع حالة جديد).
+     */
+    public function getCoursesForDepartment(int $departmentId): Collection
+    {
+        return Course::query()
+            ->where('department_id', $departmentId)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+    }
+
+    /**
+     * إنشاء نوع حالة سريرية جديد ضمن قسم رئيس القسم.
+     */
+    public function createCaseType(int $hodDepartmentId, array $data): CaseType
+    {
+        $course = Course::find($data['course_id']);
+
+        if (! $course) {
+            throw new Exception('المقرر الدراسي غير موجود.', 404);
+        }
+
+        if ($course->department_id !== $hodDepartmentId) {
+            throw new Exception('غير مصرح لك: لا يمكنك إضافة حالة سريرية لمقرر تابع لقسم آخر.', 403);
+        }
+
+        $caseType = $this->caseTypeRepo->create([
+            'name' => $data['name'],
+            'course_id' => $data['course_id'],
+            'required_count' => $data['required_count'] ?? 1,
+        ]);
+
+        Cache::tags(["department_{$hodDepartmentId}", 'case_types'])->flush();
+
+        return $caseType;
+    }
+
+    /**
+     * حذف نوع حالة سريرية تابع لقسم رئيس القسم.
+     */
+    public function deleteCaseType(int $hodDepartmentId, int $caseTypeId): bool
+    {
+        $caseType = $this->caseTypeRepo->findByIdWithCourse($caseTypeId);
+
+        if (! $caseType) {
+            throw new Exception('نوع الحالة السريرية غير موجود.', 404);
+        }
+
+        if ($caseType->course->department_id !== $hodDepartmentId) {
+            throw new Exception('غير مصرح لك: لا يمكنك حذف حالة سريرية تتبع لقسم آخر.', 403);
+        }
+
+        try {
+            $isDeleted = $this->caseTypeRepo->delete($caseType);
+        } catch (\Illuminate\Database\QueryException $e) {
+            throw new Exception('لا يمكن حذف نوع الحالة لوجود حالات مرضية مرتبطة به.', 409);
+        }
+
+        if ($isDeleted) {
+            Cache::tags(["department_{$hodDepartmentId}", 'case_types'])->flush();
+        }
+
+        return $isDeleted;
     }
 
     /**

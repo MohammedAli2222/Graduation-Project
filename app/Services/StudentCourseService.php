@@ -7,6 +7,7 @@ use App\Models\StudentCourseEnrollment;
 use App\Models\StudentProfile;
 use App\Repositories\StudentRepository;
 use Carbon\Carbon;
+use Exception;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -78,6 +79,64 @@ class StudentCourseService
             'message' => 'Your courses have been successfully registered and updated based on your current academic standing.',
             'count' => count($finalCourseIds),
         ];
+    }
+
+    /**
+     * تسجيل يدوي لمقررات محددة (كالمواد الراسب بها الطالب أو مواد إضافية)
+     * يتعايش هذا التسجيل مع منطق التسجيل التلقائي autoEnrollStudentCourses دون التأثير عليه
+     */
+    public function manualEnrollCourses(StudentProfile $student, array $courseIds): array
+    {
+        return DB::transaction(function () use ($student, $courseIds) {
+            // 1️⃣ جلب كل السجلات التاريخية للطالب دفعة واحدة لتفادي استعلامات متكررة داخل الحلقة
+            $historicalEnrollments = StudentCourseEnrollment::where('student_id', $student->id)->get();
+
+            $enrolledCourseIds = [];
+            $skippedCourseIds = [];
+
+            // 2️⃣ المرور على كل مقرر مطلوب تسجيله
+            foreach ($courseIds as $courseId) {
+                $existing = $historicalEnrollments->firstWhere('course_id', $courseId);
+
+                if ($existing) {
+                    // 3️⃣ منع إعادة التسجيل بمادة ناجح بها الطالب مسبقاً
+                    if ($existing->status === EnrollmentStatus::COMPLETED) {
+                        throw new Exception("Cannot re-enroll in course #{$courseId}: you have already passed this course.", 422);
+                    }
+
+                    // 4️⃣ تجاهل المادة إذا كانت مسجلة بالفعل وبحالة نشطة
+                    if ($existing->status === EnrollmentStatus::ACTIVE) {
+                        $skippedCourseIds[] = $courseId;
+                        continue;
+                    }
+
+                    // 5️⃣ إعادة تفعيل المادة الراسب بها الطالب مع زيادة عدد المحاولات
+                    $existing->update([
+                        'status' => EnrollmentStatus::ACTIVE,
+                        'attempts_count' => $existing->attempts_count + 1,
+                    ]);
+
+                    $enrolledCourseIds[] = $courseId;
+                    continue;
+                }
+
+                // 6️⃣ لا يوجد سجل سابق: إنشاء تسجيل جديد بمحاولة أولى
+                StudentCourseEnrollment::create([
+                    'student_id' => $student->id,
+                    'course_id' => $courseId,
+                    'status' => EnrollmentStatus::ACTIVE,
+                    'attempts_count' => 1,
+                ]);
+
+                $enrolledCourseIds[] = $courseId;
+            }
+
+            return [
+                'enrolled_course_ids' => $enrolledCourseIds,
+                'skipped_course_ids' => $skippedCourseIds,
+                'enrolled_count' => count($enrolledCourseIds),
+            ];
+        });
     }
 
     /**

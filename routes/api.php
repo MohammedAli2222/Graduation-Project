@@ -52,6 +52,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware(['role:student'])->prefix('student')->group(function () {
         Route::post('/setup-courses', [StudentController::class, 'setupAcademicCourses']);
+        Route::post('/courses/enroll', [StudentController::class, 'enrollInCourses']);
         Route::get('case-types', [StudentController::class, 'getCaseTypesDropdown']);
         Route::post('/update-profile', [AuthController::class, 'updateProfile']);
 
@@ -97,6 +98,7 @@ Route::middleware('auth:sanctum')->group(function () {
             Route::get('patient-case-details/{id}', [StudentController::class, 'getPatientCaseDetails']);
             Route::get('/my-courses', [StudentController::class, 'getMyCourses']);
             Route::post('/patients/store', [StudentController::class, 'store']);
+            Route::post('/patients/{patient_id}/diagnoses', [StudentController::class, 'storeExistingPatientDiagnosis']);
             Route::post('appointments/book', [AppointmentController::class, 'bookCase']);
 
             Route::get('/appointments', [AppointmentController::class, 'getMyAppointments']);
@@ -118,6 +120,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware('role:instructor')->prefix('instructor')->group(function () {
         Route::get('/dashboard/stats', [InstructorController::class, 'getStats']);
+        Route::get('/case-types', [InstructorController::class, 'getCaseTypesDropdown']);
         Route::get('/patients/student-pending', [InstructorController::class, 'studentPending']);
         Route::post('/diagnose', [InstructorController::class, 'diagnose']);
         Route::post('/patients/{id}/approve', [InstructorController::class, 'approve']);
@@ -132,8 +135,13 @@ Route::middleware('auth:sanctum')->group(function () {
     });
 
     Route::middleware('role:department_head')->prefix('hod')->group(function () {
+        Route::get('/completed-treatments/{treatment}', [DepartmentTreatmentController::class, 'show']);
+
         Route::get('/case-types', [DepartmentRequirementController::class, 'indexCaseTypes']);
+        Route::post('/case-types', [DepartmentRequirementController::class, 'store']);
+        Route::delete('/case-types/{caseType}', [DepartmentRequirementController::class, 'destroy']);
         Route::post('/case-types/{caseType}/requirement', [DepartmentRequirementController::class, 'update']);
+        Route::get('/courses', [DepartmentRequirementController::class, 'indexCourses']);
 
         Route::get('/instructors', [DepartmentDelegationController::class, 'instructorsList']);
         Route::post('/instructors/{id}/delegate', [DepartmentDelegationController::class, 'grantPermission']);

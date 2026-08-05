@@ -3,8 +3,12 @@
 namespace App\Providers;
 
 use App\Models\CaseType;
+use App\Models\Category;
+use App\Models\Department;
 use App\Models\Group;
 use App\Observers\CaseTypeObserver;
+use App\Observers\CategoryObserver;
+use App\Observers\DepartmentObserver;
 use App\Observers\GroupObserver;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -32,6 +36,8 @@ class AppServiceProvider extends ServiceProvider
 
         CaseType::observe(CaseTypeObserver::class);
         Group::observe(GroupObserver::class);
+        Category::observe(CategoryObserver::class);
+        Department::observe(DepartmentObserver::class);
 
         RateLimiter::for('strict_auth', function (Request $request) {
             return Limit::perMinute(3)->by($request->ip())->response(function () {
