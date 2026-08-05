@@ -38,7 +38,8 @@ jobs:
           timeout: 90000
           # لتجنب خطأ 550 في حال كان المجلد جديداً
           dangerous-clean-slate: false
-        exclude: |
+          # تم تصحيح المسافات هنا لتكون تابعة لقسم with بدقة
+          exclude: |
             **/.git*
             **/.git*/**
             **/node_modules/**
