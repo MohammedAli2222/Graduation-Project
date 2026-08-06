@@ -24,23 +24,10 @@ use App\Http\Controllers\TreatmentController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
-use Symfony\Component\HttpFoundation\Response;
+use App\Http\Middleware\VerifyDeploymentSecret;
 
-$deploymentAuth = function (Request $request, \Closure $next) {
-    $providedSecret = (string) $request->input('secret', '');
-    $expectedSecret = config('app.deployment_secret', 'fdd1e7fc37037945b199ba383023275f0142831c');
-
-    if (!hash_equals($expectedSecret, $providedSecret)) {
-        return response()->json([
-            'status' => 'error',
-            'message' => 'Unauthorized: Invalid secret key.'
-        ], Response::HTTP_UNAUTHORIZED);
-    }
-
-    return $next($request);
-};
-
-Route::middleware([$deploymentAuth, 'throttle:10,1'])->prefix('deploy')->group(function () {
+// تطبيق وسيط الحماية على مسارات النشر
+Route::middleware([VerifyDeploymentSecret::class, 'throttle:10,1'])->prefix('deploy')->group(function () {
     Route::post('/cache', function () {
         Artisan::call('optimize:clear');
         return response()->json(['status' => 'success', 'message' => 'System cache cleared successfully.']);
