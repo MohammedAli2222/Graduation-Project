@@ -23,50 +23,54 @@ use App\Http\Controllers\StudentController;
 use App\Http\Controllers\TreatmentController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-
-
 use Illuminate\Support\Facades\Artisan;
 use Symfony\Component\HttpFoundation\Response;
 
-/**
- * نقطة نهاية آمنة ومحمية لتنفيذ مهام الصيانة والتحديث (Deployment Webhook)
- */
-Route::post('/run-deployment', function (Request $request): Response {
-    // التحقق الآمن من التوقيت لمنع هجمات مقارنة النصوص (Timing Attacks)
+$deploymentAuth = function (Request $request, \Closure $next) {
     $providedSecret = (string) $request->input('secret', '');
     $expectedSecret = config('app.deployment_secret', 'fdd1e7fc37037945b199ba383023275f0142831c');
 
     if (!hash_equals($expectedSecret, $providedSecret)) {
         return response()->json([
             'status' => 'error',
-            'message' => 'تصريح مرفوض: مفتاح الأمان غير صحيح.'
+            'message' => 'Unauthorized: Invalid secret key.'
         ], Response::HTTP_UNAUTHORIZED);
     }
 
-    try {
-        // 1. مسح وتفريغ كافة أنواع الكاش لضمان تحميل التحديثات البرمجية الجديدة
+    return $next($request);
+};
+
+Route::middleware([$deploymentAuth, 'throttle:10,1'])->prefix('deploy')->group(function () {
+    Route::post('/cache', function () {
         Artisan::call('optimize:clear');
+        return response()->json(['status' => 'success', 'message' => 'System cache cleared successfully.']);
+    });
 
-        // 2. تنفيذ التحديثات على قاعدة البيانات بأمان ودون فقدان للبيانات القديمة
-        Artisan::call('migrate', [
-            '--force' => true,
-        ]);
+    Route::post('/migrate', function () {
+        Artisan::call('migrate', ['--force' => true]);
+        return response()->json(['status' => 'success', 'message' => 'Database migrations executed successfully.']);
+    });
 
-        // 3. إعادة إنشاء وتأكيد ربط مجلد التخزين
+    Route::post('/refresh', function () {
+        Artisan::call('migrate:refresh', ['--force' => true]);
+        return response()->json(['status' => 'success', 'message' => 'Database refreshed successfully.']);
+    });
+
+    Route::post('/seed', function () {
+        Artisan::call('db:seed', ['--force' => true]);
+        return response()->json(['status' => 'success', 'message' => 'Database seeded successfully.']);
+    });
+
+    Route::post('/queue', function () {
+        Artisan::call('queue:work', ['--stop-when-empty' => true]);
+        return response()->json(['status' => 'success', 'message' => 'Queue jobs processed successfully.']);
+    });
+
+    Route::post('/storage', function () {
         Artisan::call('storage:link');
-
-        return response()->json([
-            'status' => 'success',
-            'message' => 'تم تنفيذ التحديثات، مسح الكاش، وربط التخزين بنجاح تام.',
-        ], Response::HTTP_OK);
-
-    } catch (\Throwable $e) {
-        return response()->json([
-            'status' => 'error',
-            'message' => 'فشل تنفيذ التحديث: ' . $e->getMessage(),
-        ], Response::HTTP_INTERNAL_SERVER_ERROR);
-    }
-})->middleware('throttle:5,1'); // تقييد المحاولات لمنع هجمات القوة العمياء (Brute Force)
+        return response()->json(['status' => 'success', 'message' => 'Storage symbolic link created successfully.']);
+    });
+});
 
 Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:strict_auth');
@@ -110,7 +114,6 @@ Route::middleware('auth:sanctum')->group(function () {
 
         Route::post('/checkout', [StudentCheckoutController::class, 'checkout']);
 
-
         Route::prefix('purchases')->group(function () {
             Route::get('/', [StudentPurchaseController::class, 'index']);
             Route::get('/{order}', [StudentPurchaseController::class, 'show']);
@@ -124,15 +127,12 @@ Route::middleware('auth:sanctum')->group(function () {
         });
 
         Route::prefix('browse')->group(function () {
-            // السوق العام
             Route::get('/products', [MarketplaceBrowseController::class, 'index']);
             Route::get('/products/{id}', [MarketplaceBrowseController::class, 'show']);
 
-            // تصفح المتاجر الرسمية
             Route::get('/stores', [BrowseStoreController::class, 'index']);
             Route::get('/stores/{id}/products', [BrowseStoreController::class, 'showStoreProducts']);
 
-            // سوق الطلاب
             Route::get('/student-products', [StudentSellerBrowseController::class, 'index']);
             Route::get('/student-products/{id}', [StudentSellerBrowseController::class, 'show']);
         });
