@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\AppointmentStatus;
 use App\Enums\TreatmentStatus;
+use App\Events\TreatmentCompletedByStudentEvent;
 use App\Exceptions\PendingAppointmentsException;
 use App\Exceptions\TreatmentNotInProgressException;
 use App\Repositories\AppointmentRepository;
@@ -151,7 +152,7 @@ class TreatmentService
 
     public function completeTreatmentFromStudent(array $data)
     {
-        return DB::transaction(function () use ($data) {
+        $treatment = DB::transaction(function () use ($data) {
             $treatment = $this->treatmentRepo->find($data['treatment_id']);
 
             if (! $treatment) {
@@ -193,6 +194,11 @@ class TreatmentService
 
             return $treatment->load(['diagnosis', 'appointments']);
         });
+
+        // إطلاق الحدث بعد نجاح المعاملة لإشعار المدرّس المسؤول دون تأخير استجابة الـ API الرئيسية
+        TreatmentCompletedByStudentEvent::dispatch($treatment);
+
+        return $treatment;
     }
 
     public function getPatientTreatmentHistory(int $patientId)

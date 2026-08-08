@@ -60,6 +60,11 @@ class RepositoryServiceProvider extends ServiceProvider
             StudentMarketplaceRepositoryInterface::class,
             StudentMarketplaceRepository::class
         );
+
+        $this->app->bind(
+            \App\Repositories\Contracts\FcmTokenRepositoryInterface::class,
+            \App\Repositories\FcmTokenRepository::class
+        );
     }
 
     public function boot(): void

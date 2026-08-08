@@ -279,6 +279,34 @@
                         "description": "All fields are optional (sometimes|required). Only send the fields you want to change."
                     },
                     "response": []
+                },
+                {
+                    "name": "Store FCM Token (Push Notifications)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Content-Type",
+                                "value": "application/json"
+                            },
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/fcm-token",
+                        "body": {
+                            "mode": "raw",
+                            "raw": "{\n    \"fcm_token\": \"dZ1_example_token_from_flutter_device_9x...\",\n    \"device_type\": \"android\"\n}",
+                            "options": {
+                                "raw": {
+                                    "language": "json"
+                                }
+                            }
+                        },
+                        "description": "Stores the Firebase Cloud Messaging (FCM) token for the authenticated user to enable Push Notifications. Supports multi-device login."
+                    },
+                    "response": []
                 }
             ],
             "auth": {

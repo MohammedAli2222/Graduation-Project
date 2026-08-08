@@ -70,6 +70,12 @@ class User extends Authenticatable
         return $this->hasOne(InstructorProfile::class);
     }
 
+    // توكنات أجهزة المستخدم المستخدمة لإرسال إشعارات Firebase (قد يملك المستخدم أكثر من توكن لتعدد الأجهزة)
+    public function deviceTokens()
+    {
+        return $this->hasMany(UserDeviceToken::class);
+    }
+
     public function getProfileRelationName($role)
     {
         return match ($role) {

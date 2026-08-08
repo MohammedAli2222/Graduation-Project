@@ -4,6 +4,8 @@ namespace App\Services;
 
 use App\Enums\DiagnosisStatus;
 use App\Enums\PatientStatus;
+use App\Events\DiagnosisReviewedEvent;
+use App\Events\NewDiagnosesAvailableEvent;
 use App\Models\CaseType;
 use App\Models\Group;
 use App\Models\InstructorProfile;
@@ -58,7 +60,7 @@ class DiagnosisService
 
             $lock->block(3);
 
-            return DB::transaction(function () use ($data, $instructorId) {
+            $createdDiagnoses = DB::transaction(function () use ($data, $instructorId) {
                 $patient = $this->patientRepo->FindOrFail($data['patient_id']);
 
                 if ($patient->availability_status !== PatientStatus::WAITING_DIAGNOSIS->value) {
@@ -110,6 +112,11 @@ class DiagnosisService
                 $this->patientRepo->updateAvailability($data['patient_id'], PatientStatus::AVAILABLE->value);
                 return $createdDiagnoses;
             });
+
+            // إطلاق الحدث بعد نجاح المعاملة لإشعار الطلاب المسجلين بالحالات الجديدة دون تأخير استجابة الـ API الرئيسية
+            NewDiagnosesAvailableEvent::dispatch($createdDiagnoses);
+
+            return $createdDiagnoses;
         } catch (LockTimeoutException $e) {
             throw new Exception('This patient is currently being diagnosed by another instructor.', 409);
         } finally {
@@ -125,7 +132,7 @@ class DiagnosisService
 
             $lock->block(3);
 
-            return DB::transaction(function () use ($id, $data, $instructorId, $instructorProfileId) {
+            $diagnosis = DB::transaction(function () use ($id, $data, $instructorId, $instructorProfileId) {
                 $diagnosis = $this->diagnosisRepo->FindOrFail($id);
 
                 $this->validatePendingStatus($diagnosis);
@@ -139,8 +146,13 @@ class DiagnosisService
 
                 $this->patientRepo->updateAvailability($diagnosis->patient_id, PatientStatus::AVAILABLE->value);
 
-                return true;
+                return $diagnosis;
             });
+
+            // إطلاق الحدث بعد نجاح المعاملة لإشعار الطالب بالموافقة دون تأخير استجابة الـ API الرئيسية
+            DiagnosisReviewedEvent::dispatch($diagnosis, DiagnosisStatus::AVAILABLE->value);
+
+            return true;
         } catch (LockTimeoutException $e) {
             throw new Exception('This diagnosis request is currently being reviewed by another instructor.', 409);
         } finally {
@@ -156,7 +168,7 @@ class DiagnosisService
 
             $lock->block(3);
 
-            return DB::transaction(function () use ($id, $data, $instructorId, $instructorProfileId) {
+            $diagnosis = DB::transaction(function () use ($id, $data, $instructorId, $instructorProfileId) {
                 $diagnosis = $this->diagnosisRepo->FindOrFail($id);
 
                 $this->validatePendingStatus($diagnosis);
@@ -170,8 +182,13 @@ class DiagnosisService
 
                 $this->patientRepo->updateAvailability($diagnosis->patient_id, PatientStatus::WAITING_DIAGNOSIS->value);
 
-                return true;
+                return $diagnosis;
             });
+
+            // إطلاق الحدث بعد نجاح المعاملة لإشعار الطالب بالرفض دون تأخير استجابة الـ API الرئيسية
+            DiagnosisReviewedEvent::dispatch($diagnosis, DiagnosisStatus::REJECTED->value);
+
+            return true;
         } catch (LockTimeoutException $e) {
             throw new Exception('This diagnosis request is currently being reviewed by another instructor.', 409);
         } finally {

@@ -11,6 +11,7 @@ namespace App\Actions\Treatment;
 
 use App\Enums\DiagnosisStatus;
 use App\Enums\TreatmentStatus;
+use App\Events\TreatmentReviewedEvent;
 use App\Models\Treatment;
 use App\Repositories\TreatmentRepository;
 use Exception;
@@ -25,16 +26,13 @@ class ReviewTreatmentAction
         $this->treatmentRepo = $treatmentRepo;
     }
 
-    /**
-     * تنفيذ مراجعة المشرف الطبي للجلسة.
-     */
     public function execute(array $data, $user): Treatment
     {
         $treatment = $this->treatmentRepo->find($data['treatment_id']);
 
         $this->validateReview($treatment, $user);
 
-        return DB::transaction(function () use ($data, $treatment, $user) {
+        $treatment = DB::transaction(function () use ($data, $treatment, $user) {
             if ($data['action'] === 'approve') {
                 $this->approveTreatment($treatment, $data);
             } else {
@@ -49,11 +47,16 @@ class ReviewTreatmentAction
                 'instructor',
             ]);
         });
+
+        // إطلاق الحدث بعد نجاح المعاملة لإشعار الطالب بنتيجة المراجعة دون تأخير استجابة الـ API الرئيسية
+        TreatmentReviewedEvent::dispatch(
+            $treatment,
+            $data['action'] === 'approve' ? TreatmentStatus::COMPLETED->value : TreatmentStatus::REJECTED->value
+        );
+
+        return $treatment;
     }
 
-    /**
-     * التحقق من شروط المراجعة والصلاحيات.
-     */
     private function validateReview(?Treatment $treatment, $user): void
     {
         if (! $treatment) {
@@ -69,9 +72,6 @@ class ReviewTreatmentAction
         }
     }
 
-    /**
-     * منطق الموافقة على الجلسة وإغلاق التشخيص.
-     */
     private function approveTreatment(Treatment $treatment, array $data): void
     {
         $treatment->update([
@@ -88,9 +88,6 @@ class ReviewTreatmentAction
         }
     }
 
-    /**
-     * منطق رفض الجلسة وإعادتها للتعديل مع الملاحظات.
-     */
     private function rejectTreatment(
         Treatment $treatment,
         array $data,
@@ -144,7 +141,6 @@ class StartTreatmentAction
 
     public function execute(array $data): mixed
     {
-        // جلب الموعد مع قفل للبيانات لضمان عدم حدوث تضارب
         $appointment = Appointment::where('id', $data['appointment_id'])->lockForUpdate()->first();
 
         if (! $appointment) {
@@ -205,7 +201,6 @@ class StartTreatmentAction
             'status' => AppointmentStatus::ATTENDED->value,
         ]);
 
-        // تحديث حالة التشخيص
         $appointment->diagnosis()->update([
             'status' => DiagnosisStatus::CONVERTED_TO_TREATMENT->value,
         ]);
@@ -233,7 +228,6 @@ class StartTreatmentAction
             throw new Exception('Treatment can only be started on the scheduled date: ' . $appointmentDate->format('Y-m-d'));
         }
 
-        // أوقات السلوتس الثابتة
         $slotTimes = [
             1 => ['start' => '08:00', 'end' => '10:00'],
             2 => ['start' => '10:30', 'end' => '12:30'],
@@ -248,7 +242,6 @@ class StartTreatmentAction
         $startTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->slot_number]['start'], 'Asia/Damascus');
         $endTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->slot_number]['end'], 'Asia/Damascus');
 
-        // // السماح بالبدء من بداية السلوت وحتى نهايته
         // if ($now->lessThan($startTime) || $now->greaterThan($endTime)) {
         //     throw new Exception("Treatment can only be started between {$slotTimes[$appointment->slot_number]['start']} and {$slotTimes[$appointment->slot_number]['end']}.");
         // }
@@ -338,11 +331,6 @@ enum DiagnosisStatus: string
     // public function label(): string
     // {
     //     return match($this) {
-    //         self::WAITING_APPROVAL => 'بانتظار الموافقة',
-    //         self::AVAILABLE => 'متاحة للحجز',
-    //         self::RESERVED => 'محجوزة',
-    //         self::REJECTED => 'مرفوضة',
-    //         self::CONVERTED_TO_TREATMENT => 'قيد المعالجة',
     //     };
     // }
 }
@@ -366,10 +354,6 @@ enum EnrollmentStatus: string
     // public function label(): string
     // {
     //     return match($this) {
-    //         self::ACTIVE => 'مستمر / قيد الدراسة',
-    //         self::COMPLETED => 'منتهي / ناجح',
-    //         self::FAILED    => 'راسب / محملة',
-    //         self::DROPPED => 'منسحب / ملغي',
     //     };
     // }
 }
@@ -386,11 +370,11 @@ namespace App\Enums;
 
 enum OrderStatus: string
 {
-    case PENDING    = 'pending';    // الطلب جديد وبانتظار موافقة المتجر
-    case PROCESSING = 'processing'; // قيد التجهيز
-    case READY      = 'ready';      // جاهز للاستلام
-    case COMPLETED  = 'completed';  // تم تسليم الأدوات للطالب
-    case REJECTED   = 'rejected';   // الطلب مرفوض 
+    case PENDING    = 'pending';
+    case PROCESSING = 'processing';
+    case READY      = 'ready';
+    case COMPLETED  = 'completed';
+    case REJECTED   = 'rejected';
 }
 
 
@@ -421,9 +405,9 @@ namespace App\Enums;
 
 enum ProductAvailability: string
 {
-    case AVAILABLE    = 'available';       // متوفر
-    case LIMITED      = 'limited';         // كمية محدودة
-    case OUT_OF_STOCK = 'out_of_stock';    // غير متوفر
+    case AVAILABLE    = 'available';
+    case LIMITED      = 'limited';
+    case OUT_OF_STOCK = 'out_of_stock';
 }
 
 
@@ -459,6 +443,127 @@ enum TreatmentStatus: string
     case COMPLETED = 'completed';
     case REJECTED = 'rejected';
     case WAITING_INSTRUCTOR_APPROVAL = 'waiting_instructor_approval';
+}
+
+
+=================================================
+File: app\Events\DiagnosisReviewedEvent.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Events;
+
+use App\Models\PatientDiagnose;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+// يُطلق هذا الحدث عند موافقة أو رفض المدرّس لتشخيص اقترحه الطالب
+class DiagnosisReviewedEvent
+{
+    use Dispatchable, SerializesModels;
+
+    public function __construct(
+        public readonly PatientDiagnose $diagnosis,
+        public readonly string $status
+    ) {}
+}
+
+
+=================================================
+File: app\Events\NewStoreOrderPlacedEvent.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Events;
+
+use App\Models\Order;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+// يُطلق هذا الحدث عند إتمام طالب لعملية شراء جديدة من أحد المتاجر
+class NewStoreOrderPlacedEvent
+{
+    use Dispatchable, SerializesModels;
+
+    public function __construct(public readonly Order $order) {}
+}
+
+
+=================================================
+File: app\Events\OrderStatusUpdatedEvent.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Events;
+
+use App\Models\Order;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+// يُطلق هذا الحدث عند تحديث صاحب المتجر لحالة طلب أحد الطلاب
+class OrderStatusUpdatedEvent
+{
+    use Dispatchable, SerializesModels;
+
+    public function __construct(public readonly Order $order) {}
+}
+
+
+=================================================
+File: app\Events\TreatmentCompletedByStudentEvent.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Events;
+
+use App\Models\Treatment;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+// يُطلق هذا الحدث عند إنهاء الطالب لتنفيذ العلاج وإرساله بانتظار مراجعة المدرّس
+class TreatmentCompletedByStudentEvent
+{
+    use Dispatchable, SerializesModels;
+
+    public function __construct(public readonly Treatment $treatment) {}
+}
+
+
+=================================================
+File: app\Events\TreatmentReviewedEvent.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Events;
+
+use App\Models\Treatment;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+// يُطلق هذا الحدث عند موافقة أو رفض المدرّس للعلاج الذي أنهاه الطالب
+class TreatmentReviewedEvent
+{
+    use Dispatchable, SerializesModels;
+
+    public function __construct(
+        public readonly Treatment $treatment,
+        public readonly string $status
+    ) {}
 }
 
 
@@ -825,6 +930,49 @@ abstract class Controller
 
 
 =================================================
+File: app\Http\Controllers\FcmTokenController.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers;
+
+use App\Repositories\Contracts\FcmTokenRepositoryInterface;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+
+class FcmTokenController extends Controller
+{
+    public function __construct(protected FcmTokenRepositoryInterface $fcmTokenRepo) {}
+
+    // حفظ أو تحديث توكن الجهاز الخاص بالمستخدم المصادق عليه لاستقبال إشعارات Firebase
+    public function store(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'fcm_token' => ['required', 'string'],
+                'device_type' => ['nullable', 'string', 'in:android,ios,web'],
+            ]);
+
+            $this->fcmTokenRepo->storeToken(
+                auth()->id(),
+                $validated['fcm_token'],
+                $validated['device_type'] ?? null
+            );
+
+            return response_success(null, 200, 'تم حفظ توكن الإشعارات بنجاح.');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response_error($e->errors(), 422, 'بيانات غير صالحة.');
+        } catch (\Exception $e) {
+            return response_error(null, 500, 'حدث خطأ أثناء حفظ توكن الإشعارات: ' . $e->getMessage());
+        }
+    }
+}
+
+
+=================================================
 File: app\Http\Controllers\GroupController.php
 =================================================
 
@@ -888,18 +1036,10 @@ use Exception;
 
 class DepartmentDelegationController extends Controller
 {
-    /**
-     * حقن خدمة رئيس القسم.
-     */
     public function __construct(
         protected DepartmentHeadService $hodService
     ) {}
 
-    /**
-     * استعراض قائمة المعيدين ليتمكن رئيس القسم من تفويضهم.
-     *
-     * @return JsonResponse
-     */
     public function instructorsList(): JsonResponse
     {
         try {
@@ -916,12 +1056,6 @@ class DepartmentDelegationController extends Controller
         }
     }
 
-    /**
-     * منح صلاحية استعراض الحالات لمعيد محدد.
-     *
-     * @param int $instructorId
-     * @return JsonResponse
-     */
     public function grantPermission(int $instructorId): JsonResponse
     {
         try {
@@ -944,12 +1078,6 @@ class DepartmentDelegationController extends Controller
         }
     }
 
-    /**
-     * سحب صلاحية استعراض الحالات من معيد محدد.
-     *
-     * @param int $instructorId
-     * @return JsonResponse
-     */
     public function revokePermission(int $instructorId): JsonResponse
     {
         try {
@@ -996,9 +1124,6 @@ use Exception;
 
 class DepartmentRequirementController extends Controller
 {
-    /**
-     * حقن خدمة رئيس القسم.
-     */
     public function __construct(
         protected DepartmentHeadService $hodService
     ) {}
@@ -1164,9 +1289,6 @@ use Exception;
 
 class DepartmentStatisticController extends Controller
 {
-    /**
-     * حقن خدمة رئيس القسم.
-     */
     public function __construct(
         protected DepartmentHeadService $hodService
     ) {}
@@ -1220,19 +1342,10 @@ use Exception;
 
 class DepartmentTreatmentController extends Controller
 {
-    /**
-     * حقن خدمة رئيس القسم.
-     */
     public function __construct(
         protected DepartmentHeadService $hodService
     ) {}
 
-    /**
-     * استعراض المعالجات المنجزة بأقصى أداء (متاح لـ HOD وللمعيد المفوض).
-     *
-     * @param Request $request
-     * @return JsonResponse
-     */
     public function completedTreatments(Request $request): JsonResponse
     {
         try {
@@ -1269,9 +1382,6 @@ class DepartmentTreatmentController extends Controller
         }
     }
 
-    /**
-     * تفاصيل معالجة واحدة كاملة (رئيس القسم فقط): الطالب، المعيد المشرف، نوع الحالة، إلخ.
-     */
     public function show(int $treatmentId): JsonResponse
     {
         try {
@@ -1653,6 +1763,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Store;
 
+use App\Enums\OrderStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\UpdateOrderStatusRequest;
 use App\Http\Resources\Store\OrderResource;
@@ -1677,7 +1788,18 @@ class StoreOrderController extends Controller
             $user = Auth::user();
             $perPage = (int) $request->query('per_page', 15);
 
-            $orders = $this->orderService->listStoreOrders($user->id, $perPage);
+            $filters = [];
+            $status = $request->query('status');
+
+            if ($status !== null) {
+                if (OrderStatus::tryFrom($status) === null) {
+                    return response_error(null, 422, 'قيمة status غير صالحة.');
+                }
+
+                $filters['status'] = $status;
+            }
+
+            $orders = $this->orderService->listStoreOrders($user->id, $filters, $perPage);
             $resourceData = OrderResource::collection($orders)->response()->getData(true);
 
             return response_success($resourceData, 200, 'تم جلب الطلبات بنجاح.');
@@ -1731,6 +1853,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Store;
 
+use App\Enums\ProductAvailability;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\StoreProductRequest;
 use App\Http\Requests\Store\UpdateStoreProductRequest;
@@ -1745,9 +1868,6 @@ use Exception;
 
 class StoreProductController extends Controller
 {
-    /**
-     * حقن الخدمة الموحدة ومستودع الفئات.
-     */
     public function __construct(
         protected SellerProductService $productService,
         protected CategoryRepository $categoryRepo
@@ -1761,7 +1881,18 @@ class StoreProductController extends Controller
 
             $perPage = (int) $request->query('per_page', 15);
 
-            $products = $this->productService->listProducts($user->id, $perPage);
+            $filters = [];
+            $availabilityStatus = $request->query('availability_status');
+
+            if ($availabilityStatus !== null) {
+                if (ProductAvailability::tryFrom($availabilityStatus) === null) {
+                    return response_error(null, 422, 'قيمة availability_status غير صالحة.');
+                }
+
+                $filters['availability_status'] = $availabilityStatus;
+            }
+
+            $products = $this->productService->listProducts($user->id, $filters, $perPage);
 
             $resourceData = ProductResource::collection($products)->response()->getData(true);
 
@@ -1860,7 +1991,6 @@ class StoreProductController extends Controller
 
     public function getCategoriesDropdown(): JsonResponse
     {
-        // القراءة تمر عبر المستودع الذي يتكفّل بالكاش داخلياً (24 ساعة) بدل ضرب القاعدة مباشرة
         $categories = $this->categoryRepo->getDropdown();
         return response_success($categories, 200, 'تم جلب الفئات بنجاح.');
     }
@@ -1931,7 +2061,6 @@ class StorePromotionController extends Controller
             $user = Auth::user();
             $validated = $request->validated();
 
-            // فصل أرقام المنتجات عن تفاصيل العرض
             $productIds = $validated['product_ids'];
             unset($validated['product_ids']);
 
@@ -2006,12 +2135,6 @@ class StoreStatisticController extends Controller
         protected StoreStatisticService $statisticService
     ) {}
 
-    /**
-     * جلب لوحة إحصائيات المتجر الكاملة: عدد الطلبات لكل حالة، الإيرادات
-     * ومتوسط قيمة الطلب، عدد المنتجات منخفضة المخزون، أفضل 5 منتجات مبيعاً،
-     * ومخطط الإيراد الأسبوعي لآخر 8 أسابيع (مُخزَّن مؤقتاً بإستراتيجية متقدمة
-     * — راجع StoreStatisticService).
-     */
     public function index(): JsonResponse
     {
         try {
@@ -2027,11 +2150,6 @@ class StoreStatisticController extends Controller
         }
     }
 
-    /**
-     * إطلاق مهمة تصدير تقرير المبيعات في الخلفية (Queue) والعودة فوراً دون
-     * انتظار انتهاء إنشاء ملف الـ CSV (Non-blocking I/O). الحالة 202
-     * (Accepted) تعكس بدقة أن الطلب قُبل للمعالجة ولم يكتمل بعد.
-     */
     public function exportReport(): JsonResponse
     {
         try {
@@ -2071,9 +2189,6 @@ class BrowseStoreController extends Controller
         protected BrowseStoreService $browseStoreService
     ) {}
 
-    /**
-     * عرض جميع المتاجر الرسمية للطلاب.
-     */
     public function index(Request $request): JsonResponse
     {
         $perPage = (int) $request->query('per_page', 15);
@@ -2096,13 +2211,10 @@ class BrowseStoreController extends Controller
         ]);
     }
 
-    /**
-     * عرض جميع المنتجات التابعة لمتجر محدد.
-     */
     public function showStoreProducts(Request $request, int $id): JsonResponse
     {
         $perPage = (int) $request->query('per_page', 15);
-        $filters = $request->only(['search', 'category_id', 'condition']); // استقبال الفلاتر
+        $filters = $request->only(['search', 'category_id', 'condition']);
 
         $products = $this->browseStoreService->getStoreProducts($id, $filters, $perPage);
 
@@ -2138,19 +2250,13 @@ class MarketplaceBrowseController extends Controller
         protected ProductRepositoryInterface $productRepo
     ) {}
 
-    /**
-     * استعراض السوق العام مع الفلترة والبحث.
-     */
     public function index(Request $request): JsonResponse
     {
         try {
-            // استقبال الفلاتر المسموح بها فقط من الرابط (Query Parameters)
             $filters = $request->only(['search', 'category_id', 'condition']);
 
-            // جلب البيانات من المستودع بشكل مقسم (Paginated)
             $products = $this->productRepo->getMarketplaceProducts($filters);
 
-            // استخراج البيانات مع الـ Meta (معلومات الصفحات) لتتوافق مع الـ Flutter
             $paginatedData = ProductResource::collection($products)->response()->getData(true);
 
             return response_success(
@@ -2164,9 +2270,6 @@ class MarketplaceBrowseController extends Controller
         }
     }
 
-    /**
-     * عرض تفاصيل منتج واحد محدد في السوق.
-     */
     public function show(int $productId): JsonResponse
     {
         try {
@@ -2176,7 +2279,6 @@ class MarketplaceBrowseController extends Controller
                 return response_error(null, 404, 'المنتج المطلوب غير موجود.');
             }
 
-            // تحميل العلاقات اللازمة للعرض
             $product->load(['seller', 'category']);
 
             return response_success(
@@ -2217,9 +2319,6 @@ class StudentCartController extends Controller
         protected StudentCartService $cartService
     ) {}
 
-    /**
-     * استعراض سلة المشتريات الخاصة بالطالب.
-     */
     
     public function show(): JsonResponse
     {
@@ -2236,9 +2335,6 @@ class StudentCartController extends Controller
         }
     }
 
-    /**
-     * إضافة منتج إلى السلة.
-     */
     public function add(AddToCartRequest $request): JsonResponse
     {
         try {
@@ -2252,20 +2348,15 @@ class StudentCartController extends Controller
                 (int) $validated['quantity']
             );
 
-            // جلب السلة المحدثة لعرضها في الرد
             $cart = $this->cartService->getMyCart($user->id);
 
             return response_success(new CartResource($cart), 200, 'تمت إضافة المنتج للسلة بنجاح.');
         } catch (Exception $e) {
-            // التعامل مع الخطأ 409 (اختلاف المتجر) الذي هندسناه مسبقاً
             $statusCode = in_array($e->getCode(), [404, 409]) ? $e->getCode() : 500;
             return response_error(null, $statusCode, $e->getMessage());
         }
     }
 
-    /**
-     * إزالة منتج من السلة.
-     */
     public function remove(int $cartItemId): JsonResponse
     {
         try {
@@ -2280,9 +2371,6 @@ class StudentCartController extends Controller
         }
     }
 
-    /**
-     * تحديث كمية عنصر في السلة.
-     */
     public function updateQuantity(\App\Http\Requests\Student\UpdateCartItemRequest $request, int $cartItemId): JsonResponse
     {
         try {
@@ -2305,9 +2393,6 @@ class StudentCartController extends Controller
         }
     }
 
-    /**
-     * إفراغ السلة بالكامل.
-     */
     public function clear(): JsonResponse
     {
         try {
@@ -2348,9 +2433,6 @@ class StudentCheckoutController extends Controller
         protected StudentOrderService $orderService
     ) {}
 
-    /**
-     * تنفيذ عملية الدفع وتحويل السلة إلى طلب نهائي.
-     */
     public function checkout(): JsonResponse
     {
         try {
@@ -2388,7 +2470,7 @@ use App\Http\Requests\Store\StoreProductRequest;
 use App\Http\Requests\Store\UpdateStoreProductRequest;
 use App\Http\Resources\Store\ProductResource;
 use App\Models\Product;
-use App\Services\Unified\SellerProductService; // استدعاء الخدمة الموحدة
+use App\Services\Unified\SellerProductService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -2408,7 +2490,7 @@ class StudentProductController extends Controller
             /** @var \App\Models\User $user */
             $user = Auth::user();
 
-            $products = $this->productService->listProducts($user->id, 50);
+            $products = $this->productService->listProducts($user->id, [], 50);
 
             $resourceData = ProductResource::collection($products)->response()->getData(true);
 
@@ -2430,7 +2512,7 @@ class StudentProductController extends Controller
             }
 
             $validated = $request->validated();
-            $images = $request->file('images'); // استخراج الصور
+            $images = $request->file('images');
 
             $product = $this->productService->createProduct($user->id, $validated, $images);
 
@@ -2455,7 +2537,6 @@ class StudentProductController extends Controller
             $validated = $request->validated();
             $images = $request->file('images');
 
-            // تحديث البيانات ومعالجة أي صور جديدة عبر الطابور
             $updatedProduct = $this->productService->updateProduct($user->id, $product->id, $validated, $images);
 
             return response_success(
@@ -2514,9 +2595,6 @@ class StudentPurchaseController extends Controller
         protected StudentPurchaseService $purchaseService
     ) {}
 
-    /**
-     * عرض سجل مشتريات الطالب بالكامل.
-     */
     public function index(Request $request): JsonResponse
     {
         try {
@@ -2539,9 +2617,6 @@ class StudentPurchaseController extends Controller
         }
     }
 
-    /**
-     * عرض تفاصيل طلب محدد من سجل المشتريات.
-     */
     public function show(int $orderId): JsonResponse
     {
         try {
@@ -2588,17 +2663,12 @@ class StudentSellerBrowseController extends Controller
         protected StudentMarketplaceService $marketplaceService
     ) {}
 
-    /**
-     * عرض جميع الأدوات المعروضة للبيع من قبل الطلاب فقط.
-     */
     public function index(Request $request): JsonResponse
     {
         try {
             $perPage = (int) $request->query('per_page', 15);
-            // 1. استقبال الفلاتر
             $filters = $request->only(['search', 'category_id', 'condition']);
 
-            // 2. تمرير الفلاتر للخدمة
             $products = $this->marketplaceService->getAllStudentProducts($filters, $perPage);
 
             $paginatedData = ProductResource::collection($products)->response()->getData(true);
@@ -2610,16 +2680,11 @@ class StudentSellerBrowseController extends Controller
         }
     }
 
-    /**
-     * عرض تفاصيل أداة محددة لطالب مع اقتراح أدوات أخرى تابعة لنفس الزميل.
-     */
     public function show(int $productId): JsonResponse
     {
         try {
-            // جلب المصفوفة التي تحتوي على المنتج الأساسي والمنتجات الأخرى عبر الخدمة
             $result = $this->marketplaceService->getProductWithSellerOthers($productId);
 
-            // تجهيز البيانات بالشكل المطلوب
             $responseData = [
                 'product'        => new ProductResource($result['product']),
                 'other_products' => ProductResource::collection($result['other_products']),
@@ -2877,10 +2942,8 @@ class StudentController extends Controller
                 'Patient diagnoses retrieved successfully.'
             );
         } catch (\Exception $e) {
-            // تأكد أن الكود رقم (Integer)
             $statusCode = (int)$e->getCode();
 
-            // تصحيح: إذا كان الكود غير صالح (أقل من 100 أو أكبر من 599)، اجعله 500
             if ($statusCode < 100 || $statusCode > 599) {
                 $statusCode = 500;
             }
@@ -3100,9 +3163,6 @@ use Symfony\Component\HttpFoundation\Response;
 
 class VerifyDeploymentSecret
 {
-    /**
-     * معالجة الطلب القادم والتحقق من مفتاح الأمان
-     */
     public function handle(Request $request, Closure $next): Response
     {
         $providedSecret = (string) $request->input('secret', '');
@@ -3228,26 +3288,21 @@ class RegisterRequest extends FormRequest
             'password' => 'required|min:8',
             'role' => ['required', 'in:student,instructor,store_owner,department_head'],
 
-            // دمج الهاتف للطالب والمعيد
             'phone' => 'required_if:role,student,instructor|string|max:20',
 
-            // حقول الطالب
             'group_id' => 'required_if:role,student|exists:groups,id',
             'exam_number' => 'required_if:role,student|unique:student_profiles,exam_number',
             'academic_year' => ['required_if:role,student', 'integer', 'in:4,5'],
             'semester' => ['required_if:role,student', 'integer', 'in:1,2'],
             'university' => 'required_if:role,student|string|max:255',
 
-            // حقول المعيد
             'specialty' => 'required_if:role,instructor',
             'specialty_year' => 'required_if:role,instructor|string',
             'group_ids' => 'required_if:role,instructor|array',
             'group_ids.*' => 'exists:groups,id',
 
-            // حقول رئيس القسم
             'department_id' => 'required_if:role,department_head|exists:departments,id',
 
-            // حقول المتجر
             'store_name' => 'required_if:role,store_owner|string|max:255',
             'store_phone' => 'required_if:role,store_owner|string',
             'store_address' => 'required_if:role,store_owner|string',
@@ -3258,12 +3313,10 @@ class RegisterRequest extends FormRequest
     {
         return [
             function (Validator $validator) {
-                // الفحص فقط إذا لم تكن هناك أخطاء مدخلات أساسية (مثل غياب الحقول)
                 if ($validator->errors()->isEmpty()) {
 
                     $role = $this->input('role');
 
-                    // 1️⃣ سيناريو الطالب: التأكد أن الـ group_id يطابق الـ academic_year
                     if ($role === 'student') {
                         $academicYear = (int) $this->input('academic_year');
                         $groupId = $this->input('group_id');
@@ -3376,19 +3429,11 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class EnrollStudentCoursesRequest extends FormRequest
 {
-    /**
-     * تحديد ما إذا كان المستخدم مصرحاً له بتنفيذ هذا الطلب
-     */
     public function authorize(): bool
     {
         return true;
     }
 
-    /**
-     * قواعد التحقق من صحة معرّفات المقررات المطلوب التسجيل بها يدوياً
-     *
-     * @return array<string, ValidationRule|array<mixed>|string>
-     */
     public function rules(): array
     {
         return [
@@ -3413,7 +3458,7 @@ class StoreCaseTypeRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true; // المصادقة ستتم في طبقة الخدمة بناءً على قسم الـ HOD
+        return true;
     }
 
     public function rules(): array
@@ -3443,7 +3488,7 @@ class UpdateCaseRequirementRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return true; // المصادقة ستتم في طبقة الخدمة بناءً على قسم الـ HOD
+        return true;
     }
 
 
@@ -3588,29 +3633,18 @@ use Illuminate\Validation\Rule;
 
 class StoreProductRequest extends FormRequest
 {
-    /**
-     * تحديد ما إذا كان المستخدم مصرحاً له بالقيام بهذا الطلب.
-     */
     public function authorize(): bool
     {
         return true;
     }
 
-    /**
-     * تجهيز البيانات قبل خضوعها للتحقق.
-     * هنا نقوم بوضع القيم الافتراضية بشكل نظيف.
-     */
     protected function prepareForValidation(): void
     {
         $this->mergeIfMissing([
-            // إذا لم يتم إرسال حالة التوفر، اجعلها "متوفر" افتراضياً
             'availability_status' => ProductAvailability::AVAILABLE->value,
         ]);
     }
 
-    /**
-     * قواعد التحقق الخاصة بالطلب.
-     */
     public function rules(): array
     {
         return [
@@ -3621,12 +3655,11 @@ class StoreProductRequest extends FormRequest
             'brand'               => ['nullable', 'string', 'max:255'],
             'quantity'            => ['required', 'integer', 'min:1'],
 
-            // التحقق المتقدم من الـ Enums (سيمر بنجاح دائماً بفضل القيمة الافتراضية في الأعلى)
             'availability_status' => ['required', Rule::enum(ProductAvailability::class)],
             'condition'           => ['required', Rule::enum(ProductCondition::class)],
 
-            'images'              => ['nullable', 'array', 'max:5'], // حد أقصى 5 صور للمنتج
-            'images.*'            => ['image', 'mimes:jpeg,png,jpg,webp', 'max:2048'], // 2MB كحد أقصى لكل صورة
+            'images'              => ['nullable', 'array', 'max:5'],
+            'images.*'            => ['image', 'mimes:jpeg,png,jpg,webp', 'max:2048'],
         ];
     }
 }
@@ -3646,9 +3679,6 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class StorePromotionRequest extends FormRequest
 {
-    /**
-     * التحقق من الصلاحيات.
-     */
     public function authorize(): bool
     {
         return true;
@@ -3668,9 +3698,6 @@ class StorePromotionRequest extends FormRequest
         ];
     }
 
-    /**
-     * رسائل الخطأ المخصصة.
-     */
     public function messages(): array
     {
         return [
@@ -3735,9 +3762,6 @@ use Illuminate\Validation\Rule;
 
 class UpdateStoreProductRequest extends FormRequest
 {
-    /**
-     * التحقق من الصلاحيات.
-     */
     public function authorize(): bool
     {
         return true;
@@ -3778,9 +3802,6 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateStorePromotionRequest extends FormRequest
 {
-    /**
-     * التحقق من الصلاحيات.
-     */
     public function authorize(): bool
     {
         return true;
@@ -3801,9 +3822,6 @@ class UpdateStorePromotionRequest extends FormRequest
         ];
     }
 
-    /**
-     * رسائل الخطأ المخصصة.
-     */
     public function messages(): array
     {
         return [
@@ -3848,7 +3866,6 @@ class StoreAppointmentRequest extends FormRequest
                 'integer',
                 'min:1',
                 'max:4',
-                // فحص ذكي: هل اختيار هذا السلوت سيجعل الموعد يخرج عن نطاق الدوام؟
                 function ($attribute, $value, $fail) {
                     $diagnosis = PatientDiagnose::find($this->input('diagnosis_id'));
                     if ($diagnosis) {
@@ -3900,19 +3917,11 @@ use Illuminate\Validation\Validator;
 
 class StoreExistingPatientDiagnosisRequest extends FormRequest
 {
-    /**
-     * تحديد ما إذا كان المستخدم مصرحاً له بتنفيذ هذا الطلب
-     */
     public function authorize(): bool
     {
         return true;
     }
 
-    /**
-     * قواعد التحقق الخاصة ببيانات التشخيص فقط (بدون بيانات المريض الشخصية)
-     *
-     * @return array<string, ValidationRule|array<mixed>|string>
-     */
     public function rules(): array
     {
         return [
@@ -3932,10 +3941,6 @@ class StoreExistingPatientDiagnosisRequest extends FormRequest
         ];
     }
 
-    /**
-     * نفس منطق الحماية الموجود في StudentStorePatientRequest تماماً:
-     * منع الطالب من إرسال طلب جديد إذا كان لديه طلب معلّق بانتظار المراجعة
-     */
     public function withValidator(Validator $validator)
     {
         $validator->after(function ($validator) {
@@ -4361,8 +4366,6 @@ class AppointmentResource extends JsonResource
                     'id'     => $this->treatment_id,
                     'status' => $this->treatment->status->value ?? $this->treatment->status ?? 'in_progress',
 
-                    // سبب الرفض يظهر فقط عندما تكون حالة الجلسة العلاجية "مرفوضة"
-                    // (يُقرأ من instructor_notes لأنه الحقل الفعلي المستخدم لتخزين ملاحظة الرفض)
                     'rejection_reason' => $this->when(
                         optional($this->treatment)->status === TreatmentStatus::REJECTED,
                         optional($this->treatment)->instructor_notes
@@ -4374,7 +4377,6 @@ class AppointmentResource extends JsonResource
                 'name' => $this->diagnosis->caseType->name ?? 'غير محدد',
                 'final_diagnosis' => $this->diagnosis->final_diagnosis ?? 'لا يوجد تشخيص نهائي',
 
-                // سبب الرفض يظهر فقط عندما تكون حالة التشخيص "مرفوضة"
                 'rejection_reason' => $this->when(
                     optional($this->diagnosis)->status === DiagnosisStatus::REJECTED,
                     optional($this->diagnosis)->rejection_reason
@@ -4512,11 +4514,6 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class TreatmentResource extends JsonResource
 {
-    /**
-     * تحويل مورد المعالجة إلى مصفوفة لتهيئة الاستجابة لتطبيق الموبايل.
-     *
-     * @return array<string, mixed>
-     */
     public function toArray(Request $request): array
     {
         return [
@@ -4613,13 +4610,11 @@ class PatientDiagnosisDetailsResource extends JsonResource
 
             ],
             'attachments' => [
-                // صور المريض (الهوية مثلاً)
                 'patient_documents' => $this->patient->getMedia('id_cards')->map(fn($m) => [
                     'id' => $m->id,
                     'url' => $m->getUrl(),
                 ]),
 
-                // صور التشخيص (السريرية والشعاعية) - هنا التعديل الأساسي
                 'clinical_images' => $this->getMedia('clinical_images')->map(fn($m) => [
                     'id' => $m->id,
                     'url' => $m->getUrl(),
@@ -4673,7 +4668,6 @@ class PatientDiagnosisResource extends JsonResource
                 'final_diagnosis' => $this->final_diagnosis,
                 'status' => $this->status,
                 'estimated_cost' => $this->estimated_cost,
-                // إضافة الصور المرتبطة بهذا التشخيص
                 'clinical_images' => $this->getMedia('clinical_images')->map(fn($m) => [
                     'id' => $m->id,
                     'url' => $m->getFullUrl(),
@@ -4754,7 +4748,6 @@ class HistoryDiagnosisResource extends JsonResource
                 'final_diagnosis' => $this->final_diagnosis,
             ],
 
-            // سبب الرفض يظهر فقط عندما تكون حالة التشخيص "مرفوضة"
             'rejection_reason' => $this->when(
                 $this->status === DiagnosisStatus::REJECTED,
                 $this->rejection_reason
@@ -4791,8 +4784,6 @@ class PatientTreatmentHistoryResource extends JsonResource
             'id' => $this->id,
             'status' => $this->status,
 
-            // سبب الرفض: يُقرأ من instructor_notes لأن هذا هو الحقل الفعلي الذي
-            // يُخزَّن فيه سبب رفض المشرف حالياً (عمود rejection_reason غير مستخدم في الكتابة)
             'rejection_reason' => $this->when(
                 $this->status === TreatmentStatus::REJECTED,
                 $this->instructor_notes
@@ -4849,7 +4840,6 @@ class PatientResource extends JsonResource
             'preliminary_diagnosis' => $this->preliminary_diagnosis,
             'status' => $this->availability_status,
 
-            // حل مشكلة id_card: نستخدم whenLoaded للتأكد من جلب الميديا مسبقاً
             'id_card' => $this->whenLoaded('media', function () {
                 return $this->getMedia('id_cards')->map(fn($media) => [
                     'id' => $media->id,
@@ -4857,7 +4847,6 @@ class PatientResource extends JsonResource
                 ])->first();
             }),
 
-            // منع التكرار: الصور العامة تظهر فقط إذا لم يكن للمريض تشخيصات (سياق موظف الاستقبال)
             'clinical_images' => $this->when(!($this->relationLoaded('diagnoses') && $this->diagnoses->isNotEmpty()), function () {
                 return $this->getMedia('clinical_images')->map(fn($media) => [
                     'id' => $media->id,
@@ -5005,7 +4994,6 @@ class ProductResource extends JsonResource
         return [
             'id'                  => $this->id,
 
-            // إضافة رقم الشخص/المتجر الذي أضاف المنتج
             'seller_id'           => $this->store_id,
 
             'name'                => $this->name,
@@ -5022,7 +5010,6 @@ class ProductResource extends JsonResource
                     'name' => $this->category->name,
                 ];
             }),
-            // الجدار الأمني/البيانات: إرجاع بيانات البائع مع رقم الهاتف الصحيح
             'seller'              => $this->whenLoaded('seller', function () {
 
                 $phone = 'رقم الهاتف غير متوفر';
@@ -5030,7 +5017,6 @@ class ProductResource extends JsonResource
                 if ($this->seller->relationLoaded('storeProfile') && $this->seller->storeProfile) {
                     $phone = $this->seller->storeProfile->store_phone ?? $phone;
                 }
-                // إذا لم يكن متجراً، نتحقق بشكل صريح من بروفايل الطالب
                 elseif ($this->seller->relationLoaded('studentProfile') && $this->seller->studentProfile) {
                     $phone = $this->seller->studentProfile->phone ?? $phone;
                 }
@@ -5042,7 +5028,6 @@ class ProductResource extends JsonResource
                 ];
             }),
 
-            // يفترض أنك تستخدم مورد للصور، أو ترجعها كمصفوفة حسب طريقتك
             'images'              => $this->whenLoaded('media', function () {
                 return $this->media->map(fn($media) => $media->getUrl());
             }, []),
@@ -5121,7 +5106,6 @@ class CartItemResource extends JsonResource
                 ];
             }),
 
-            // حساب المجموع الفرعي لهذا العنصر (الكمية * السعر)
             'subtotal'   => $this->relationLoaded('product')
                             ? (float) ($this->quantity * $this->product->price)
                             : 0,
@@ -5147,7 +5131,6 @@ class CartResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        // حساب إجمالي السلة برمجياً
         $totalPrice = 0;
         if ($this->relationLoaded('items')) {
             foreach ($this->items as $item) {
@@ -5160,7 +5143,7 @@ class CartResource extends JsonResource
         return [
             'id'          => $this->id,
             'student_id'  => $this->student_id,
-            'total_price' => (float) $totalPrice, // إجمالي تكلفة السلة
+            'total_price' => (float) $totalPrice,
             'items'       => CartItemResource::collection($this->whenLoaded('items')),
         ];
     }
@@ -5486,19 +5469,15 @@ class DeleteUnverifiedUserJob implements ShouldQueue
     {
         $user = User::find($this->userId);
 
-        // إذا كان المستخدم موجوداً ولم يقم بتأكيد الـ OTP بعد ساعة من التسجيل
         if ($user && is_null($user->email_verified_at)) {
             DB::transaction(function () use ($user) {
-                // 1. مسح جميع التوكنات
                 $user->tokens()->delete();
 
-                // 2. مسح البروفايل المرتبط
                 $user->studentProfile()?->delete();
                 $user->instructorProfile()?->delete();
                 $user->departmentHeadProfile()?->delete();
                 $user->storeProfile()?->delete();
 
-                // 3. حذف المستخدم نهائياً
                 $user->delete();
             });
         }
@@ -5528,35 +5507,16 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Exception;
 
-/**
- * مهمة خلفية (Queue Job) تُنشئ ملف CSV لتقرير مبيعات المتجر (الطلبات
- * المكتملة فقط) وتحفظه في التخزين المحلي، دون حجب استجابة الـ API الأصلية
- * (Non-blocking I/O) — راجع StoreStatisticController::exportReport().
- */
 class ExportStoreSalesReportJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /**
-     * عدد محاولات إعادة تنفيذ المهمة عند الفشل قبل اعتبارها فاشلة نهائياً.
-     */
     public int $tries = 3;
 
-    /**
-     * @param int $storeId معرف المتجر (User::id لصاحب المتجر) المطلوب تصدير تقريره
-     */
     public function __construct(
         public int $storeId
     ) {}
 
-    /**
-     * تنفيذ المهمة: جلب الطلبات المكتملة عبر المستودع (وليس استعلاماً مباشراً
-     * في الـ Job، حفاظاً على نمط Repository-Service)، ثم بناء ملف CSV وحفظه.
-     *
-     * حقن OrderRepositoryInterface هنا يتم عبر الـ Method Injection الذي
-     * يدعمه Laravel تلقائياً لدالة handle() في أي Job، فلا حاجة لتمريره عبر
-     * الـ Constructor (وبالتالي لا حاجة لتسلسله/Serialization مع المهمة).
-     */
     public function handle(OrderRepositoryInterface $orderRepo): void
     {
         try {
@@ -5578,16 +5538,10 @@ class ExportStoreSalesReportJob implements ShouldQueue
         }
     }
 
-    /**
-     * بناء محتوى ملف CSV يدوياً عبر fputcsv (لا توجد حزمة تصدير جاهزة مثل
-     * maatwebsite/excel أو league/csv مثبّتة حالياً في composer.json)، مع سطر
-     * واحد لكل عنصر طلب (Order Item) لتفاصيل أدق في التقرير.
-     */
     private function buildCsvContent(Collection $orders): string
     {
         $handle = fopen('php://temp', 'r+');
 
-        // BOM لضمان عرض الأحرف العربية بشكل صحيح عند فتح الملف في Excel
         fwrite($handle, "\xEF\xBB\xBF");
 
         fputcsv($handle, [
@@ -5653,10 +5607,6 @@ class ProcessProductImagesJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /**
-     * @param int $productId معرف المنتج
-     * @param array $tempPaths مسارات الصور المؤقتة
-     */
     public function __construct(
         public int $productId,
         public array $tempPaths
@@ -5702,6 +5652,179 @@ class ProcessProductImagesJob implements ShouldQueue
         }
     }
 }
+
+=================================================
+File: app\Listeners\SendInstructorNotificationListener.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Listeners;
+
+use App\Events\TreatmentCompletedByStudentEvent;
+use App\Services\FirebaseNotificationService;
+use Illuminate\Contracts\Queue\ShouldQueue;
+
+// يعمل ضمن قائمة انتظار (Queue) حتى لا يؤخر إرسال الإشعار استجابة الـ API الرئيسية
+class SendInstructorNotificationListener implements ShouldQueue
+{
+    public function __construct(protected FirebaseNotificationService $notificationService) {}
+
+    // إشعار المدرّس المسؤول عن الحالة بأن الطالب أنهى تنفيذ العلاج وينتظر مراجعته
+    public function handle(TreatmentCompletedByStudentEvent $event): void
+    {
+        $treatment = $event->treatment;
+
+        // المدرّس المسؤول عن الحالة هو نفسه المدرّس الذي شخّص الحالة أصلاً
+        $instructorId = $treatment->diagnosis?->instructor_id;
+
+        if (! $instructorId) {
+            return;
+        }
+
+        $this->notificationService->sendNotificationToUser(
+            $instructorId,
+            'حالة جديدة بانتظار المراجعة',
+            'قام أحد الطلاب بإنهاء تنفيذ العلاج، والحالة الآن بانتظار مراجعتك.',
+            ['type' => 'treatment_completed_by_student', 'treatment_id' => (string) $treatment->id]
+        );
+    }
+}
+
+
+=================================================
+File: app\Listeners\SendStoreOwnerNotificationListener.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Listeners;
+
+use App\Events\NewStoreOrderPlacedEvent;
+use App\Services\FirebaseNotificationService;
+use Illuminate\Contracts\Queue\ShouldQueue;
+
+// يعمل ضمن قائمة انتظار (Queue) حتى لا يؤخر إرسال الإشعار استجابة الـ API الرئيسية
+class SendStoreOwnerNotificationListener implements ShouldQueue
+{
+    public function __construct(protected FirebaseNotificationService $notificationService) {}
+
+    // إشعار صاحب المتجر بوصول طلب شراء جديد من أحد الطلاب
+    public function handle(NewStoreOrderPlacedEvent $event): void
+    {
+        $order = $event->order;
+
+        $this->notificationService->sendNotificationToUser(
+            $order->store_id,
+            'طلب جديد',
+            'لديك طلب شراء جديد رقم ' . $order->id . ' بقيمة ' . $order->total_amount . '.',
+            ['type' => 'new_store_order', 'order_id' => (string) $order->id]
+        );
+    }
+}
+
+
+=================================================
+File: app\Listeners\SendStudentNotificationListener.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Listeners;
+
+use App\Enums\DiagnosisStatus;
+use App\Enums\OrderStatus;
+use App\Enums\TreatmentStatus;
+use App\Events\DiagnosisReviewedEvent;
+use App\Events\OrderStatusUpdatedEvent;
+use App\Events\TreatmentReviewedEvent;
+use App\Services\FirebaseNotificationService;
+use Illuminate\Contracts\Queue\ShouldQueue;
+
+// مستمع واحد يعالج جميع الإشعارات الموجهة للطالب لتفادي تكرار منطق الإرسال
+// يعمل ضمن قائمة انتظار (Queue) حتى لا يؤخر إرسال الإشعار استجابة الـ API الرئيسية
+class SendStudentNotificationListener implements ShouldQueue
+{
+    public function __construct(protected FirebaseNotificationService $notificationService) {}
+
+    // إشعار الطالب بنتيجة مراجعة التشخيص الذي اقترحه
+    public function handleDiagnosisReviewed(DiagnosisReviewedEvent $event): void
+    {
+        $diagnosis = $event->diagnosis;
+        $studentId = $diagnosis->suggested_by_student_id;
+
+        if (! $studentId) {
+            return;
+        }
+
+        $isApproved = $event->status === DiagnosisStatus::AVAILABLE->value;
+
+        $this->notificationService->sendNotificationToUser(
+            $studentId,
+            $isApproved ? 'تمت الموافقة على التشخيص' : 'تم رفض التشخيص',
+            $isApproved
+                ? 'تمت الموافقة على التشخيص الذي اقترحته، يمكنك الآن متابعة الحالة.'
+                : 'تم رفض التشخيص الذي اقترحته، يرجى مراجعة سبب الرفض.',
+            ['type' => 'diagnosis_reviewed', 'diagnosis_id' => (string) $diagnosis->id]
+        );
+    }
+
+    // إشعار الطالب بنتيجة مراجعة العلاج الذي أنهاه (قبول أو رفض من المدرّس)
+    public function handleTreatmentReviewed(TreatmentReviewedEvent $event): void
+    {
+        $treatment = $event->treatment;
+
+        // نفس الطريقة المعتمدة في بقية الكود لتحديد الطالب المالك للحالة العلاجية
+        $studentId = $treatment->appointments()->first()?->student_id;
+
+        if (! $studentId) {
+            return;
+        }
+
+        $isApproved = $event->status === TreatmentStatus::COMPLETED->value;
+
+        $this->notificationService->sendNotificationToUser(
+            $studentId,
+            $isApproved ? 'تمت الموافقة على العلاج' : 'تم رفض العلاج',
+            $isApproved
+                ? 'تمت الموافقة على حالتك العلاجية بنجاح.'
+                : 'تم رفض حالتك العلاجية، يرجى مراجعة ملاحظات المدرّس.',
+            ['type' => 'treatment_reviewed', 'treatment_id' => (string) $treatment->id]
+        );
+    }
+
+    // إشعار الطالب بتحديث حالة طلب الشراء الخاص به في المتجر
+    public function handleOrderStatusUpdated(OrderStatusUpdatedEvent $event): void
+    {
+        $order = $event->order;
+
+        $this->notificationService->sendNotificationToUser(
+            $order->student_id,
+            'تحديث حالة الطلب',
+            'تم تحديث حالة طلبك رقم ' . $order->id . ' إلى: ' . $this->orderStatusLabel($order->status),
+            ['type' => 'order_status_updated', 'order_id' => (string) $order->id]
+        );
+    }
+
+    // ترجمة حالة الطلب إلى نص عربي مفهوم للطالب داخل الإشعار
+    private function orderStatusLabel(OrderStatus $status): string
+    {
+        return match ($status) {
+            OrderStatus::PENDING => 'قيد الانتظار',
+            OrderStatus::PROCESSING => 'قيد التجهيز',
+            OrderStatus::READY => 'جاهز للاستلام',
+            OrderStatus::COMPLETED => 'مكتمل',
+            OrderStatus::REJECTED => 'مرفوض',
+        };
+    }
+}
+
 
 =================================================
 File: app\Models\Appointment.php
@@ -5755,7 +5878,6 @@ class Appointment extends Model
 
     public function getSlotTimeRange(): string
     {
-        // تعريف الأوقات لكل سلوت
         $slotDefinitions = [
             1 => '08:00 AM - 10:00 AM',
             2 => '10:30 AM - 12:30 PM',
@@ -5788,26 +5910,15 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Cart extends Model
 {
     use HasFactory;
-    /**
-     * الحقول المسموح بتعبئتها.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'student_id',
     ];
 
-    /**
-     * علاقة السلة بالطالب (مالك السلة).
-     */
     public function student(): BelongsTo
     {
         return $this->belongsTo(User::class, 'student_id');
     }
 
-    /**
-     * علاقة السلة بالعناصر الموجودة بداخلها.
-     */
     public function items(): HasMany
     {
         return $this->hasMany(CartItem::class);
@@ -5832,37 +5943,21 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class CartItem extends Model
 {
     use HasFactory;
-    /**
-     * الحقول المسموح بتعبئتها.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'cart_id',
         'product_id',
         'quantity',
     ];
 
-    /**
-     * التحويلات التلقائية (Casts).
-     *
-     * @var array<string, string>
-     */
     protected $casts = [
         'quantity' => 'integer',
     ];
 
-    /**
-     * علاقة العنصر بالسلة التي ينتمي إليها.
-     */
     public function cart(): BelongsTo
     {
         return $this->belongsTo(Cart::class);
     }
 
-    /**
-     * علاقة العنصر بالمنتج الفعلي المرتبط به.
-     */
     public function product(): BelongsTo
     {
         return $this->belongsTo(Product::class);
@@ -5924,9 +6019,6 @@ class Category extends Model
         'description',
     ];
 
-    /**
-     * علاقة الفئة بالمنتجات التابعة لها.
-     */
     public function products(): HasMany
     {
         return $this->hasMany(Product::class);
@@ -6015,10 +6107,6 @@ class Department extends Model
         return $this->hasMany(Course::class);
     }
 
-    /**
-     * علاقة متقدمة: جلب كافة أنواع الحالات التابعة لهذا القسم
-     * (عبر جدول المواد)
-     */
     public function caseTypes()
     {
         return $this->hasManyThrough(CaseType::class, Course::class);
@@ -6486,17 +6574,14 @@ class Product extends Model implements HasMedia
     {
         static::saving(function (Product $product) {
 
-            // 1. حماية المخزون: منع الكمية من أن تكون أقل من الصفر أبداً
             if ($product->quantity <= 0) {
                 $product->quantity = 0;
                 $product->availability_status = ProductAvailability::OUT_OF_STOCK->value;
             } elseif ($product->quantity > 0) {
-                // استخراج القيمة النصية للحالة سواء كانت Enum Object أو String
                 $currentStatus = $product->availability_status instanceof ProductAvailability
                     ? $product->availability_status->value
                     : $product->availability_status;
 
-                // إذا كانت الحالة الحالية "نفد من المخزون"، نقوم بإعادتها فوراً إلى "متوفر"
                 if ($currentStatus === ProductAvailability::OUT_OF_STOCK->value) {
                     $product->availability_status = ProductAvailability::AVAILABLE->value;
                 }
@@ -6521,41 +6606,26 @@ class Product extends Model implements HasMedia
             });
     }
 
-    /**
-     * علاقة المنتج بصاحب المتجر الرسمي.
-     */
     public function store(): BelongsTo
     {
         return $this->belongsTo(User::class, 'store_id');
     }
 
-    /**
-     * علاقة المنتج بالبائع (الطالب أو المتجر) - تستخدم في سياق الـ Marketplace.
-     */
     public function seller(): BelongsTo
     {
         return $this->belongsTo(User::class, 'store_id');
     }
 
-    /**
-     * علاقة المنتج بالفئة.
-     */
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
     }
 
-    /**
-     * علاقة المنتج بالعروض الترويجية.
-     */
     public function promotions(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(Promotion::class, 'promotion_product');
     }
 
-    /**
-     * تسجيل تحويلات الصور المصغرة والمحسنة.
-     */
     public function registerMediaConversions(Media $media = null): void
     {
         $this->addMediaConversion('thumb')
@@ -6865,6 +6935,12 @@ class User extends Authenticatable
         return $this->hasOne(InstructorProfile::class);
     }
 
+    // توكنات أجهزة المستخدم المستخدمة لإرسال إشعارات Firebase (قد يملك المستخدم أكثر من توكن لتعدد الأجهزة)
+    public function deviceTokens()
+    {
+        return $this->hasMany(UserDeviceToken::class);
+    }
+
     public function getProfileRelationName($role)
     {
         return match ($role) {
@@ -6874,6 +6950,37 @@ class User extends Authenticatable
             'store_owner' => 'storeProfile',
             default => null,
         };
+    }
+}
+
+
+=================================================
+File: app\Models\UserDeviceToken.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class UserDeviceToken extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'user_id',
+        'device_type',
+        'fcm_token',
+    ];
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
     }
 }
 
@@ -6980,33 +7087,21 @@ use Illuminate\Support\Facades\Cache;
 
 class CategoryObserver
 {
-    /**
-     * يشتغل تلقائياً عند إضافة فئة جديدة
-     */
     public function created(Category $category): void
     {
         $this->clearCache();
     }
 
-    /**
-     * يشتغل تلقائياً عند تعديل فئة موجودة
-     */
     public function updated(Category $category): void
     {
         $this->clearCache();
     }
 
-    /**
-     * يشتغل تلقائياً عند حذف فئة
-     */
     public function deleted(Category $category): void
     {
         $this->clearCache();
     }
 
-    /**
-     * تفريغ وسم كاش الفئات بالكامل دفعة واحدة بدل تتبع مفتاح واحد بعينه
-     */
     private function clearCache(): void
     {
         Cache::tags(['categories'])->flush();
@@ -7029,33 +7124,21 @@ use Illuminate\Support\Facades\Cache;
 
 class DepartmentObserver
 {
-    /**
-     * يشتغل تلقائياً عند إضافة قسم جديد
-     */
     public function created(Department $department): void
     {
         $this->clearCache($department);
     }
 
-    /**
-     * يشتغل تلقائياً عند تعديل بيانات القسم (كعدد الكراسي total_chairs)
-     */
     public function updated(Department $department): void
     {
         $this->clearCache($department);
     }
 
-    /**
-     * يشتغل تلقائياً عند حذف القسم
-     */
     public function deleted(Department $department): void
     {
         $this->clearCache($department);
     }
 
-    /**
-     * حذف مفتاح كاش إعدادات هذا القسم تحديداً (نفس المفتاح المستخدم في AppointmentRepository)
-     */
     private function clearCache(Department $department): void
     {
         Cache::forget("department_{$department->id}_config");
@@ -7131,33 +7214,21 @@ use Illuminate\Support\Facades\Cache;
 
 class GroupObserver
 {
-    /**
-     * يشتغل تلقائياً عند إضافة فئة جديدة
-     */
     public function created(Group $group): void
     {
         $this->clearCache();
     }
 
-    /**
-     * يشتغل تلقائياً عند تعديل فئة موجودة
-     */
     public function updated(Group $group): void
     {
         $this->clearCache();
     }
 
-    /**
-     * يشتغل تلقائياً عند حذف فئة
-     */
     public function deleted(Group $group): void
     {
         $this->clearCache();
     }
 
-    /**
-     * دالة مخصصة لتنظيف مفتاح الكاش من ريديس
-     */
     private function clearCache(): void
     {
         Cache::forget('groups_year_4');
@@ -7188,33 +7259,21 @@ class ProductPolicy
         return true;
     }
 
-    /**
-     * تحديد ما إذا كان المستخدم يستطيع عرض تفاصيل منتج معين في الإدارة.
-     */
     public function view(User $user, Product $product): bool
     {
         return $user->id === $product->store_id;
     }
 
-    /**
-     * تحديد ما إذا كان المستخدم يمتلك صلاحية إضافة منتج جديد للبيع.
-     */
     public function create(User $user): bool
     {
         return $user->hasRole('store_owner') || $user->hasRole('student');
     }
 
-    /**
-     * تحديد ما إذا كان المستخدم يستطيع تحديث بيانات منتج معين.
-     */
     public function update(User $user, Product $product): bool
     {
         return $user->id === $product->store_id;
     }
 
-    /**
-     * تحديد ما إذا كان المستخدم يستطيع حذف منتج معين من المنصة.
-     */
     public function delete(User $user, Product $product): bool
     {
         return $user->id === $product->store_id;
@@ -7294,12 +7353,10 @@ use App\Repositories\BrowseStoreRepository;
 use App\Repositories\Contracts\BrowseStoreRepositoryInterface;
 use Illuminate\Support\ServiceProvider;
 
-// استيراد الواجهات (Interfaces)
 use App\Repositories\Contracts\TreatmentRepositoryInterface;
 use App\Repositories\Contracts\CaseTypeRepositoryInterface;
 use App\Repositories\Contracts\InstructorRepositoryInterface;
 use App\Repositories\Contracts\StudentMarketplaceRepositoryInterface;
-// استيراد المستودعات (Eloquent Repositories)
 use App\Repositories\hod\TreatmentRepository;
 use App\Repositories\hod\CaseTypeRepository;
 use App\Repositories\hod\InstructorRepository;
@@ -7307,26 +7364,18 @@ use App\Repositories\StudentMarketplaceRepository;
 
 class RepositoryServiceProvider extends ServiceProvider
 {
-    /**
-     * تسجيل خدمات التطبيق وربط الواجهات بتنفيذاتها.
-     *
-     * @return void
-     */
     public function register(): void
     {
-        // ربط مستودع المعالجات
         $this->app->bind(
             TreatmentRepositoryInterface::class,
             TreatmentRepository::class
         );
 
-        // ربط مستودع أنواع الحالات
         $this->app->bind(
             CaseTypeRepositoryInterface::class,
             CaseTypeRepository::class
         );
 
-        // ربط مستودع المعيدين
         $this->app->bind(
             InstructorRepositoryInterface::class,
             InstructorRepository::class
@@ -7356,13 +7405,13 @@ class RepositoryServiceProvider extends ServiceProvider
             StudentMarketplaceRepositoryInterface::class,
             StudentMarketplaceRepository::class
         );
+
+        $this->app->bind(
+            \App\Repositories\Contracts\FcmTokenRepositoryInterface::class,
+            \App\Repositories\FcmTokenRepository::class
+        );
     }
 
-    /**
-     * تمهيد أي خدمات إضافية للتطبيق.
-     *
-     * @return void
-     */
     public function boot(): void
     {
         //
@@ -7463,15 +7512,8 @@ use Illuminate\Support\Facades\Cache;
 
 class AppointmentRepository
 {
-    /**
-     * مدة كاش الإعدادات الثابتة للقسم (كعدد الكراسي)، لأنها بيانات نادرة التغيير.
-     */
-    private const DEPARTMENT_CONFIG_CACHE_TTL_SECONDS = 86400; // 24 ساعة
+    private const DEPARTMENT_CONFIG_CACHE_TTL_SECONDS = 86400;
 
-    /**
-     * جلب بيانات القسم (خاصة total_chairs) من الكاش بدل قاعدة البيانات في كل عملية حجز،
-     * لأن هذا الاستعلام يُنفَّذ على كل محاولة حجز موعد (hasConflict) وبيانات القسم شبه ثابتة.
-     */
     private function getCachedDepartment(int $departmentId): ?Department
     {
         return Cache::remember(
@@ -7557,19 +7599,17 @@ class AppointmentRepository
                 'diagnosis.patient:id,full_name,phone',
                 'diagnosis.department:id,name'
             ])
-            ->orderBy('appointment_date', 'asc') // ترتيب حسب التاريخ
-            ->orderBy('slot_number', 'asc')      // ترتيب حسب السلوت
+            ->orderBy('appointment_date', 'asc')
+            ->orderBy('slot_number', 'asc')
             ->paginate(10);
     }
 
     public function getStudentAppointmentHistory(int $studentId)
     {
-        // نحدد التاريخ الحالي بتوقيت دمشق
         $today = Carbon::now('Asia/Damascus')->format('Y-m-d');
 
         return Appointment::where('student_id', $studentId)
             ->where(function ($query) use ($studentId, $today) {
-                // الحالة 1: المواعيد التي انتهت فعلياً (حضور أو إلغاء)
                 $query->whereNotIn('status', [AppointmentStatus::SCHEDULED->value])
                     ->orWhere(function ($q) use ($studentId, $today) {
                         $q->where('student_id', $studentId)
@@ -7698,7 +7738,6 @@ class BrowseStoreRepository implements BrowseStoreRepositoryInterface
     {
         $page = Paginator::resolveCurrentPage();
 
-        // استخدام نفس استراتيجية الهاش للفلاتر
         $filterHash = md5(json_encode($filters));
         $cacheKey = "store_{$storeId}_products_per_page_{$perPage}_page_{$page}_filters_{$filterHash}";
 
@@ -7706,7 +7745,7 @@ class BrowseStoreRepository implements BrowseStoreRepositoryInterface
             return $this->productModel->newQuery()
                 ->where('store_id', $storeId)
                 ->where('availability_status', 'available')
-                ->filter($filters) // السكوب السحري يعمل هنا أيضاً
+                ->filter($filters)
                 ->with(['category', 'media', 'seller.storeProfile'])
                 ->latest()
                 ->paginate($perPage);
@@ -7817,20 +7856,12 @@ use Illuminate\Support\Facades\Cache;
 
 class CategoryRepository
 {
-    /**
-     * الوسم (tag) المستخدم لتجميع كاش الفئات، لتسهيل تفريغه دفعة واحدة عند أي تعديل.
-     */
     private const CACHE_TAG = 'categories';
 
     private const CACHE_KEY = 'categories:dropdown';
 
-    private const CACHE_TTL_SECONDS = 86400; // 24 ساعة
+    private const CACHE_TTL_SECONDS = 86400;
 
-    /**
-     * جلب قائمة الفئات المختصرة (id, name) لاستخدامها في القوائم المنسدلة.
-     * بيانات الفئات شبه ثابتة ونادراً ما تتغير، لذا نكاشها لمدة 24 ساعة لتفادي
-     * ضرب قاعدة البيانات في كل طلب لهذه القائمة.
-     */
     public function getDropdown(): Collection
     {
         return Cache::tags([self::CACHE_TAG])->remember(
@@ -7877,34 +7908,16 @@ use App\Models\CartItem;
 
 interface CartRepositoryInterface
 {
-    /**
-     * جلب سلة الطالب أو إنشاؤها إن لم تكن موجودة.
-     */
     public function findOrCreateForStudent(int $studentId): Cart;
 
-    /**
-     * جلب سلة الطالب مع التفاصيل (العناصر والمنتجات المرتبطة).
-     */
     public function getStudentCartWithDetails(int $studentId): ?Cart;
 
-    /**
-     * إضافة منتج إلى السلة أو زيادة كميته إذا كان موجوداً مسبقاً.
-     */
     public function addOrUpdateItem(Cart $cart, int $productId, int $quantity): CartItem;
 
-    /**
-     * إزالة عنصر محدد من السلة.
-     */
     public function removeItem(Cart $cart, int $cartItemId): bool;
 
-    /**
-     * تحديث كمية عنصر محدد في السلة مباشرة.
-     */
     public function updateItemQuantity(Cart $cart, int $cartItemId, int $quantity): ?CartItem;
 
-    /**
-     * تفريغ السلة بالكامل.
-     */
     public function clearCart(Cart $cart): bool;
 }
 
@@ -7928,6 +7941,29 @@ interface CaseTypeRepositoryInterface
     public function getCaseTypesByDepartment(int $departmentId): Collection;
     public function create(array $data): CaseType;
     public function delete(CaseType $caseType): bool;
+}
+
+
+=================================================
+File: app\Repositories\Contracts\FcmTokenRepositoryInterface.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Repositories\Contracts;
+
+use App\Models\UserDeviceToken;
+use Illuminate\Support\Collection;
+
+interface FcmTokenRepositoryInterface
+{
+    public function storeToken(int $userId, string $fcmToken, ?string $deviceType = null): UserDeviceToken;
+
+    public function getTokensForUser(int $userId): Collection;
+
+    public function deleteToken(string $fcmToken): bool;
 }
 
 
@@ -7967,7 +8003,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 interface OrderRepositoryInterface
 {
 
-    public function getStoreOrdersOptimized(int $storeId, int $perPage = 15): LengthAwarePaginator;
+    public function getStoreOrdersOptimized(int $storeId, array $filters = [], int $perPage = 15): LengthAwarePaginator;
 
     public function findStoreOrder(int $storeId, int $orderId): ?Order;
 
@@ -7975,48 +8011,16 @@ interface OrderRepositoryInterface
 
     public function createOrder(array $orderData): Order;
 
-    /**
-     * جلب سجل المشتريات الخاص بالطالب (كمشتري).
-     */
     public function getStudentPurchasesOptimized(int $studentId, int $perPage = 15): LengthAwarePaginator;
 
-    /**
-     * جلب تفاصيل طلب محدد قام الطالب بشرائه.
-     */
     public function findStudentPurchase(int $studentId, int $orderId): ?Order;
 
-    /**
-     * عدد الطلبات لكل حالة (pending/processing/ready/completed/rejected) لمتجر
-     * معيّن، عبر استعلام SQL مجمّع واحد (GROUP BY) بدل تنفيذ استعلام count()
-     * منفصل لكل حالة.
-     *
-     * @return array<string, int> مثال: ['completed' => 12, 'pending' => 3, ...]
-     */
     public function getOrderStatusCounts(int $storeId): array;
 
-    /**
-     * إجمالي الإيرادات ومتوسط قيمة الطلب (AOV) لمتجر معيّن، محسوبان من
-     * الطلبات المكتملة (completed) فقط، عبر استعلام تجميع SQL واحد
-     * (SUM/AVG) دون سحب أي صفوف إلى تطبيق PHP.
-     *
-     * @return array{total_revenue: float, average_order_value: float}
-     */
     public function getRevenueSummary(int $storeId): array;
 
-    /**
-     * إجمالي إيراد الطلبات المكتملة ضمن نطاق تاريخي محدد (تُستخدم لحساب
-     * إيراد أسبوع واحد بالتحديد ضمن استراتيجية التخزين المؤقت لكل أسبوع).
-     */
     public function getRevenueBetween(int $storeId, \DateTimeInterface $from, \DateTimeInterface $to): float;
 
-    /**
-     * جلب كل الطلبات المكتملة لمتجر معيّن مع عناصرها ومنتجاتها والطالب
-     * المشتري (Eager Loading كامل) لأغراض تصدير تقرير المبيعات CSV — استعلام
-     * واحد للطلبات + استعلامان للعلاقات المحمَّلة مسبقاً، بلا مشكلة N+1
-     * مهما كان عدد الطلبات.
-     *
-     * @return \Illuminate\Support\Collection<int, Order>
-     */
     public function getCompletedOrdersForExport(int $storeId): \Illuminate\Support\Collection;
 }
 
@@ -8039,7 +8043,7 @@ interface ProductRepositoryInterface
 
     public function create(array $data): Product;
 
-    public function getStoreProductsOptimized(int $storeId, int $perPage = 15): LengthAwarePaginator;
+    public function getStoreProductsOptimized(int $storeId, array $filters = [], int $perPage = 15): LengthAwarePaginator;
 
     public function findStoreProduct(int $storeId, int $productId): ?Product;
 
@@ -8047,27 +8051,14 @@ interface ProductRepositoryInterface
 
     public function delete(Product $product): bool;
 
-    /**
-     * حساب عدد المنتجات المملوكة للمتجر من ضمن مصفوفة أرقام محددة).
-     */
     public function countStoreProductsByIds(int $storeId, array $productIds): int;
 
     public function getMarketplaceProducts(array $filters = [], int $perPage = 15): LengthAwarePaginator;
 
     public function findById(int $productId): ?Product;
 
-    /**
-     * عدد المنتجات التي أوشكت كميتها على النفاد (quantity < الحد المحدد)
-     * لمتجر معيّن، عبر استعلام count() واحد على الفهرس.
-     */
     public function countLowStockProducts(int $storeId, int $threshold = 5): int;
 
-    /**
-     * أفضل N منتجات مبيعاً لمتجر معيّن، محسوبة من مجموع الكميات ضمن عناصر
-     * الطلبات المكتملة فقط (JOIN + GROUP BY + ORDER BY في استعلام واحد).
-     *
-     * @return \Illuminate\Support\Collection<int, Product>
-     */
     public function getTopSellingProducts(int $storeId, int $limit = 5): \Illuminate\Support\Collection;
 }
 
@@ -8123,19 +8114,10 @@ use Illuminate\Database\Eloquent\Collection;
 
 interface StudentMarketplaceRepositoryInterface
 {
-    /**
-     * جلب جميع الأدوات المعروضة للبيع من قبل الطلاب فقط (وليس المتاجر).
-     */
     public function getAllStudentProducts(array $filters = [] , int $perPage = 15): LengthAwarePaginator;
 
-    /**
-     * جلب تفاصيل أداة محددة.
-     */
     public function getProductDetails(int $productId): Product;
 
-    /**
-     * جلب الأدوات الأخرى التي يعرضها نفس الطالب (مع استبعاد الأداة الحالية المعروضة).
-     */
     public function getOtherProductsByStudent(int $studentId, int $excludeProductId, int $limit = 4): Collection;
 }
 
@@ -8205,6 +8187,46 @@ class DiagnosisRepository
 
 
 =================================================
+File: app\Repositories\FcmTokenRepository.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Repositories;
+
+use App\Models\UserDeviceToken;
+use App\Repositories\Contracts\FcmTokenRepositoryInterface;
+use Illuminate\Support\Collection;
+
+class FcmTokenRepository implements FcmTokenRepositoryInterface
+{
+    public function __construct(protected UserDeviceToken $model) {}
+
+    public function storeToken(int $userId, string $fcmToken, ?string $deviceType = null): UserDeviceToken
+    {
+        // التوكن فريد بطبيعته لذلك يتم تحديث مالكه ونوع جهازه إذا كان موجوداً مسبقاً، أو إنشاء سجل جديد
+        // هذا يسمح للمستخدم الواحد بامتلاك عدة توكنات في حال تسجيل الدخول من أكثر من جهاز
+        return $this->model->updateOrCreate(
+            ['fcm_token' => $fcmToken],
+            ['user_id' => $userId, 'device_type' => $deviceType]
+        );
+    }
+
+    public function getTokensForUser(int $userId): Collection
+    {
+        return $this->model->where('user_id', $userId)->get();
+    }
+
+    public function deleteToken(string $fcmToken): bool
+    {
+        return $this->model->where('fcm_token', $fcmToken)->delete() > 0;
+    }
+}
+
+
+=================================================
 File: app\Repositories\GroupRepository.php
 =================================================
 
@@ -8217,9 +8239,6 @@ use Illuminate\Support\Facades\Cache;
 
 class GroupRepository
 {
-    /**
-     * جلب كل الفئات مع كاشينج باستخدام ريديس
-     */
     public function getAllCached()
     {
         return Cache::remember('all_groups', 86400, function () {
@@ -8297,9 +8316,6 @@ class CaseTypeRepository implements CaseTypeRepositoryInterface
             return $caseTypes;
         }
 
-        // required_count هو عدد المرات التي يجب على كل طالب على حدة إنجاز هذا
-        // النوع من الحالات (وليس مجموع الإنجازات لكل الطلاب)، فالنسبة الصحيحة
-        // هي: كم طالباً حقق نصابه الفردي الكامل من أصل الطلاب المسجّلين بالمقرر.
         $perStudentCounts = $this->getPerStudentCompletionCounts($caseTypes->pluck('id')->all());
         $enrolledStudentCounts = $this->getEnrolledStudentCounts($caseTypes->pluck('course_id')->unique()->all());
 
@@ -8322,12 +8338,6 @@ class CaseTypeRepository implements CaseTypeRepositoryInterface
         });
     }
 
-    /**
-     * لكل نوع حالة: عدد المرات المُنجزة (Completed) لكل طالب على حدة —
-     * أساس حساب من حقق النصاب المطلوب فعلياً.
-     *
-     * @return BaseCollection<int, BaseCollection<int, int>> case_type_id => [عدد إنجازات كل طالب]
-     */
     private function getPerStudentCompletionCounts(array $caseTypeIds): BaseCollection
     {
         return Treatment::query()
@@ -8341,12 +8351,6 @@ class CaseTypeRepository implements CaseTypeRepositoryInterface
             ->map(fn (BaseCollection $rows) => $rows->pluck('completed_count'));
     }
 
-    /**
-     * عدد الطلاب المسجّلين فعلياً بكل مقرر — المرجع (المقام) لحساب نسبة
-     * تحقيق المتطلب داخل ذلك المقرر.
-     *
-     * @return BaseCollection<int, int> course_id => عدد الطلاب
-     */
     private function getEnrolledStudentCounts(array $courseIds): BaseCollection
     {
         return StudentCourseEnrollment::query()
@@ -8385,9 +8389,6 @@ use Illuminate\Database\Eloquent\Collection;
 
 class InstructorRepository implements InstructorRepositoryInterface
 {
-    /**
-     * حقن نموذج المستخدم.
-     */
     public function __construct(
         protected User $model
     ) {}
@@ -8429,9 +8430,6 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 class TreatmentRepository implements TreatmentRepositoryInterface
 {
-    /**
-     * حقن نموذج المعالجة.
-     */
     public function __construct(
         protected Treatment $model
     ) {}
@@ -8441,10 +8439,8 @@ class TreatmentRepository implements TreatmentRepositoryInterface
         return $this->model->newQuery()
             ->select('treatments.*')
 
-            // 💡 التعديل هنا: استخدام اسم الجدول الصحيح patient_diagnoses
             ->join('patient_diagnoses', 'treatments.diagnosis_id', '=', 'patient_diagnoses.id')
 
-            // 💡 التعديل هنا: ربط case_types مع patient_diagnoses
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
             ->join('courses', 'case_types.course_id', '=', 'courses.id')
 
@@ -8515,20 +8511,19 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 class OrderRepository implements OrderRepositoryInterface
 {
-    /**
-     * حقن نموذج الطلب.
-     */
     public function __construct(
         protected Order $model
     ) {}
 
 
 
-    public function getStoreOrdersOptimized(int $storeId, int $perPage = 15): LengthAwarePaginator
+    public function getStoreOrdersOptimized(int $storeId, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
         return $this->model->newQuery()
             ->where('store_id', $storeId)
-            // إضافة student.studentProfile
+            ->when(isset($filters['status']), function ($query) use ($filters) {
+                $query->where('status', $filters['status']);
+            })
             ->with(['student.studentProfile', 'orderItems.product:id,name'])
             ->latest()
             ->paginate($perPage);
@@ -8563,9 +8558,6 @@ class OrderRepository implements OrderRepositoryInterface
             ->paginate($perPage);
     }
 
-    /**
-     * جلب تفاصيل طلب محدد ضمن مشتريات الطالب.
-     */
     public function findStudentPurchase(int $studentId, int $orderId): ?Order
     {
         return $this->model->newQuery()
@@ -8575,26 +8567,16 @@ class OrderRepository implements OrderRepositoryInterface
             ->first();
     }
 
-    /**
-     * عدد الطلبات لكل حالة عبر استعلام SQL مجمّع واحد (GROUP BY status)
-     * بدل 5 استعلامات count() منفصلة لكل حالة من حالات OrderStatus.
-     */
     public function getOrderStatusCounts(int $storeId): array
     {
         return $this->model->newQuery()
             ->where('store_id', $storeId)
             ->selectRaw('status, COUNT(*) as total')
             ->groupBy('status')
-            // pluck على Eloquent Builder يستخدم استعلام SQL خام دون تهيئة
-            // نماذج Eloquent كاملة، لذا القيم المُعادة نصوص خام (لا Enum Cast)
             ->pluck('total', 'status')
             ->toArray();
     }
 
-    /**
-     * إجمالي الإيرادات ومتوسط قيمة الطلب من الطلبات المكتملة فقط، عبر
-     * استعلام SUM/AVG واحد ينفَّذ بالكامل داخل قاعدة البيانات.
-     */
     public function getRevenueSummary(int $storeId): array
     {
         $result = $this->model->newQuery()
@@ -8609,11 +8591,6 @@ class OrderRepository implements OrderRepositoryInterface
         ];
     }
 
-    /**
-     * إيراد الطلبات المكتملة ضمن نطاق تاريخي محدد (تُستخدم لحساب أسبوع واحد
-     * فقط ضمن مخطط الإيراد الأسبوعي في الخدمة). يعتمد على الفهرس المركّب
-     * (store_id, status, created_at) المضاف في مايجريشن add_store_stats_index.
-     */
     public function getRevenueBetween(int $storeId, \DateTimeInterface $from, \DateTimeInterface $to): float
     {
         return (float) $this->model->newQuery()
@@ -8623,11 +8600,6 @@ class OrderRepository implements OrderRepositoryInterface
             ->sum('total_amount');
     }
 
-    /**
-     * كل الطلبات المكتملة لمتجر معيّن مع تحميل مسبق كامل للعلاقات اللازمة
-     * لتصدير تقرير CSV (الطالب المشتري + عناصر الطلب + المنتجات)، لتفادي
-     * أي استعلام N+1 داخل الحلقة عند بناء التقرير في الـ Job.
-     */
     public function getCompletedOrdersForExport(int $storeId): \Illuminate\Support\Collection
     {
         return $this->model->newQuery()
@@ -8788,7 +8760,6 @@ class PatientRepository
     public function getDiagnosisDetailsWithPatientMedia(int $id)
     {
         return PatientDiagnose::with([
-            // ... نفس علاقاتك الحالية
             'patient' => fn($q) => $q->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address'),
             'patient.media',
             'patient.medicalHistory',
@@ -8799,9 +8770,7 @@ class PatientRepository
             ->where(function ($query) use ($id) {
                 $query->where('id', $id)
                     ->where(function ($q) {
-                        // الحالة الأولى: التشخيص ما زال متاحاً للجميع
                         $q->where('status', DiagnosisStatus::AVAILABLE->value)
-                            // الحالة الثانية: التشخيص محجوز من قبل المستخدم الحالي
                             ->orWhereHas('appointments', function ($appointmentQuery) {
                                 $appointmentQuery->where('student_id', auth()->id());
                             });
@@ -8890,10 +8859,13 @@ class ProductRepository implements ProductRepositoryInterface
     }
 
 
-    public function getStoreProductsOptimized(int $storeId, int $perPage = 15): LengthAwarePaginator
+    public function getStoreProductsOptimized(int $storeId, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
         return $this->model->newQuery()
             ->where('store_id', $storeId)
+            ->when(isset($filters['availability_status']), function ($query) use ($filters) {
+                $query->where('availability_status', $filters['availability_status']);
+            })
             ->with(['category:id,name', 'media'])
             ->latest()
             ->paginate($perPage);
@@ -8919,9 +8891,6 @@ class ProductRepository implements ProductRepositoryInterface
         return $product->delete() ?? false;
     }
 
-    /**
-     * جلب عدد المنتجات المطابقة للتحقق من أن المتجر يملكها جميعاً.
-     */
     public function countStoreProductsByIds(int $storeId, array $productIds): int
     {
         return $this->model->newQuery()
@@ -8965,10 +8934,6 @@ class ProductRepository implements ProductRepositoryInterface
         return $this->model->with('media')->find($productId);
     }
 
-    /**
-     * عدد المنتجات منخفضة المخزون عبر استعلام count() واحد مفهرس
-     * (store_id مفهرس عبر constrained()، وquantity < threshold مقارنة مباشرة).
-     */
     public function countLowStockProducts(int $storeId, int $threshold = 5): int
     {
         return $this->model->newQuery()
@@ -8977,11 +8942,6 @@ class ProductRepository implements ProductRepositoryInterface
             ->count();
     }
 
-    /**
-     * أفضل N منتجات مبيعاً: JOIN واحد بين products وorder_items وorders،
-     * مُصفّى على حالة completed فقط، مع GROUP BY وORDER BY وLIMIT منفَّذة
-     * بالكامل داخل قاعدة البيانات (لا يوجد أي تجميع يدوي في PHP).
-     */
     public function getTopSellingProducts(int $storeId, int $limit = 5): Collection
     {
         return $this->model->newQuery()
@@ -9037,7 +8997,7 @@ class PromotionRepository implements PromotionRepositoryInterface
     {
         return $this->model->newQuery()
             ->where('store_id', $storeId)
-            ->withCount('products') // جلب عدد المنتجات فقط بدلاً من تحميل كامل الكائنات
+            ->withCount('products')
             ->latest()
             ->paginate($perPage);
     }
@@ -9048,7 +9008,7 @@ class PromotionRepository implements PromotionRepositoryInterface
         return $this->model->newQuery()
             ->where('store_id', $storeId)
             ->where('id', $promotionId)
-            ->with('products:id,name,price') // تحميل المنتجات المربوطة
+            ->with('products:id,name,price')
             ->first();
     }
 
@@ -9063,9 +9023,6 @@ class PromotionRepository implements PromotionRepositoryInterface
         return $promotion->delete() ?? false;
     }
 
-    /**
-     * مزامنة المنتجات المربوطة بالعرض (إضافة الجديد وحذف ما تم استبعاده).
-     */
     public function syncProducts(Promotion $promotion, array $productIds): array
     {
         return $promotion->products()->sync($productIds);
@@ -9100,7 +9057,6 @@ class StudentMarketplaceRepository implements StudentMarketplaceRepositoryInterf
     {
         $page = Paginator::resolveCurrentPage();
 
-        // هندسة مفتاح الكاش: نقوم بتوليد Hash من الفلاتر لضمان عدم اختلاط النتائج
         $filterHash = md5(json_encode($filters));
         $cacheKey = "student_products_per_page_{$perPage}_page_{$page}_filters_{$filterHash}";
 
@@ -9110,7 +9066,7 @@ class StudentMarketplaceRepository implements StudentMarketplaceRepositoryInterf
                 ->whereHas('seller', function ($query) {
                     $query->role('student');
                 })
-                ->filter($filters) // استدعاء السكوب السحري هنا!
+                ->filter($filters)
                 ->with(['category', 'media', 'seller.studentProfile'])
                 ->latest()
                 ->paginate($perPage);
@@ -9165,22 +9121,14 @@ use App\Models\StudentProfile;
 
 class StudentRepository
 {
-    /**
-     * 1️⃣ جلب المواد المخصصة لفصل محدد وسنة محددة بالظبط
-     * (لأننا صرنا بحاجتها بفصل مواد الـ Semester 1 عن الـ Semester 2)
-     */
     public function getCourseIdsByLevel(int $year, int $semester): array
     {
         return Course::where('year', $year)
             ->where('semester', $semester)
             ->pluck('id')
-            ->toArray(); // ⚡ جلب مصفوفة الأرقام فقط، خفيف جداً على الذاكرة وسريع
+            ->toArray();
     }
 
-    /**
-     * 2️⃣ جلب كل المواد المتاحة بناءً على شرط السنة والفصل الأكاديمي (القديمة)
-     * تركناها في حال احتجتها بأماكن تانية بالسيستم
-     */
     public function getAvailableCoursesByLevel(int $year, int $semester)
     {
         return Course::with('department')
@@ -9193,9 +9141,6 @@ class StudentRepository
             })->get();
     }
 
-    /**
-     * 3️⃣ البحث عن تسجيل مادة محددة لطالب محدد
-     */
     public function findExistingEnrollment(int $studentId, int $courseId)
     {
         return StudentCourseEnrollment::where('student_id', $studentId)
@@ -9203,9 +9148,6 @@ class StudentRepository
             ->first();
     }
 
-    /**
-     * 4️⃣ إنشاء سطر تسجيل جديد لأول مرة
-     */
     public function createEnrollment(array $data)
     {
         return StudentCourseEnrollment::create($data);
@@ -9238,7 +9180,6 @@ class StudentRepository
             })
             ->get();
 
-        // التقسيم
         return [
             'current' => $allEligible->filter(function ($ct) use ($studentYear, $studentSemester) {
                 return $ct->year == $studentYear && $ct->semester == $studentSemester;
@@ -9314,7 +9255,7 @@ class TreatmentRepository
                 });
             })
             ->with([
-                'diagnosis.appointments.student:id,first_name,last_name', // فقط الأسماء
+                'diagnosis.appointments.student:id,first_name,last_name',
                 'diagnosis.appointments.patient:id,full_name',
                 'diagnosis.caseType:id,name',
             ])
@@ -9343,15 +9284,11 @@ class TreatmentRepository
 
     public function getStudentProgressStats(int $userId)
     {
-        // Cache لمدة 5 دقائق لتقليل الضغط على قاعدة البيانات — key مرتبط بـ userId
         return Cache::remember("student_progress_stats_{$userId}", 300, function () use ($userId) {
             return $this->fetchStudentProgressStats($userId);
         });
     }
 
-    /**
-     * تسمح بمسح الـ Cache بعد أي تغيير على بيانات الطالب.
-     */
     public function clearStudentProgressCache(int $userId): void
     {
         Cache::forget("student_progress_stats_{$userId}");
@@ -9359,7 +9296,6 @@ class TreatmentRepository
 
     private function fetchStudentProgressStats(int $userId)
     {
-        // 0. جلب الـ student_profile_id الخاص بالمستخدم الحالي أولاً
         $studentProfile = \DB::table('student_profiles')->where('user_id', $userId)->first();
 
         if (! $studentProfile) {
@@ -9368,17 +9304,16 @@ class TreatmentRepository
 
         $profileId = $studentProfile->id;
 
-        // 1. الإحصائيات العامة للمعالجات (مفلترة فقط للمواد المسجل عليها الطالب حالياً)
         $treatmentsCount = DB::table('treatments')
             ->join('patient_diagnoses', 'treatments.diagnosis_id', '=', 'patient_diagnoses.id')
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
             ->join('student_course_enrollments', function ($join) use ($profileId) {
                 $join->on('case_types.course_id', '=', 'student_course_enrollments.course_id')
                     ->where('student_course_enrollments.student_id', $profileId)
-                    ->where('student_course_enrollments.status', 'active'); // فقط المواد الفعالة بالترم الحالي
+                    ->where('student_course_enrollments.status', 'active');
             })
             ->join('appointments', 'patient_diagnoses.id', '=', 'appointments.diagnosis_id')
-            ->where('appointments.student_id', $userId) // الـ appointments مربوط بالـ user_id
+            ->where('appointments.student_id', $userId)
             ->selectRaw("
             COUNT(DISTINCT treatments.id) as total,
             COUNT(DISTINCT CASE WHEN treatments.status = 'completed' THEN treatments.id END) as completed,
@@ -9387,11 +9322,9 @@ class TreatmentRepository
         ")
             ->first();
 
-        // 2. جلب الـ case_types الخاصة بالمواد المسجل عليها الطالب حالياً (حتى لو كانت مواد قديمة محملة)
         $casesByType = DB::table('student_course_enrollments')
             ->join('case_types', 'student_course_enrollments.course_id', '=', 'case_types.course_id')
             ->join('courses', 'case_types.course_id', '=', 'courses.id')
-            // Left Join مع التشخيصات والمعالجات المربوطة بالطالب
             ->leftJoin('patient_diagnoses', 'case_types.id', '=', 'patient_diagnoses.case_type_id')
             ->leftJoin('treatments', 'patient_diagnoses.id', '=', 'treatments.diagnosis_id')
             ->leftJoin('appointments', function ($join) use ($userId) {
@@ -9411,7 +9344,6 @@ class TreatmentRepository
         ")
             ->get();
 
-        // 3. نسبة الالتزام بالمواعيد مفلترة للمواد المسجلة حالياً
         $appointmentsCount = DB::table('appointments')
             ->join('patient_diagnoses', 'appointments.diagnosis_id', '=', 'patient_diagnoses.id')
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
@@ -9437,26 +9369,21 @@ class TreatmentRepository
 
     public function getStudentTreatmentsList(int $userId, string $statusType, int $perPage = 10)
     {
-        // البدء من الـ Model الرئيسي
         $query = Treatment::query()
-            // 1. جلب العلاقات المربوطة تلقائياً بدون ما نكتب شروط الـ Join بإيدنا
             ->with([
                 'diagnosis.patient:id,full_name',
                 'diagnosis.caseType.course:id,name',
             ])
-            // 2. الفلترة بناءً على جدول الـ appointments (عبر الـ diagnosis)
             ->whereHas('diagnosis.appointments', function ($q) use ($userId) {
                 $q->where('student_id', $userId);
             });
 
-        // 3. تطبيق فلترة الحالة
         if ($statusType === 'completed') {
             $query->where('status', 'completed');
         } else {
             $query->whereIn('status', ['in_progress', 'waiting_instructor_approval', 'rejected']);
         }
 
-        // الترتيب والـ Pagination بأسلوب Eloquent
         return $query->orderBy('updated_at', 'desc')->paginate($perPage);
     }
 }
@@ -9495,11 +9422,6 @@ class UserRepository
         return User::where('email', $email)->first();
     }
 
-    /**
-     * جلب بيانات المستخدم مع البروفايل الخاص به بناءً على العلاقة.
-     *
-     * @param  string  $relation  اسم العلاقة (مثل studentProfile)
-     */
     public function loadProfile(User $user, string $relation): User
     {
         return $user->load($relation);
@@ -9740,7 +9662,6 @@ class AuthService
 
             $token = $user->createToken('verification_token', ['verify-otp'])->plainTextToken;
 
-            // إرسال مهمة خلفية مؤجلة لمدة 1 ساعة لحذف المستخدم وتوكنه إذا لم يقم بتأكيد الـ OTP
             \App\Jobs\DeleteUnverifiedUserJob::dispatch($user->id)->delay(now()->addHour());
 
             return [
@@ -9871,6 +9792,7 @@ namespace App\Services;
 
 use App\Enums\DiagnosisStatus;
 use App\Enums\PatientStatus;
+use App\Events\DiagnosisReviewedEvent;
 use App\Models\CaseType;
 use App\Models\Group;
 use App\Models\InstructorProfile;
@@ -9917,9 +9839,6 @@ class DiagnosisService
             'supervised_groups_total' => $groupIds->count(),
         ];
     }
-    /**
-     * تشخيص المرضى القادمين من موظف الاستقبال
-     */
     public function storeMultiple(array $data, int $instructorId)
     {
         $lock = Cache::lock('lock:diagnose_patient:' . $data['patient_id'], 10);
@@ -9929,7 +9848,6 @@ class DiagnosisService
             $lock->block(3);
 
             return DB::transaction(function () use ($data, $instructorId) {
-                // تحقق فوري وحديث من حالة المريض بعد الحصول على القفل لمنع التشخيص المزدوج
                 $patient = $this->patientRepo->FindOrFail($data['patient_id']);
 
                 if ($patient->availability_status !== PatientStatus::WAITING_DIAGNOSIS->value) {
@@ -9962,7 +9880,6 @@ class DiagnosisService
                         'status' => DiagnosisStatus::AVAILABLE->value,
                     ]);
 
-                    // نسخ الصور المختارة من المريض إلى التشخيص الجديد
                     if (!empty($item['media_ids'])) {
                         foreach ($item['media_ids'] as $mediaId) {
                             $media = Media::where('id', $mediaId)
@@ -9997,8 +9914,7 @@ class DiagnosisService
 
             $lock->block(3);
 
-            return DB::transaction(function () use ($id, $data, $instructorId, $instructorProfileId) {
-                // جلب التشخيص والتحقق من حالته الفعلية داخل القفل لضمان عدم مراجعته من مدرّس آخر بالتوازي
+            $diagnosis = DB::transaction(function () use ($id, $data, $instructorId, $instructorProfileId) {
                 $diagnosis = $this->diagnosisRepo->FindOrFail($id);
 
                 $this->validatePendingStatus($diagnosis);
@@ -10012,8 +9928,13 @@ class DiagnosisService
 
                 $this->patientRepo->updateAvailability($diagnosis->patient_id, PatientStatus::AVAILABLE->value);
 
-                return true;
+                return $diagnosis;
             });
+
+            // إطلاق الحدث بعد نجاح المعاملة لإشعار الطالب بالموافقة دون تأخير استجابة الـ API الرئيسية
+            DiagnosisReviewedEvent::dispatch($diagnosis, DiagnosisStatus::AVAILABLE->value);
+
+            return true;
         } catch (LockTimeoutException $e) {
             throw new Exception('This diagnosis request is currently being reviewed by another instructor.', 409);
         } finally {
@@ -10021,9 +9942,6 @@ class DiagnosisService
         }
     }
 
-    /**
-     * رفض تشخيص طالب
-     */
     public function rejectCase(int $id, array $data, int $instructorId, int $instructorProfileId)
     {
         $lock = Cache::lock('lock:review_diagnosis:' . $id, 10);
@@ -10032,8 +9950,7 @@ class DiagnosisService
 
             $lock->block(3);
 
-            return DB::transaction(function () use ($id, $data, $instructorId, $instructorProfileId) {
-                // جلب التشخيص والتحقق من حالته الفعلية داخل القفل لضمان عدم مراجعته من مدرّس آخر بالتوازي
+            $diagnosis = DB::transaction(function () use ($id, $data, $instructorId, $instructorProfileId) {
                 $diagnosis = $this->diagnosisRepo->FindOrFail($id);
 
                 $this->validatePendingStatus($diagnosis);
@@ -10047,8 +9964,13 @@ class DiagnosisService
 
                 $this->patientRepo->updateAvailability($diagnosis->patient_id, PatientStatus::WAITING_DIAGNOSIS->value);
 
-                return true;
+                return $diagnosis;
             });
+
+            // إطلاق الحدث بعد نجاح المعاملة لإشعار الطالب بالرفض دون تأخير استجابة الـ API الرئيسية
+            DiagnosisReviewedEvent::dispatch($diagnosis, DiagnosisStatus::REJECTED->value);
+
+            return true;
         } catch (LockTimeoutException $e) {
             throw new Exception('This diagnosis request is currently being reviewed by another instructor.', 409);
         } finally {
@@ -10081,6 +10003,64 @@ class DiagnosisService
 
 
 =================================================
+File: app\Services\FirebaseNotificationService.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services;
+
+use App\Repositories\Contracts\FcmTokenRepositoryInterface;
+use Kreait\Firebase\Contract\Messaging;
+use Kreait\Firebase\Messaging\CloudMessage;
+use Kreait\Firebase\Messaging\MulticastSendReport;
+use Kreait\Firebase\Messaging\Notification as FirebaseNotification;
+use Illuminate\Support\Facades\Log;
+use Throwable;
+
+class FirebaseNotificationService
+{
+    public function __construct(
+        protected Messaging $messaging,
+        protected FcmTokenRepositoryInterface $fcmTokenRepo
+    ) {}
+
+    // إرسال إشعار فوري لجميع أجهزة المستخدم المسجّلة (متعددة الأجهزة) عبر Firebase Cloud Messaging
+    public function sendNotificationToUser(int $userId, string $title, string $body, array $data = []): void
+    {
+        $tokens = $this->fcmTokenRepo->getTokensForUser($userId);
+
+        if ($tokens->isEmpty()) {
+            return;
+        }
+
+        $message = CloudMessage::new()
+            ->withNotification(FirebaseNotification::create($title, $body))
+            ->withData($data);
+
+        try {
+            $report = $this->messaging->sendMulticast($message, $tokens->pluck('fcm_token')->all());
+
+            $this->removeInvalidTokens($report);
+        } catch (Throwable $e) {
+            // لا يجب أن يوقف فشل الإرسال أي عملية أعمال أخرى، لذلك يتم تسجيل الخطأ فقط
+            Log::error('فشل إرسال إشعار Firebase للمستخدم رقم ' . $userId . ': ' . $e->getMessage());
+        }
+    }
+
+    // حذف التوكنات غير الصالحة (مثل الأجهزة التي أُلغي تثبيت التطبيق منها) حتى لا تتكرر محاولة إرسال فاشلة لها
+    private function removeInvalidTokens(MulticastSendReport $report): void
+    {
+        foreach ($report->invalidTokens() as $invalidToken) {
+            $this->fcmTokenRepo->deleteToken($invalidToken);
+        }
+    }
+}
+
+
+=================================================
 File: app\Services\hod\DepartmentHeadService.php
 =================================================
 
@@ -10104,18 +10084,12 @@ use Exception;
 
 class DepartmentHeadService
 {
-    /**
-     * حقن واجهات المستودعات المطلوبة للخدمة.
-     */
     public function __construct(
         protected TreatmentRepositoryInterface $treatmentRepo,
         protected CaseTypeRepositoryInterface $caseTypeRepo,
         protected InstructorRepositoryInterface $instructorRepo
     ) {}
 
-    /**
-     * جلب المعالجات المكتملة لقسم معين.
-     */
     public function getCompletedTreatmentsForDepartment(int $departmentId, int $page, int $perPage = 15): LengthAwarePaginator
     {
         $cacheKey = "department_{$departmentId}_completed_treatments_page_{$page}_limit_{$perPage}";
@@ -10127,10 +10101,6 @@ class DepartmentHeadService
         );
     }
 
-    /**
-     * جلب تفاصيل معالجة واحدة كاملة (الطالب، المعيد المشرف، نوع الحالة، إلخ)
-     * بعد التحقق من أنها تابعة لقسم رئيس القسم الحالي.
-     */
     public function getTreatmentDetailForDepartment(int $hodDepartmentId, int $treatmentId): \App\Models\Treatment
     {
         $treatment = $this->treatmentRepo->findDetailedForDepartment($treatmentId);
@@ -10146,9 +10116,6 @@ class DepartmentHeadService
         return $treatment;
     }
 
-    /**
-     * جلب قائمة أنواع الحالات التابعة للقسم.
-     */
     public function getCaseTypesForDepartment(int $departmentId): Collection
     {
         return Cache::tags(["department_{$departmentId}", 'case_types'])->remember(
@@ -10158,9 +10125,6 @@ class DepartmentHeadService
         );
     }
 
-    /**
-     * جلب مقررات القسم (لاستخدامها عند إنشاء نوع حالة جديد).
-     */
     public function getCoursesForDepartment(int $departmentId): Collection
     {
         return Course::query()
@@ -10169,9 +10133,6 @@ class DepartmentHeadService
             ->get(['id', 'name']);
     }
 
-    /**
-     * إنشاء نوع حالة سريرية جديد ضمن قسم رئيس القسم.
-     */
     public function createCaseType(int $hodDepartmentId, array $data): CaseType
     {
         $course = Course::find($data['course_id']);
@@ -10195,9 +10156,6 @@ class DepartmentHeadService
         return $caseType;
     }
 
-    /**
-     * حذف نوع حالة سريرية تابع لقسم رئيس القسم.
-     */
     public function deleteCaseType(int $hodDepartmentId, int $caseTypeId): bool
     {
         $caseType = $this->caseTypeRepo->findByIdWithCourse($caseTypeId);
@@ -10223,9 +10181,6 @@ class DepartmentHeadService
         return $isDeleted;
     }
 
-    /**
-     * تحديث عدد الحالات المطلوبة.
-     */
     public function updateCaseRequirement(int $hodDepartmentId, int $caseTypeId, int $newCount): bool
     {
         $caseType = $this->caseTypeRepo->findByIdWithCourse($caseTypeId);
@@ -10247,9 +10202,6 @@ class DepartmentHeadService
         return $isUpdated;
     }
 
-    /**
-     * جلب الإحصائيات الشاملة للقسم.
-     */
     public function getDepartmentStatistics(int $departmentId): array
     {
         $cacheKey = "department_{$departmentId}_statistics";
@@ -10274,17 +10226,11 @@ class DepartmentHeadService
         );
     }
 
-    /**
-     * جلب قائمة المعيدين لكي يختار منهم رئيس القسم من يريد تفويضه.
-     */
     public function getInstructorsList(): Collection
     {
         return $this->instructorRepo->getAllInstructors();
     }
 
-    /**
-     * تفويض صلاحية استعراض حالات القسم لمعيد معين ديناميكياً.
-     */
     public function delegateViewTreatmentsToInstructor(int $instructorId): bool
     {
         $instructor = $this->instructorRepo->findInstructorById($instructorId);
@@ -10298,7 +10244,6 @@ class DepartmentHeadService
             'guard_name' => 'web'
         ]);
 
-        // منح الصلاحية للمعيد
         if (! $instructor->hasPermissionTo($permission)) {
             $instructor->givePermissionTo($permission);
         }
@@ -10306,9 +10251,6 @@ class DepartmentHeadService
         return true;
     }
 
-    /**
-     * سحب صلاحية استعراض حالات القسم من معيد معين.
-     */
     public function revokeViewTreatmentsFromInstructor(int $instructorId): bool
     {
         $instructor = $this->instructorRepo->findInstructorById($instructorId);
@@ -10425,7 +10367,6 @@ class PatientService
     {
         return DB::transaction(function () use ($data, $files, $diagnosisData) {
 
-            // 1. إنشاء المريض الأساسي
             $patientData = [
                 'full_name'    => $data['full_name'],
                 'gender'       => $data['gender'],
@@ -10439,7 +10380,6 @@ class PatientService
 
             $patient = $this->repository->create($patientData);
 
-            // 2. إنشاء التاريخ الطبي المرتبط بالمريض
             $patient->medicalHistory()->create([
                 'has_general_diseases'     => $data['has_general_diseases'],
                 'general_diseases_details' => $data['general_diseases_details'] ?? null,
@@ -10452,16 +10392,13 @@ class PatientService
                 'is_pregnant'              => $data['gender'] === 'female' ? filter_var($data['is_pregnant'] ?? false, FILTER_VALIDATE_BOOLEAN) : null,
             ]);
 
-            // 3. رفع صورة الهوية (مشتركة للجميع)
             if (isset($files['id_card'])) {
                 $this->mediaService->upload($patient, $files['id_card'], 'id_cards');
             }
 
-            // 4. منطق معالجة الصور حسب الدور
             $user = auth()->user();
 
             if ($user->hasRole('receptionist')) {
-                // استقبال: الصور ترفع مباشرة على المريض
                 if (isset($files['clinical_images'])) {
                     foreach ($files['clinical_images'] as $image) {
                         $this->mediaService->upload($patient, $image, 'clinical_images');
@@ -10473,14 +10410,12 @@ class PatientService
                     }
                 }
             } elseif ($user->hasRole('student') && !empty($diagnosisData['case_type_ids'])) {
-                // طالب: الصور ترفع لكل تشخيص على حدة
                 $student = $user->studentProfile;
 
                 foreach ($diagnosisData['case_type_ids'] as $index => $caseTypeId) {
                     $caseType = CaseType::with('course')->findOrFail($caseTypeId);
                     $course = $caseType->course;
 
-                    // التحقق من الصلاحية الأكاديمية
                     $studentYear = (int) $student->academic_year;
                     $studentSemester = (int) $student->semester;
                     $isAllowed = ($course->year < $studentYear) || ($course->year == $studentYear && $course->semester <= $studentSemester);
@@ -10497,7 +10432,6 @@ class PatientService
                         'estimated_cost' => $diagnosisData['estimated_costs'][$index] ?? 0,
                     ]);
 
-                    // رفع الصور للتشخيص الخاص بالطالب
                     if (isset($files['clinical_images'][$index])) {
                         $this->mediaService->upload($diagnosis, $files['clinical_images'][$index], 'clinical_images');
                     }
@@ -10515,10 +10449,8 @@ class PatientService
     {
         return DB::transaction(function () use ($patientId, $data, $files) {
 
-            // 1. جلب المريض الحالي، مع رمي استثناء إن لم يكن موجوداً
             $patient = $this->repository->FindOrFail($patientId);
 
-            // 2. جلب الملف الأكاديمي للطالب المصادق عليه للتحقق من صلاحيته
             $user = auth()->user();
             $student = $user->studentProfile;
 
@@ -10531,12 +10463,10 @@ class PatientService
 
             $createdDiagnoses = [];
 
-            // 3. المرور على كل تشخيص مطلوب لإنشائه بشكل منفصل
             foreach ($data['case_type_ids'] as $index => $caseTypeId) {
                 $caseType = CaseType::with('course')->findOrFail($caseTypeId);
                 $course = $caseType->course;
 
-                // التحقق من الصلاحية الأكاديمية (نفس منطق registerPatient تماماً)
                 $isAllowed = ($course->year < $studentYear) || ($course->year == $studentYear && $course->semester <= $studentSemester);
 
                 if (! $isAllowed) {
@@ -10551,7 +10481,6 @@ class PatientService
                     'estimated_cost' => $data['estimated_costs'][$index] ?? 0,
                 ]);
 
-                // 4. رفع الصور الخاصة بهذا التشخيص
                 if (isset($files['clinical_images'][$index])) {
                     $this->mediaService->upload($diagnosis, $files['clinical_images'][$index], 'clinical_images');
                 }
@@ -10562,7 +10491,6 @@ class PatientService
                 $createdDiagnoses[] = $diagnosis;
             }
 
-            // 5. تحديث حالة إتاحة المريض إن كانت "مكتملة" أو "محجوزة بالكامل"
             if (in_array($patient->availability_status, [PatientStatus::COMPLETED->value, PatientStatus::FULLY_RESERVED->value], true)) {
                 $patient->update(['availability_status' => PatientStatus::WAITING_DIAGNOSIS->value]);
             }
@@ -10729,6 +10657,7 @@ namespace App\Services\Store;
 
 use App\Enums\OrderStatus;
 use App\Enums\ProductAvailability;
+use App\Events\OrderStatusUpdatedEvent;
 use App\Models\Order;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Services\Store\StoreStatisticService;
@@ -10743,14 +10672,11 @@ class StoreOrderService
         protected StoreStatisticService $statisticService
     ) {}
 
-    public function listStoreOrders(int $storeId, int $perPage = 15): LengthAwarePaginator
+    public function listStoreOrders(int $storeId, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        return $this->orderRepo->getStoreOrdersOptimized($storeId, $perPage);
+        return $this->orderRepo->getStoreOrdersOptimized($storeId, $filters, $perPage);
     }
 
-    /**
-     * تحديث حالة الطلب وإدارة المخزون والحالة بشكل صريح وآمن.
-     */
     public function updateOrderStatus(int $storeId, int $orderId, array $data): Order
     {
         $order = $this->orderRepo->findStoreOrder($storeId, $orderId);
@@ -10759,7 +10685,6 @@ class StoreOrderService
             throw new Exception('الطلب غير موجود أو لا تملك صلاحية تعديله.', 404);
         }
 
-        // حماية دورة حياة الطلب
         if (in_array($order->status, [OrderStatus::COMPLETED->value, OrderStatus::REJECTED->value])) {
             throw new Exception('لا يمكن تعديل حالة طلب مكتمل أو تم رفضه مسبقاً.', 400);
         }
@@ -10777,10 +10702,8 @@ class StoreOrderService
                     $product = $item->product;
                     
                     if ($product) {
-                        // زيادة الكمية المسترجعة
                         $product->quantity += $item->quantity;
                         
-                        // إذا أصبحت الكمية أكبر من الصفر، نجبر الحالة عودةً إلى available صراحةً
                         if ($product->quantity > 0) {
                             $product->availability_status = ProductAvailability::AVAILABLE->value;
                         }
@@ -10792,13 +10715,14 @@ class StoreOrderService
 
             DB::commit();
 
-            // إبطال التخزين المؤقت "الحي" لإحصائيات المتجر: عدد الطلبات لكل
-            // حالة، الإيرادات، والأسبوع الحالي جميعها تغيّرت بتغيّر حالة هذا
-            // الطلب. لا يمسّ هذا أبداً بيانات الأسابيع الماضية الثابتة
-            // (وسم منفصل تماماً داخل StoreStatisticService).
             $this->statisticService->invalidateLiveCache($storeId);
 
-            return $order->refresh();
+            $order = $order->refresh();
+
+            // إطلاق الحدث بعد نجاح المعاملة لإشعار الطالب بتحديث حالة طلبه دون تأخير استجابة الـ API الرئيسية
+            OrderStatusUpdatedEvent::dispatch($order);
+
+            return $order;
         } catch (Exception $e) {
             DB::rollBack();
             throw $e;
@@ -10842,17 +10766,11 @@ class StorePromotionService
         protected ProductRepositoryInterface $productRepo
     ) {}
 
-    /**
-     * جلب قائمة العروض الترويجية الخاصة بالمتجر.
-     */
     public function listPromotions(int $storeId, int $perPage = 15): LengthAwarePaginator
     {
         return $this->promotionRepo->getStorePromotions($storeId, $perPage);
     }
 
-    /**
-     * جلب تفاصيل عرض ترويجي محدد.
-     */
     public function getPromotionDetails(int $storeId, int $promotionId): Promotion
     {
         $promotion = $this->promotionRepo->findStorePromotion($storeId, $promotionId);
@@ -10864,9 +10782,6 @@ class StorePromotionService
         return $promotion;
     }
 
-    /**
-     * إنشاء عرض ترويجي جديد وربطه بالمنتجات بشكل آمن.
-     */
     public function createPromotion(int $storeId, array $promotionData, array $productIds): Promotion
     {
         $this->verifyProductsOwnership($storeId, $productIds);
@@ -10882,9 +10797,6 @@ class StorePromotionService
         });
     }
 
-    /**
-     * تحديث بيانات العرض الترويجي وتعديل المنتجات المشمولة.
-     */
     public function updatePromotion(int $storeId, int $promotionId, array $promotionData, ?array $productIds = null): Promotion
     {
         $promotion = $this->getPromotionDetails($storeId, $promotionId);
@@ -10902,9 +10814,6 @@ class StorePromotionService
         });
     }
 
-    /**
-     * حذف العرض الترويجي.
-     */
     public function deletePromotion(int $storeId, int $promotionId): bool
     {
         $promotion = $this->getPromotionDetails($storeId, $promotionId);
@@ -10912,18 +10821,12 @@ class StorePromotionService
         return $this->promotionRepo->delete($promotion);
     }
 
-    /**
-     * دالة مساعدة (Helper) للتحقق الأمني من ملكية المنتجات للمتجر.
-     *
-     * @throws Exception
-     */
     private function verifyProductsOwnership(int $storeId, array $productIds): void
     {
         if (empty($productIds)) {
             return;
         }
 
-        // جلب عدد المنتجات التي تطابق أرقامها أرقام المنتجات المرسلة، وتعود لنفس المتجر
         $validCount = $this->productRepo->countStoreProductsByIds($storeId, $productIds);
 
         if ($validCount !== count($productIds)) {
@@ -10950,29 +10853,16 @@ use App\Repositories\Contracts\ProductRepositoryInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 
-/**
- * خدمة إحصائيات لوحة تحكم صاحب المتجر. تُطبِّق إستراتيجية تخزين مؤقت متقدمة
- * ومتمايزة حسب "مدى تقلّب" كل بيان: بيانات حيّة (تتغير مع كل طلب جديد) مقابل
- * بيانات أسابيع ماضية ثابتة (immutable) لا يمكن أن تتغير مستقبلاً إطلاقاً.
- */
 class StoreStatisticService
 {
-    // عدد الأسابيع المعروضة في مخطط الإيراد الأسبوعي (شاملاً الأسبوع الحالي)
     private const WEEKS_IN_CHART = 8;
 
-    // الحد الأدنى للكمية الذي يُعتبر تحته المنتج "منخفض المخزون"
     private const LOW_STOCK_THRESHOLD = 5;
 
-    // مدة تخزين مؤقت للبيانات "الحية" (عدد الطلبات، الإيرادات، المخزون)
-    // التي تتغير مع كل طلب جديد أو مكتمل
     private const LIVE_CACHE_MINUTES = 10;
 
-    // مدة أقصر خصيصاً لإيراد الأسبوع الحالي: هذا الأسبوع لا يزال "مفتوحاً"
-    // وقد تكتمل طلبات جديدة ضمنه في أي لحظة، على عكس الأسابيع المنتهية
     private const CURRENT_WEEK_CACHE_MINUTES = 5;
 
-    // استعلام أفضل المنتجات مبيعاً أثقل نسبياً (JOIN مزدوج + GROUP BY)
-    // فيستحق مدة تخزين مؤقت أطول من بقية البيانات الحية
     private const TOP_SELLERS_CACHE_MINUTES = 60;
 
     public function __construct(
@@ -10980,10 +10870,6 @@ class StoreStatisticService
         protected ProductRepositoryInterface $productRepo,
     ) {}
 
-    /**
-     * جلب لوحة إحصائيات المتجر الكاملة. كل قسم مُخزَّن مؤقتاً بشكل مستقل
-     * وبإستراتيجية TTL مختلفة حسب طبيعة بياناته (راجع تعليقات كل دالة أدناه).
-     */
     public function getDashboardStatistics(int $storeId): array
     {
         return [
@@ -10995,32 +10881,16 @@ class StoreStatisticService
         ];
     }
 
-    /**
-     * إطلاق مهمة تصدير تقرير المبيعات في الخلفية (Queue) والعودة فوراً —
-     * الـ Controller لا ينتظر انتهاء المهمة إطلاقاً (Non-blocking I/O).
-     */
     public function triggerSalesReportExport(int $storeId): void
     {
         ExportStoreSalesReportJob::dispatch($storeId);
     }
 
-    /**
-     * إبطال (Invalidate) كل التخزين المؤقت "الحي" لمتجر معيّن. يجب استدعاؤها
-     * فور أي عملية تُغيّر حالة طلب أو كمية منتج (مثال جاهز: تم ربطها في
-     * StoreOrderService::updateOrderStatus() بعد كل تحديث ناجح لحالة الطلب).
-     *
-     * لا تُبطل عمداً بيانات الأسابيع الماضية الثابتة (وسم منفصل تماماً)،
-     * لأن اكتمال طلب اليوم لا يُغيّر أبداً إيراد أسبوع مضى وانتهى فعلياً.
-     */
     public function invalidateLiveCache(int $storeId): void
     {
         Cache::tags([$this->liveTag($storeId)])->flush();
     }
 
-    /**
-     * عدد الطلبات لكل حالة + الإجمالي، عبر استعلام SQL مجمّع واحد (GROUP BY)
-     * مُخزَّن مؤقتاً لأنه يفحص جدول orders بالكامل لمتجر معيّن.
-     */
     private function getOrderMetrics(int $storeId): array
     {
         $counts = Cache::tags([$this->liveTag($storeId)])->remember(
@@ -11039,10 +10909,6 @@ class StoreStatisticService
         ];
     }
 
-    /**
-     * إجمالي الإيرادات ومتوسط قيمة الطلب (AOV)، من الطلبات المكتملة فقط،
-     * عبر استعلام SUM/AVG واحد مُخزَّن مؤقتاً.
-     */
     private function getFinancialMetrics(int $storeId): array
     {
         return Cache::tags([$this->liveTag($storeId)])->remember(
@@ -11052,10 +10918,6 @@ class StoreStatisticService
         );
     }
 
-    /**
-     * عدد المنتجات منخفضة المخزون (quantity < 5)، مُخزَّن مؤقتاً لتفادي
-     * إعادة فحص جدول المنتجات بالكامل مع كل تحميل للوحة التحكم.
-     */
     private function getInventoryMetrics(int $storeId): array
     {
         $lowStockCount = Cache::tags([$this->liveTag($storeId)])->remember(
@@ -11067,12 +10929,6 @@ class StoreStatisticService
         return ['low_stock_count' => $lowStockCount];
     }
 
-    /**
-     * أفضل 5 منتجات مبيعاً — استعلام JOIN مزدوج نسبياً "ثقيل"، لذا يُخزَّن
-     * مؤقتاً لمدة أطول (ساعة) من بقية البيانات الحية. القيمة المُعادة مصفوفة
-     * عادية (وليست Eloquent Collection) عمداً لتبقى بيانات التخزين المؤقت
-     * خفيفة وبسيطة التسلسل (Serialization) عبر Redis.
-     */
     private function getTopSellers(int $storeId): array
     {
         return Cache::tags([$this->liveTag($storeId)])->remember(
@@ -11093,20 +10949,6 @@ class StoreStatisticService
         );
     }
 
-    /**
-     * *** إستراتيجية التخزين المؤقت المتقدمة (النقطة الحرجة في المتطلبات) ***
-     *
-     * لكل أسبوع من الأسابيع الثمانية الماضية:
-     * - إن كان أسبوعاً "منتهياً" (وليس الأسبوع الحالي): إيراده رقم ثابت لن
-     *   يتغيّر أبداً في المستقبل (لا يمكن لأي طلب أن "يكتمل" بأثر رجعي ضمن
-     *   أسبوع انتهى فعلياً) → يُخزَّن مؤقتاً بشكل دائم (rememberForever)
-     *   بمفتاح فريد لكل أسبوع (يتضمن تاريخ بدايته)، تحت وسم Immutable منفصل
-     *   تماماً لا يمسّه invalidateLiveCache() أبداً. بعد أول حساب له لن يُعاد
-     *   الاستعلام من قاعدة البيانات مرة أخرى إطلاقاً.
-     * - أما الأسبوع الحالي (لا يزال مفتوحاً لاستقبال طلبات مكتملة جديدة في
-     *   أي لحظة) فيُخزَّن مؤقتاً لمدة قصيرة جداً (5 دقائق) فقط، تحت وسم
-     *   البيانات الحية القابل للإبطال.
-     */
     private function getWeeklyRevenueChart(int $storeId): array
     {
         $weeks = [];
@@ -11143,21 +10985,11 @@ class StoreStatisticService
         return $weeks;
     }
 
-    /**
-     * وسم (Tag) البيانات "الحية" المتقلبة لمتجر معيّن — يُستخدم كوحدة إبطال
-     * واحدة عبر invalidateLiveCache(). مُعرَّف بمعزل تام عن وسم البيانات
-     * الثابتة كي لا يتأثر أحدهما بإبطال الآخر.
-     */
     private function liveTag(int $storeId): string
     {
         return "store_{$storeId}_live_stats";
     }
 
-    /**
-     * وسم منفصل تماماً لإيراد الأسابيع المنتهية الثابتة — لا يُستدعى عليه
-     * flush() إطلاقاً من أي عملية تحديث عادية في التطبيق، فهذه البيانات
-     * لا "تنتهي صلاحيتها" منطقياً أبداً.
-     */
     private function immutableTag(int $storeId): string
     {
         return "store_{$storeId}_weekly_immutable";
@@ -11215,46 +11047,32 @@ use Exception;
 
 class StudentCartService
 {
-    /**
-     * حقن مستودع السلة.
-     */
     public function __construct(
         protected CartRepositoryInterface $cartRepo
     ) {}
 
-    /**
-     * جلب سلة الطالب الحالية مع التفاصيل.
-     */
     public function getMyCart(int $studentId): ?Cart
     {
-        // التأكد من وجود السلة أولاً
         $this->cartRepo->findOrCreateForStudent($studentId);
         
         return $this->cartRepo->getStudentCartWithDetails($studentId);
     }
 
-    /**
-     * إضافة منتج إلى السلة مع تطبيق القواعد المعمارية للمخزون وتعدد البائعين.
-     */
     public function addProductToCart(int $studentId, int $productId, int $quantity): void
     {
-        // 1. جلب المنتج المراد إضافته
         $product = Product::find($productId);
 
         if (! $product) {
             throw new Exception('المنتج غير موجود.', 404);
         }
 
-        // 2. التحقق المبدئي من المخزون
         if ($product->quantity < $quantity) {
             throw new Exception("الكمية المطلوبة غير متوفرة. المتاح حالياً: {$product->quantity}", 400);
         }
 
-        // 3. جلب سلة الطالب
         $cart = $this->cartRepo->findOrCreateForStudent($studentId);
         $cartWithDetails = $this->cartRepo->getStudentCartWithDetails($studentId);
 
-        // 4. الجدار الأمني: منع السلة المختلطة (Single-Store Cart Rule)
         if ($cartWithDetails && $cartWithDetails->items->isNotEmpty()) {
             $currentStoreId = $cartWithDetails->items->first()->product->store_id;
 
@@ -11263,13 +11081,9 @@ class StudentCartService
             }
         }
 
-        // 5. الإضافة أو التحديث
         $this->cartRepo->addOrUpdateItem($cart, $productId, $quantity);
     }
 
-    /**
-     * إزالة منتج محدد من السلة.
-     */
     public function removeProductFromCart(int $studentId, int $cartItemId): void
     {
         $cart = $this->cartRepo->findOrCreateForStudent($studentId);
@@ -11281,9 +11095,6 @@ class StudentCartService
         }
     }
 
-    /**
-     * تحديث كمية عنصر محدد في سلة الطالب.
-     */
     public function updateCartItemQuantity(int $studentId, int $cartItemId, int $quantity): void
     {
         $cart = $this->cartRepo->findOrCreateForStudent($studentId);
@@ -11302,9 +11113,6 @@ class StudentCartService
         $this->cartRepo->updateItemQuantity($cart, $cartItemId, $quantity);
     }
 
-    /**
-     * إفراغ السلة بالكامل.
-     */
     public function clearMyCart(int $studentId): void
     {
         $cart = $this->cartRepo->findOrCreateForStudent($studentId);
@@ -11332,9 +11140,6 @@ class StudentMarketplaceService
         protected StudentMarketplaceRepositoryInterface $repository
     ) {}
 
-    /**
-     * جلب جميع الأدوات المعروضة في سوق الطلاب.
-     */
   public function getAllStudentProducts(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
         return $this->repository->getAllStudentProducts($filters, $perPage);
@@ -11367,6 +11172,7 @@ namespace App\Services\Student;
 
 use App\Enums\OrderStatus;
 use App\Enums\ProductAvailability;
+use App\Events\NewStoreOrderPlacedEvent;
 use App\Models\Order;
 use App\Models\Product;
 use App\Repositories\Contracts\CartRepositoryInterface;
@@ -11376,17 +11182,11 @@ use Exception;
 
 class StudentOrderService
 {
-    /**
-     * حقن مستودعات السلة والطلبات.
-     */
     public function __construct(
         protected CartRepositoryInterface $cartRepo,
         protected OrderRepositoryInterface $orderRepo
     ) {}
 
-    /**
-     * تنفيذ عملية الشراء مع الخصم الآمن باستخدام القفل المتشائم.
-     */
     public function checkout(int $studentId): Order
     {
         $cart = $this->cartRepo->getStudentCartWithDetails($studentId);
@@ -11395,18 +11195,14 @@ class StudentOrderService
             throw new Exception('سلة المشتريات فارغة. لا يمكن إتمام الطلب.', 400);
         }
 
-        // تحديد البائع (المنتجات كلها تعود لبائع واحد بفضل حماية السلة المختلطة)
         $storeId = $cart->items->first()->product->store_id;
 
-        // استخراج معرفات المنتجات لقفلها
         $productIds = $cart->items->pluck('product_id')->toArray();
 
-        // بدء المعاملة الآمنة
-        return DB::transaction(function () use ($studentId, $storeId, $cart, $productIds) {
+        $order = DB::transaction(function () use ($studentId, $storeId, $cart, $productIds) {
             $totalAmount = 0.0;
             $orderItemsData = [];
 
-            // القفل المتشائم (Pessimistic Locking) لمنع التضارب Race Conditions
             $lockedProducts = Product::whereIn('id', $productIds)
                 ->lockForUpdate()
                 ->get()
@@ -11419,22 +11215,18 @@ class StudentOrderService
                     throw new Exception("عذراً، المنتج غير متوفر حالياً.", 404);
                 }
 
-                // التحقق النهائي من المخزون بعد القفل
                 if ($product->quantity < $item->quantity) {
                     throw new Exception("الكمية المطلوبة من الأداة ({$product->name}) غير متوفرة. المتاح: {$product->quantity}", 400);
                 }
 
-                // الخصم الفعلي من المخزون
                 $product->quantity -= $item->quantity;
 
-                // تحديث الحالة إذا نفدت الكمية
                 if ($product->quantity === 0) {
                     $product->availability_status = ProductAvailability::OUT_OF_STOCK->value;
                 }
 
                 $product->save();
 
-                // حساب التكلفة بالسعر الآمن الموثوق
                 $unitPrice = (float) $product->price;
                 $subtotal = $unitPrice * $item->quantity;
                 $totalAmount += $subtotal;
@@ -11447,7 +11239,6 @@ class StudentOrderService
                 ];
             }
 
-            // إنشاء الطلب
             $order = $this->orderRepo->createOrder([
                 'student_id'   => $studentId,
                 'store_id'     => $storeId,
@@ -11455,14 +11246,17 @@ class StudentOrderService
                 'status'       => OrderStatus::PENDING->value,
             ]);
 
-            // إرفاق عناصر الطلب
             $order->orderItems()->createMany($orderItemsData);
 
-            // تفريغ السلة
             $this->cartRepo->clearCart($cart);
 
             return $order->load(['orderItems.product', 'store.storeProfile']);
         });
+
+        // إطلاق الحدث بعد نجاح المعاملة لإشعار صاحب المتجر بالطلب الجديد دون تأخير استجابة الـ API الرئيسية
+        NewStoreOrderPlacedEvent::dispatch($order);
+
+        return $order;
     }
 }
 
@@ -11487,17 +11281,11 @@ class StudentPurchaseService
         protected OrderRepositoryInterface $orderRepo
     ) {}
 
-    /**
-     * جلب سجل مشتريات الطالب.
-     */
     public function listStudentPurchases(int $studentId, int $perPage = 15): LengthAwarePaginator
     {
         return $this->orderRepo->getStudentPurchasesOptimized($studentId, $perPage);
     }
 
-    /**
-     * جلب تفاصيل فاتورة/طلب محدد ضمن مشتريات الطالب.
-     */
     public function getPurchaseDetails(int $studentId, int $orderId): Order
     {
         $order = $this->orderRepo->findStudentPurchase($studentId, $orderId);
@@ -11598,36 +11386,27 @@ class StudentCourseService
         ];
     }
 
-    /**
-     * تسجيل يدوي لمقررات محددة (كالمواد الراسب بها الطالب أو مواد إضافية)
-     * يتعايش هذا التسجيل مع منطق التسجيل التلقائي autoEnrollStudentCourses دون التأثير عليه
-     */
     public function manualEnrollCourses(StudentProfile $student, array $courseIds): array
     {
         return DB::transaction(function () use ($student, $courseIds) {
-            // 1️⃣ جلب كل السجلات التاريخية للطالب دفعة واحدة لتفادي استعلامات متكررة داخل الحلقة
             $historicalEnrollments = StudentCourseEnrollment::where('student_id', $student->id)->get();
 
             $enrolledCourseIds = [];
             $skippedCourseIds = [];
 
-            // 2️⃣ المرور على كل مقرر مطلوب تسجيله
             foreach ($courseIds as $courseId) {
                 $existing = $historicalEnrollments->firstWhere('course_id', $courseId);
 
                 if ($existing) {
-                    // 3️⃣ منع إعادة التسجيل بمادة ناجح بها الطالب مسبقاً
                     if ($existing->status === EnrollmentStatus::COMPLETED) {
                         throw new Exception("Cannot re-enroll in course #{$courseId}: you have already passed this course.", 422);
                     }
 
-                    // 4️⃣ تجاهل المادة إذا كانت مسجلة بالفعل وبحالة نشطة
                     if ($existing->status === EnrollmentStatus::ACTIVE) {
                         $skippedCourseIds[] = $courseId;
                         continue;
                     }
 
-                    // 5️⃣ إعادة تفعيل المادة الراسب بها الطالب مع زيادة عدد المحاولات
                     $existing->update([
                         'status' => EnrollmentStatus::ACTIVE,
                         'attempts_count' => $existing->attempts_count + 1,
@@ -11637,7 +11416,6 @@ class StudentCourseService
                     continue;
                 }
 
-                // 6️⃣ لا يوجد سجل سابق: إنشاء تسجيل جديد بمحاولة أولى
                 StudentCourseEnrollment::create([
                     'student_id' => $student->id,
                     'course_id' => $courseId,
@@ -11661,7 +11439,6 @@ class StudentCourseService
      */
     private function handleFirstSemesterLogic(int $year, array $completedCourseIds, array $failedCourseIds): array
     {
-        // ⚡ جلب الـ IDs فقط مباشرة من الـ Repo
         $currentCourseIds = $this->studentRepo->getCourseIdsByLevel($year, 1);
 
         $newCourses = array_diff($currentCourseIds, $completedCourseIds, $failedCourseIds);
@@ -11677,7 +11454,6 @@ class StudentCourseService
             ];
         }
 
-        // تحسين الـ Clean Code: استبدال Loop التقليدي بـ array_diff لمعالجة أسرع في الذاكرة
         //$coursesToEnroll = array_diff($currentCourseIds, $completedCourseIds);
 
         return [
@@ -11738,6 +11514,7 @@ namespace App\Services;
 
 use App\Enums\AppointmentStatus;
 use App\Enums\TreatmentStatus;
+use App\Events\TreatmentCompletedByStudentEvent;
 use App\Exceptions\PendingAppointmentsException;
 use App\Exceptions\TreatmentNotInProgressException;
 use App\Repositories\AppointmentRepository;
@@ -11829,7 +11606,6 @@ class TreatmentService
 
     private function getSlotStartTime(int $startSlot): \Carbon\Carbon
     {
-        // أوقات البدء حسب نظامك
         $times = [
             1 => '08:00',
             2 => '10:30',
@@ -11847,12 +11623,10 @@ class TreatmentService
             throw new \Exception('Invalid or inactive treatment.');
         }
 
-        // التحقق من الملكية
         if ($treatment->appointments()->where('student_id', auth()->id())->doesntExist()) {
             throw new \Exception('Unauthorized! Not your case.');
         }
 
-        // التحقق من التاريخ (يجب أن يكون بعد آخر موعد)
         $lastAppointment = $treatment->appointments()->orderBy('appointment_date', 'desc')->first();
         $newDate = Carbon::parse($data['appointment_date']);
         if ($lastAppointment && $newDate->lessThanOrEqualTo(Carbon::parse($lastAppointment->appointment_date))) {
@@ -11861,9 +11635,8 @@ class TreatmentService
 
         $dateOnly = $newDate->format('Y-m-d');
         $slotNumber = (int) $data['slot_number'];
-        $slotsNeeded = 1; // المتابعة دائماً تستهلك 1 سلوت
+        $slotsNeeded = 1;
 
-        // 1. التحقق من أيام العمل والتعارض (سلوت الطالب وامتلاء القسم)
         $this->appointmentser->validateAppointmentTiming(
             $dateOnly,
             auth()->id(),
@@ -11871,13 +11644,11 @@ class TreatmentService
             $slotNumber
         );
 
-        // 2. التحقق من الحد اليومي (2 سلوت)
         $existingCount = $this->appointmentRepo->getActiveAppointmentsCountForStudent(auth()->id(), $dateOnly);
         if (($existingCount + $slotsNeeded) > 2) {
             throw new \Exception('You have reached the daily limit of 2 appointment slots.');
         }
 
-        // 3. الحجز بنظام السلوت الفردي
         return $this->appointmentRepo->create([
             'patient_id'   => $treatment->diagnosis->patient_id,
             'student_id'   => auth()->id(),
@@ -11891,7 +11662,7 @@ class TreatmentService
 
     public function completeTreatmentFromStudent(array $data)
     {
-        return DB::transaction(function () use ($data) {
+        $treatment = DB::transaction(function () use ($data) {
             $treatment = $this->treatmentRepo->find($data['treatment_id']);
 
             if (! $treatment) {
@@ -11929,11 +11700,15 @@ class TreatmentService
                 'status' => TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value,
             ]);
 
-            // مسح الـ Cache حتى تظهر الإحصائيات محدّثة في الـ Dashboard
             $this->treatmentRepo->clearStudentProgressCache(auth()->id());
 
             return $treatment->load(['diagnosis', 'appointments']);
         });
+
+        // إطلاق الحدث بعد نجاح المعاملة لإشعار المدرّس المسؤول دون تأخير استجابة الـ API الرئيسية
+        TreatmentCompletedByStudentEvent::dispatch($treatment);
+
+        return $treatment;
     }
 
     public function getPatientTreatmentHistory(int $patientId)
@@ -11962,37 +11737,35 @@ class TreatmentService
         if (! $appointment) {
             throw new ModelNotFoundException('Appointment not found.');
         }
-        // تأكد أن الحالة ليست "تم الحضور"
+
+        // التحقق من أن الموعد يعود لنفس الطالب المصادق عليه لمنع أي طالب آخر من إلغائه
+        if ($appointment->student_id !== auth()->id()) {
+            throw new Exception('Unauthorized! Not your appointment.', 403);
+        }
 
         if ($appointment->status === AppointmentStatus::ATTENDED) {
             throw new Exception('Cannot cancel started treatment.');
         }
 
-        // 1. تحديد التوقيت الحالي وتوقيت الموعد بنفس المنطقة الزمنية
         $now = \Carbon\Carbon::now('Asia/Damascus');
         $appointmentDate = \Carbon\Carbon::parse($appointment->appointment_date, 'Asia/Damascus');
 
-        // 2. التحقق فقط إذا كان الموعد في نفس اليوم
         if ($appointmentDate->isToday()) {
             $startTime = $this->getSlotStartTime($appointment->slot_number);
 
-            // دمج التاريخ مع وقت السلوت مع ضبط التوقيت
             $fullStartDateTime = $appointmentDate->copy()->setTimeFrom($startTime);
 
-            // 3. منع الإلغاء إذا كان الوقت الحالي قد تجاوز (وقت الموعد - ساعتين)
             if ($now->copy()->addHours(2)->greaterThan($fullStartDateTime)) {
                 throw new \Exception('Appointments cannot be cancelled within 2 hours of the scheduled time.');
             }
         }
 
         return DB::transaction(function () use ($appointment, $appointmentId) {
-            // 1. إلغاء الموعد
             $this->appointmentRepo->updateStatus(
                 $appointmentId,
                 AppointmentStatus::CANCELLED->value
             );
 
-            // 2. معالجة التشخيص
             if ($appointment->diagnosis_id) {
                 $activeCount = $this->appointmentRepo
                     ->countActiveAppointmentsForDiagnosis($appointment->diagnosis_id);
@@ -12000,7 +11773,6 @@ class TreatmentService
                 if ($activeCount === 0) {
                     $this->diagnosisRepo->makeAvailable($appointment->diagnosis_id);
 
-                    // 3. (الإضافة المطلوبة) إعادة تحديث حالة المريض
                     $this->appointmentRepo->updatePatientAvailabilityStatus($appointment->patient_id);
                 }
             }
@@ -12140,6 +11912,12 @@ class TreatmentService
             throw new ModelNotFoundException('Treatment record not found.');
         }
 
+        // التحقق من أن أول موعد ضمن هذه الحالة يعود لنفس الطالب المصادق عليه لمنع أي طالب آخر من التراجع عنها
+        $firstAppointment = $treatment->appointments()->first();
+        if ($firstAppointment && $firstAppointment->student_id !== auth()->id()) {
+            throw new Exception('Unauthorized! Not your treatment.', 403);
+        }
+
         $totalAppointments = $this->appointmentRepo
             ->countAppointmentsForTreatment($treatmentId);
 
@@ -12154,10 +11932,8 @@ class TreatmentService
     {
         $now = \Carbon\Carbon::now('Asia/Damascus');
 
-        // 2. تحويل وقت إنشاء المعالجة لتوقيت دمشق قبل المقارنة
         $createdAt = \Carbon\Carbon::parse($treatment->created_at)->timezone('Asia/Damascus');
 
-        // 3. مقارنة الفرق بالدقائق
         if ($createdAt->diffInMinutes($now) > 30) {
             throw new \Exception('Cancellation window (30 mins) expired.');
         }
@@ -12260,17 +12036,14 @@ use Exception;
 
 class SellerProductService
 {
-    /**
-     * حقن مستودع المنتجات.
-     */
     public function __construct(
         protected ProductRepositoryInterface $productRepo
     ) {}
 
   
-    public function listProducts(int $sellerId, int $perPage = 15): LengthAwarePaginator
+    public function listProducts(int $sellerId, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        return $this->productRepo->getStoreProductsOptimized($sellerId, $perPage);
+        return $this->productRepo->getStoreProductsOptimized($sellerId, $filters, $perPage);
     }
 
 
@@ -12307,9 +12080,6 @@ class SellerProductService
         return $product->refresh();
     }
 
-    /**
-     * حذف المنتج.
-     */
     public function deleteProduct(int $sellerId, int $productId): bool
     {
         $product = $this->productRepo->findStoreProduct($sellerId, $productId);
@@ -12321,9 +12091,6 @@ class SellerProductService
         return $this->productRepo->delete($product);
     }
 
-    /**
-     * تفاصيل المنتج.
-     */
     public function getProductDetails(int $sellerId, int $productId): Product
     {
         $product = $this->productRepo->findStoreProduct($sellerId, $productId);
@@ -12584,9 +12351,6 @@ return new class extends Migration
             $table->foreignId('added_by')->constrained('users');
             $table->timestamps();
 
-            // فهرس مركب لتسريع استعلام قائمة انتظار موظف الاستقبال (getReceptionistWaitingList)
-            // الذي يُصفّي حسب availability_status ويُرتَّب حسب created_at في نفس الوقت، وهو
-            // الاستعلام الأساسي المعروض على الشاشة الرئيسية لموظف الاستقبال
             $table->index(['availability_status', 'created_at'], 'patients_availability_created_idx');
         });
     }
@@ -13071,9 +12835,6 @@ return new class extends Migration
             $table->unsignedInteger('semester');
             $table->timestamps();
 
-            // فهرس مركب لأن التسجيل التلقائي بالمقررات (autoEnrollStudentCourses) وتصنيف
-            // أنواع الحالات حسب الفصل الحالي/السابق (getCategorizedCaseTypes) يُصفّيان باستمرار
-            // حسب السنة والفصل الدراسي معاً، وهما استعلامان يُنفَّذان مع كل طالب تقريباً
             $table->index(['year', 'semester'], 'courses_year_semester_idx');
         });
     }
@@ -13168,14 +12929,8 @@ return new class extends Migration
             $table->text('rejection_reason')->nullable();
             $table->timestamps();
 
-            // فهرس مركب يسرّع فحص "هل يوجد لدى هذا الطالب طلب معلّق حالياً؟" الذي يُنفَّذ
-            // في كل مرة يحاول فيها أي طالب إرسال مريض جديد أو تشخيص جديد (StudentStorePatientRequest
-            // و StoreExistingPatientDiagnosisRequest)، لمنع إغراق النظام بالطلبات
             $table->index(['suggested_by_student_id', 'status'], 'diagnoses_student_status_idx');
 
-            // فهرس مركب يسرّع البحث عن تشخيصات مريض معيّن بحالة محددة، ويُستخدم في: قائمة
-            // طلبات الطلاب المعلّقة التي يراجعها المعيد (getStudentPendingRequests)، وفي فحص
-            // عدم وجود تشخيص طالب معلّق لنفس المريض قبل أن يشخّصه المعيد (DiagnosisService::storeMultiple)
             $table->index(['patient_id', 'status'], 'diagnoses_patient_status_idx');
         });
     }
@@ -13211,16 +12966,16 @@ return new class extends Migration
             $table->id();
             $table->foreignId('patient_id')->constrained()->onDelete('cascade');
 
-            $table->boolean('has_general_diseases')->default(false); // هل يعاني من أمراض عامة
-            $table->text('general_diseases_details')->nullable();    // تفاصيل الأمراض
+            $table->boolean('has_general_diseases')->default(false);
+            $table->text('general_diseases_details')->nullable();
 
-            $table->boolean('is_special_needs')->default(false);    // هل المريض من ذوي الاحتياجات الخاصة
+            $table->boolean('is_special_needs')->default(false);
             $table->text('special_needs_details')->nullable();
 
-            $table->boolean('takes_medications')->default(false);   // هل يتناول أدوية حالياً
+            $table->boolean('takes_medications')->default(false);
             $table->text('medications_details')->nullable();
 
-            $table->boolean('has_allergies')->default(false);       // هل يعاني من حساسية أدوية
+            $table->boolean('has_allergies')->default(false);
             $table->text('allergies_details')->nullable();
             $table->timestamps();
         });
@@ -13315,10 +13070,6 @@ return new class extends Migration
             $table->text('instructor_notes')->nullable();
             $table->timestamps();
 
-            // فهرس على عمود status لأنه شرط التصفية الأساسي في عدة استعلامات متكررة لا تملك
-            // أي فهرس عليه حالياً: قائمة المعالجات بانتظار موافقة المعيد
-            // (getPendingApprovalsListForInstructor)، قائمة المعالجات المكتملة لرئيس القسم
-            // (getOptimizedCompletedTreatments)، وإحصائيات القسم (getDepartmentTreatmentStatistics)
             $table->index('status');
         });
     }
@@ -13367,10 +13118,6 @@ return new class extends Migration
 
             $table->unique(['student_id', 'appointment_date', 'slot_number'], 'student_daily_slot_unique');
 
-            // فهرس مركب لتسريع فحص سعة عيادة القسم (عدد الكراسي المحجوزة) في تاريخ وسلوت معيّنين
-            // عبر جميع الطلاب دفعة واحدة؛ فهرس الـ unique أعلاه لا يخدم هذا الاستعلام لأنه يبدأ
-            // بعمود student_id، بينما فحص السعة (hasConflict -> reservedChairsCount) لا يُصفّي
-            // حسب طالب معيّن إطلاقاً
             $table->index(['appointment_date', 'slot_number', 'status'], 'appointments_date_slot_status_idx');
         });
     }
@@ -13433,15 +13180,11 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * تشغيل التهجير وإنشاء الجداول مع الفهارس المحسنة.
-     */
     public function up(): void
     {
         Schema::create('products', function (Blueprint $table) {
             $table->id();
 
-            // المفاتيح الأجنبية (تقوم Laravel بإنشاء فهارس لها تلقائياً بسبب استخدام constrained)
             $table->foreignId('store_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('category_id')->constrained('categories')->restrictOnDelete();
 
@@ -13452,7 +13195,6 @@ return new class extends Migration
 
             $table->string('brand')->nullable();
 
-            // حالات المنتج باستخدام الـ Enums
             $table->enum('availability_status', array_column(ProductAvailability::cases(), 'value'))
                 ->default(ProductAvailability::AVAILABLE->value);
 
@@ -13471,9 +13213,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * التراجع عن التهجير.
-     */
     public function down(): void
     {
         Schema::dropIfExists('products');
@@ -13595,18 +13334,14 @@ return new class extends Migration
 
             $table->foreignId('store_id')->constrained('users')->cascadeOnDelete();
 
-            // تفاصيل العرض
             $table->string('title');
             $table->text('description')->nullable();
 
-            // نسبة الخصم (من 0.00 إلى 100.00)
             $table->decimal('discount_percentage', 5, 2);
 
-            // الجدولة الزمنية للعرض
             $table->dateTime('start_date');
             $table->dateTime('end_date');
 
-            // التفعيل والإيقاف اليدوي
             $table->boolean('is_active')->default(true);
 
             $table->timestamps();
@@ -13836,7 +13571,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('patient_medical_histories', function (Blueprint $table) {
-            $table->boolean('is_pregnant')->nullable()->after('allergies_details'); // هل المريضة حامل (يُستخدم فقط للإناث)
+            $table->boolean('is_pregnant')->nullable()->after('allergies_details');
         });
     }
 
@@ -13864,14 +13599,6 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * تشغيل التهجير.
-     *
-     * فهرس مركّب (store_id, status, created_at) ضروري لأداء استعلامات
-     * الإحصائيات: ملخص الإيرادات وإيراد الأسبوع (weekly revenue) يصفّيان
-     * دوماً حسب store_id + status='completed' ثم نطاق created_at، والفهارس
-     * المفردة الحالية (store_id/status كل على حدة) لا تخدم هذا النمط المركّب.
-     */
     public function up(): void
     {
         Schema::table('orders', function (Blueprint $table) {
@@ -13879,14 +13606,49 @@ return new class extends Migration
         });
     }
 
-    /**
-     * التراجع عن التهجير.
-     */
     public function down(): void
     {
         Schema::table('orders', function (Blueprint $table) {
             $table->dropIndex('orders_store_status_created_idx');
         });
+    }
+};
+
+
+=================================================
+File: database/migrations\2026_08_08_000000_create_user_device_tokens_table.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('user_device_tokens', function (Blueprint $table) {
+            $table->id();
+
+            // كل مستخدم يمكن أن يملك أكثر من توكن (تسجيل دخول من عدة أجهزة)
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+
+            $table->string('device_type')->nullable();
+
+            // التوكن فريد لأنه يمثل جهازاً محدداً، ويُستخدم لتحديث/حذف السجل عند إعادة استخدامه
+            $table->string('fcm_token')->unique();
+
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('user_device_tokens');
     }
 };
 
@@ -13899,6 +13661,7 @@ File: routes/api.php
 
 use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\FcmTokenController;
 use App\Http\Controllers\GroupController;
 use App\Http\Controllers\Hod\DepartmentDelegationController;
 use App\Http\Controllers\Hod\DepartmentRequirementController;
@@ -13924,7 +13687,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
 
-// تطبيق وسيط الحماية على مسارات النشر
 Route::middleware([VerifyDeploymentSecret::class, 'throttle:10,1'])->prefix('deploy')->group(function () {
     Route::post('/cache', function () {
         Artisan::call('optimize:clear');
@@ -13970,6 +13732,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:strict_auth');
+    Route::post('/fcm-token', [FcmTokenController::class, 'store']);
 
     Route::middleware('role:receptionist|instructor')->group(function () {
         Route::get('/receptionistWaiting', [ReceptionistController::class, 'receptionistWaiting']);

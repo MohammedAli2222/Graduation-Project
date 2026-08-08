@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Services\hod;
 
 use App\Enums\TreatmentStatus;
+use App\Events\InstructorDelegatedEvent;
 use App\Models\CaseType;
 use App\Models\Course;
 use App\Repositories\Contracts\TreatmentRepositoryInterface;
@@ -181,6 +182,9 @@ class DepartmentHeadService
         if (! $instructor->hasPermissionTo($permission)) {
             $instructor->givePermissionTo($permission);
         }
+
+        // إطلاق الحدث لإشعار المعيد بحصوله على صلاحية جديدة دون تأخير استجابة الـ API الرئيسية
+        InstructorDelegatedEvent::dispatch($instructor);
 
         return true;
     }

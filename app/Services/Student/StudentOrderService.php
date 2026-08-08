@@ -6,6 +6,7 @@ namespace App\Services\Student;
 
 use App\Enums\OrderStatus;
 use App\Enums\ProductAvailability;
+use App\Events\NewStoreOrderPlacedEvent;
 use App\Models\Order;
 use App\Models\Product;
 use App\Repositories\Contracts\CartRepositoryInterface;
@@ -32,7 +33,7 @@ class StudentOrderService
 
         $productIds = $cart->items->pluck('product_id')->toArray();
 
-        return DB::transaction(function () use ($studentId, $storeId, $cart, $productIds) {
+        $order = DB::transaction(function () use ($studentId, $storeId, $cart, $productIds) {
             $totalAmount = 0.0;
             $orderItemsData = [];
 
@@ -85,5 +86,10 @@ class StudentOrderService
 
             return $order->load(['orderItems.product', 'store.storeProfile']);
         });
+
+        // إطلاق الحدث بعد نجاح المعاملة لإشعار صاحب المتجر بالطلب الجديد دون تأخير استجابة الـ API الرئيسية
+        NewStoreOrderPlacedEvent::dispatch($order);
+
+        return $order;
     }
 }

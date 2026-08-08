@@ -6,6 +6,7 @@ namespace App\Services\Store;
 
 use App\Enums\OrderStatus;
 use App\Enums\ProductAvailability;
+use App\Events\OrderStatusUpdatedEvent;
 use App\Models\Order;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Services\Store\StoreStatisticService;
@@ -65,7 +66,12 @@ class StoreOrderService
 
             $this->statisticService->invalidateLiveCache($storeId);
 
-            return $order->refresh();
+            $order = $order->refresh();
+
+            // إطلاق الحدث بعد نجاح المعاملة لإشعار الطالب بتحديث حالة طلبه دون تأخير استجابة الـ API الرئيسية
+            OrderStatusUpdatedEvent::dispatch($order);
+
+            return $order;
         } catch (Exception $e) {
             DB::rollBack();
             throw $e;

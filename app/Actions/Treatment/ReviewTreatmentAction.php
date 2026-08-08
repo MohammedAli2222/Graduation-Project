@@ -4,6 +4,7 @@ namespace App\Actions\Treatment;
 
 use App\Enums\DiagnosisStatus;
 use App\Enums\TreatmentStatus;
+use App\Events\TreatmentReviewedEvent;
 use App\Models\Treatment;
 use App\Repositories\TreatmentRepository;
 use Exception;
@@ -24,7 +25,7 @@ class ReviewTreatmentAction
 
         $this->validateReview($treatment, $user);
 
-        return DB::transaction(function () use ($data, $treatment, $user) {
+        $treatment = DB::transaction(function () use ($data, $treatment, $user) {
             if ($data['action'] === 'approve') {
                 $this->approveTreatment($treatment, $data);
             } else {
@@ -39,6 +40,14 @@ class ReviewTreatmentAction
                 'instructor',
             ]);
         });
+
+        // إطلاق الحدث بعد نجاح المعاملة لإشعار الطالب بنتيجة المراجعة دون تأخير استجابة الـ API الرئيسية
+        TreatmentReviewedEvent::dispatch(
+            $treatment,
+            $data['action'] === 'approve' ? TreatmentStatus::COMPLETED->value : TreatmentStatus::REJECTED->value
+        );
+
+        return $treatment;
     }
 
     private function validateReview(?Treatment $treatment, $user): void

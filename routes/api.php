@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\FcmTokenController;
 use App\Http\Controllers\GroupController;
 use App\Http\Controllers\Hod\DepartmentDelegationController;
 use App\Http\Controllers\Hod\DepartmentRequirementController;
@@ -72,6 +73,7 @@ Route::middleware('auth:sanctum')->group(function () {
     });
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:strict_auth');
+    Route::post('/fcm-token', [FcmTokenController::class, 'store']);
 
     Route::middleware('role:receptionist|instructor')->group(function () {
         Route::get('/receptionistWaiting', [ReceptionistController::class, 'receptionistWaiting']);
