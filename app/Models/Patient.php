@@ -53,7 +53,10 @@ class Patient extends Model implements HasMedia
     {
         static::creating(function ($patient) {
 
-            $patient->patient_code = date('Y') . '-' . Str::upper(Str::random(4));
+            // زيادة طول الجزء العشوائي من 4 إلى 8 محارف لتقليل احتمال تصادم
+            // القيم (patient_code فريد UNIQUE في قاعدة البيانات) عند توليد
+            // أعداد كبيرة من المرضى دفعة واحدة (كما في Seeders الاختبار)
+            $patient->patient_code = date('Y') . '-' . Str::upper(Str::random(8));
 
             $patient->availability_status = PatientStatus::WAITING_DIAGNOSIS;
 

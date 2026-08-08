@@ -26,6 +26,14 @@ class CategoryObserver
 
     private function clearCache(): void
     {
-        Cache::tags(['categories'])->flush();
+        // مخزن الكاش الحالي (CACHE_STORE=file) لا يدعم الوسوم (Tags)، وسيرمي
+        // BadMethodCallException عند استدعاء Cache::tags() مباشرة، مما كان يوقف
+        // أي عملية إنشاء/تعديل/حذف لفئة بأكملها. نتجاهل الاستثناء بأمان هنا لأن
+        // لا يوجد حالياً أي كود آخر يخزّن بيانات فعلية تحت الوسم 'categories'.
+        try {
+            Cache::tags(['categories'])->flush();
+        } catch (\BadMethodCallException) {
+            //
+        }
     }
 }

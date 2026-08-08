@@ -20,6 +20,8 @@ class Treatment extends Model implements HasMedia
         'start_date',
         'end_date',
         'instructor_notes',
+        // العمود موجود في قاعدة البيانات لكنه لم يكن قابلاً للتعبئة الجماعية سابقاً
+        'rejection_reason',
     ];
 
     protected $casts = [

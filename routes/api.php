@@ -158,6 +158,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/diagnose', [InstructorController::class, 'diagnose']);
         Route::post('/patients/{id}/approve', [InstructorController::class, 'approve']);
         Route::post('/patients/{id}/reject', [InstructorController::class, 'reject']);
+        Route::post('/patients/{id}/refer', [InstructorController::class, 'referPatient']);
         Route::get('/treatments/pending', [InstructorController::class, 'getPendingTreatmentsList']);
         Route::get('/treatments/pending/{id}', [InstructorController::class, 'getTreatmentDetails']);
         Route::post('treatments/review', [InstructorController::class, 'reviewTreatment']);

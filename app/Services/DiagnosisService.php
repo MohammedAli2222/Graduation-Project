@@ -196,6 +196,34 @@ class DiagnosisService
         }
     }
 
+    // إحالة المريض إلى قسم آخر عبر إضافة نوع حالة جديد يخص ذلك القسم، ليظهر فوراً لطلاب القسم المُحال إليه
+    public function referPatientToDepartment(int $patientId, array $data, int $instructorId)
+    {
+        $diagnosis = DB::transaction(function () use ($patientId, $data, $instructorId) {
+            $patient = $this->patientRepo->FindOrFail($patientId);
+
+            $caseType = CaseType::with('course')->findOrFail($data['case_type_id']);
+
+            $diagnosis = $this->diagnosisRepo->create([
+                'patient_id' => $patient->id,
+                'instructor_id' => $instructorId,
+                'case_type_id' => $caseType->id,
+                'department_id' => $caseType->course->department_id,
+                'final_diagnosis' => $data['referral_notes'],
+                'status' => DiagnosisStatus::AVAILABLE->value,
+            ]);
+
+            $this->patientRepo->updateAvailability($patient->id, PatientStatus::AVAILABLE->value);
+
+            return $diagnosis;
+        });
+
+        // إطلاق الحدث بعد نجاح المعاملة لإشعار طلاب القسم المُحال إليه فوراً بالحالة الجديدة
+        NewDiagnosesAvailableEvent::dispatch([$diagnosis]);
+
+        return $diagnosis;
+    }
+
     private function validatePendingStatus($diagnosis)
     {
         if ($diagnosis->status->value !== DiagnosisStatus::WAITING_APPROVAL->value) {

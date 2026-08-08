@@ -11,9 +11,9 @@ use Illuminate\Database\Eloquent\Factories\Factory;
  * @extends Factory<Category>
  *
  * The dental supplies taxonomy is a fixed, real-world domain rather than
- * infinite fake data, so this factory deliberately caps out at 20 unique,
- * curated categories (mirrors App\Enums via App\Models\Product columns).
- * Requesting more than 20 will exhaust Faker's unique() pool by design.
+ * infinite fake data, so this factory deliberately caps out at 50 unique,
+ * curated categories. Requesting more than 50 will exhaust Faker's
+ * unique() pool by design.
  */
 class CategoryFactory extends Factory
 {
@@ -60,6 +60,66 @@ class CategoryFactory extends Factory
             'Implant fixtures, surgical drill kits, and bone graft materials.',
         'Preventive Care Products (منتجات الوقاية السنية)' =>
             'Fluoride varnish, fissure sealants, and patient education preventive kits.',
+        'Dental Implant Surgical Kits (أطقم جراحة الزراعة)' =>
+            'Complete surgical kits for implant placement, including drills and torque wrenches.',
+        'Sedation & Nitrous Oxide Equipment (معدات التخدير بالغاز الضاحك)' =>
+            'Inhalation sedation units, nasal hoods, and nitrous oxide/oxygen delivery systems.',
+        'TMJ & Occlusion Diagnostic Tools (أدوات تشخيص المفصل الفكي والإطباق)' =>
+            'Articulators, facebows, and occlusal analysis devices for TMJ assessment.',
+        'Digital Scanning & CAD/CAM Equipment (معدات المسح الرقمي وتصنيع الحاسوب)' =>
+            'Intraoral scanners, milling units, and digital design software licenses.',
+        'Endodontic Irrigation Systems (أنظمة الري اللبي)' =>
+            'Irrigation needles, sonic activators, and sodium hypochlorite delivery systems.',
+        'Matrix Systems & Wedges (أنظمة الحواجز السنية والأسافين)' =>
+            'Sectional matrix bands, rings, and wooden/plastic wedges for proximal restorations.',
+        'Shade Guides & Color Matching (أدلة تظليل الأسنان)' =>
+            'VITA shade guides and digital shade-matching devices for prosthetic work.',
+        'Retraction Cord & Hemostatic Agents (خيوط التنحية ومواد وقف النزف)' =>
+            'Gingival retraction cords, astringent gels, and hemostatic solutions.',
+        'Rubber Dam & Isolation Systems (السد المطاطي وأنظمة العزل)' =>
+            'Rubber dam sheets, clamps, frames, and isolation systems for moisture control.',
+        'Dental Loupes & Magnification (عدسات التكبير الطبية)' =>
+            'Surgical loupes, magnification headbands, and LED headlights for clinical precision.',
+        'Waste Management & Sharps Disposal (إدارة النفايات الطبية والأدوات الحادة)' =>
+            'Sharps containers, amalgam separators, and clinical waste disposal supplies.',
+        'Denture Repair & Relining Materials (مواد إصلاح وتبطين الأطقم)' =>
+            'Chairside reline materials, repair resins, and denture adhesive kits.',
+        'Bleaching & In-Office Whitening Systems (أنظمة التبييض داخل العيادة)' =>
+            'Professional in-office whitening kits with high-concentration peroxide gels.',
+        'Sleep Apnea & Snoring Devices (أجهزة انقطاع النفس النومي والشخير)' =>
+            'Mandibular advancement devices and oral appliances for sleep-disordered breathing.',
+        'Dental Photography Equipment (معدات التصوير السني)' =>
+            'Intraoral cameras, photographic mirrors, and retractors for clinical documentation.',
+        'Air & Water Syringe Supplies (مستلزمات محاقن الهواء والماء)' =>
+            'Syringe tips, tubing, and replacement parts for dental unit air/water syringes.',
+        'Suction & Evacuation Systems (أنظمة الشفط والإخلاء)' =>
+            'High-volume evacuator tips, suction hoses, and central vacuum system components.',
+        'Post & Core Build-Up Systems (أنظمة الدعامات وإعادة بناء التاج)' =>
+            'Fiber posts, core build-up composites, and post cementation kits.',
+        'Occlusal Splints & Night Guards (الواقيات الليلية وأجهزة الإطباق)' =>
+            'Custom night guards, bruxism splints, and thermoplastic sheets.',
+        'Dental Practice Software & IT (برمجيات وتقنية إدارة العيادات)' =>
+            'Practice management licenses, imaging software, and clinic IT accessories.',
+        'Orthodontic Retainers & Aligners (المثبتات التقويمية والتقويم الشفاف)' =>
+            'Clear aligner materials, retainer wire, and thermoforming sheets.',
+        'Local Hemostasis & Suturing Supplies (مستلزمات الخياطة ووقف النزف الموضعي)' =>
+            'Suture materials, needle drivers, and surgical hemostatic sponges.',
+        'Dental Unit Waterline Treatment (معالجة خطوط مياه وحدة الأسنان)' =>
+            'Waterline disinfection tablets, biofilm treatment, and testing strips.',
+        'Bite Registration Materials (مواد تسجيل الإطباق)' =>
+            'PVS and wax bite registration materials for accurate occlusal records.',
+        'Dental Lab Articulating & Mounting Supplies (مستلزمات تركيب المخبر)' =>
+            'Mounting plaster, articulator accessories, and lab bench consumables.',
+        'Ergonomic Clinic Accessories (مستلزمات العيادة المريحة)' =>
+            'Ergonomic stools, wrist supports, and posture accessories for clinical staff.',
+        'Pit & Fissure Sealant Systems (أنظمة عزل الحفر والشقوق)' =>
+            'Light-cure sealant materials and applicator tips for preventive care.',
+        'Denture Base & Try-In Materials (مواد قاعدة الأطقم والتجربة)' =>
+            'Baseplate wax, try-in resins, and denture teeth sets.',
+        'Dental Radiography Film & Barriers (أفلام الأشعة وحواجز الوقاية)' =>
+            'Barrier sleeves, sensor covers, and disposable radiographic film holders.',
+        'Handpiece Maintenance & Lubrication (صيانة وتشحيم القطع اليدوية)' =>
+            'Handpiece oil, cleaning cassettes, and maintenance kits for rotary instruments.',
     ];
 
     public function definition(): array

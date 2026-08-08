@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ApproveCaseRequest;
 use App\Http\Requests\DiagnoseRequest;
+use App\Http\Requests\ReferPatientRequest;
 use App\Http\Requests\RejectCaseRequest;
 use App\Http\Requests\ReviewTreatmentRequest;
 use App\Http\Resources\PatientDiagnosisResource;
@@ -70,6 +71,24 @@ class InstructorController extends Controller
             return response_success(PatientDiagnosisResource::collection($result), 201, 'Diagnoses have been created successfully.');
         } catch (Exception $e) {
             return response_error(null, 422, $e->getMessage());
+        }
+    }
+
+    // إحالة المريض سريرياً إلى قسم آخر بإضافة نوع حالة جديد يتبع لذلك القسم
+    public function referPatient(ReferPatientRequest $request, int $patientId)
+    {
+        try {
+            $diagnosis = $this->diagnosisService->referPatientToDepartment(
+                $patientId,
+                $request->validated(),
+                Auth::id()
+            );
+
+            return response_success(new PatientDiagnosisResource($diagnosis), 201, 'Patient has been referred to the target department successfully.');
+        } catch (ModelNotFoundException) {
+            return response_error(null, 404, 'Patient or case type not found.');
+        } catch (Exception $e) {
+            return response_error(null, $e->getCode() ?: 400, $e->getMessage());
         }
     }
 

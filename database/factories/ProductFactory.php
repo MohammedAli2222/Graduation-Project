@@ -141,6 +141,7 @@ class ProductFactory extends Factory
         [$min, $max] = self::CATALOG[$name];
         $brand = $this->faker->randomElement(self::BRANDS);
         $condition = $this->faker->randomElement($this->weightedConditions());
+        $availability = $this->faker->randomElement($this->weightedAvailability());
 
         return [
             'store_id' => User::factory()->asStoreOwner(),
@@ -149,8 +150,16 @@ class ProductFactory extends Factory
             'description' => $this->buildDescription($name, $brand, $condition),
             'price' => $this->faker->randomFloat(2, $min, $max),
             'brand' => $brand,
-            'availability_status' => $this->faker->randomElement($this->weightedAvailability()),
+            'availability_status' => $availability,
             'condition' => $condition,
+            // Product::booted() يعيد اشتقاق availability_status من quantity تلقائياً
+            // (saving hook)، لذلك يجب أن تكون الكمية متوافقة مع الحالة المختارة هنا
+            // وإلا ستُجبَر كل المنتجات على OUT_OF_STOCK لأن quantity تكون فارغة افتراضياً
+            'quantity' => match ($availability) {
+                ProductAvailability::OUT_OF_STOCK => 0,
+                ProductAvailability::LIMITED => $this->faker->numberBetween(1, 4),
+                default => $this->faker->numberBetween(10, 150),
+            },
         ];
     }
 
@@ -166,17 +175,27 @@ class ProductFactory extends Factory
 
     public function available(): static
     {
-        return $this->state(fn(): array => ['availability_status' => ProductAvailability::AVAILABLE]);
+        // نمرّر quantity متوافقة أيضاً لأن Product::booted() يعيد اشتقاقها من الكمية
+        return $this->state(fn(): array => [
+            'availability_status' => ProductAvailability::AVAILABLE,
+            'quantity' => $this->faker->numberBetween(10, 150),
+        ]);
     }
 
     public function limited(): static
     {
-        return $this->state(fn(): array => ['availability_status' => ProductAvailability::LIMITED]);
+        return $this->state(fn(): array => [
+            'availability_status' => ProductAvailability::LIMITED,
+            'quantity' => $this->faker->numberBetween(1, 4),
+        ]);
     }
 
     public function outOfStock(): static
     {
-        return $this->state(fn(): array => ['availability_status' => ProductAvailability::OUT_OF_STOCK]);
+        return $this->state(fn(): array => [
+            'availability_status' => ProductAvailability::OUT_OF_STOCK,
+            'quantity' => 0,
+        ]);
     }
 
     private function buildDescription(string $name, string $brand, ProductCondition $condition): string

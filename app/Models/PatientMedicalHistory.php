@@ -18,6 +18,7 @@ class PatientMedicalHistory extends Model
         'medications_details',
         'has_allergies',
         'allergies_details',
+        'is_pregnant',
     ];
 
     protected $casts = [
@@ -25,5 +26,7 @@ class PatientMedicalHistory extends Model
         'is_special_needs' => 'boolean',
         'takes_medications' => 'boolean',
         'has_allergies' => 'boolean',
+        // العمود nullable لأنه ذو معنى فقط للمريضات الإناث
+        'is_pregnant' => 'boolean',
     ];
 }

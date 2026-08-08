@@ -21,7 +21,9 @@ class Department extends Model
 
     public function departmentHeadProfile()
     {
-        return $this->hasOne(DepartmentHeadProfile::class, 'user_id');
+        // تصحيح: العلاقة يجب أن تربط عبر عمود department_id وليس user_id
+        // لأن department_head_profiles.department_id هو ما يشير فعلياً إلى departments.id
+        return $this->hasOne(DepartmentHeadProfile::class, 'department_id');
     }
 
     public function courses()

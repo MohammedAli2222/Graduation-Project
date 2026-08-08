@@ -1,137 +1,144 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Database\Seeders;
 
-use App\Models\User;
-use App\Models\Group;
 use App\Models\Department;
+use App\Models\Group;
+use App\Models\InstructorProfile;
+use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 
+/**
+ * يُنشئ جميع حسابات المستخدمين وملفاتهم الشخصية: مدير عام، رؤساء أقسام،
+ * معيدون، أصحاب متاجر، وطلاب. يعتمد على وجود الأقسام والمجموعات مسبقاً
+ * (AcademicSeeder)، لذلك يجب أن يُشغَّل بعده مباشرة.
+ *
+ * ملاحظة: UserFactory يضبط كلمة المرور الافتراضية لكل مستخدم على "password"
+ * (مخزّنة بشكل ثابت static لتفادي تكرار التشفير)، لذلك كل الحسابات أدناه
+ * تدخل بنفس كلمة المرور دون الحاجة لتمريرها صراحة.
+ */
 class UserSeeder extends Seeder
 {
+    private const INSTRUCTORS_COUNT = 50;
+    private const STORE_OWNERS_COUNT = 10;
+    private const STUDENTS_COUNT = 200;
+
     public function run(): void
     {
-        // 1. Receptionist
+        $this->seedAdmin();
+        $this->seedReceptionist();
+        $this->seedDepartmentHeads();
+        $this->seedInstructors();
+        $this->seedStoreOwners();
+        $this->seedStudents();
+    }
+
+    /**
+     * موظف استقبال واحد؛ ليس ضمن الأعداد التي طلبها العميل صراحةً، لكنه
+     * ضروري لأن تدفق تسجيل المرضى (PatientSeeder) يفترض وجود مستخدم بهذا الدور،
+     * تماماً كما يعتمد عليه ReceptionistController فعلياً في التطبيق.
+     */
+    private function seedReceptionist(): void
+    {
         $receptionist = User::forceCreate([
             'first_name' => 'سوزان',
             'last_name' => 'الخطيب',
-            'email' => 'reception@dentsyria.edu.sy',
+            'email' => 'receptionist@dentex.test',
             'password' => Hash::make('password'),
             'email_verified_at' => now(),
         ]);
+
         $receptionist->assignRole('receptionist');
+    }
 
-        // 2. Department Heads
-        $deptHeads = [
-            ['first' => 'خالد', 'last' => 'الزين', 'dept' => 'قسم المداواة والترميم'],
-            ['first' => 'إبراهيم', 'last' => 'الحسين', 'dept' => 'قسم جراحة الفم والفكين'],
-            ['first' => 'طارق', 'last' => 'المصري', 'dept' => 'قسم التعويضات السنية'],
-            ['first' => 'مريم', 'last' => 'القاضي', 'dept' => 'قسم طب أسنان الأطفال والوقائي'],
-            ['first' => 'وائل', 'last' => 'الرفاعي', 'dept' => 'قسم أمراض النسج حول السنية'],
-        ];
+    /** حساب مدير عام واحد ثابت لتسهيل تسجيل الدخول أثناء الاختبار */
+    private function seedAdmin(): void
+    {
+        $admin = User::forceCreate([
+            'first_name' => 'مدير',
+            'last_name' => 'النظام',
+            'email' => 'admin@dentex.test',
+            'password' => Hash::make('password'),
+            'email_verified_at' => now(),
+        ]);
 
-        foreach ($deptHeads as $index => $dh) {
-            $user = User::forceCreate([
-                'first_name' => $dh['first'],
-                'last_name' => $dh['last'],
-                'email' => "head{$index}@dentsyria.edu.sy",
-                'password' => Hash::make('password'),
-                'email_verified_at' => now(),
-            ]);
-            $user->assignRole('department_head');
-            
-            $dept = Department::where('name', $dh['dept'])->first();
-            if ($dept) {
-                $user->departmentHeadProfile()->create([
-                    'department_id' => $dept->id,
+        $admin->assignRole('admin');
+    }
+
+    /**
+     * رئيس قسم واحد لكل قسم من الأقسام الخمسة المُنشأة مسبقاً (تطابق 1:1)،
+     * باستخدام حالة departmentHead() في UserFactory التي تمنع تكرار تعيين
+     * أكثر من رئيس لنفس القسم.
+     */
+    private function seedDepartmentHeads(): void
+    {
+        $departments = Department::all();
+
+        foreach ($departments as $index => $department) {
+            if ($index === 0) {
+                // أول رئيس قسم بحساب ثابت معروف لتسهيل الاختبار اليدوي
+                User::factory()->departmentHead($department)->create([
+                    'first_name' => 'خالد',
+                    'last_name' => 'الزين',
+                    'email' => 'head@dentex.test',
                 ]);
+
+                continue;
             }
+
+            User::factory()->departmentHead($department)->create();
         }
+    }
 
-        // 3. Instructors
-        $instructorsData = [
-            ['first' => 'أحمد', 'last' => 'العمر', 'specialty' => 'اختصاصي مداواة ترميمية'],
-            ['first' => 'عمر', 'last' => 'السيد', 'specialty' => 'اختصاصي جراحة فم وفكين'],
-            ['first' => 'يامن', 'last' => 'الشيخ', 'specialty' => 'اختصاصي تعويضات سنية ثابتة'],
-            ['first' => 'فراس', 'last' => 'البني', 'specialty' => 'اختصاصي طب أسنان الأطفال'],
-            ['first' => 'مصطفى', 'last' => 'النابلسي', 'specialty' => 'اختصاصي تقويم أسنان وفكين'],
-            ['first' => 'فاطمة', 'last' => 'الصالح', 'specialty' => 'اختصاصي أمراض النسج حول السنية'],
-            ['first' => 'شام', 'last' => 'الأسعد', 'specialty' => 'اختصاصي طب الفم وأمراضه'],
-            ['first' => 'علي', 'last' => 'الكردي', 'specialty' => 'اختصاصي معالجة جذور الأسنان (لبية)'],
-        ];
+    /**
+     * 50 معيداً، ثم ربط كل معيد بـ 1 إلى 3 مجموعات عشوائية عبر جدول
+     * group_instructor (هذا هو المقصود بـ "Assign Groups" في هيكلية الطلب،
+     * وتوضع هنا لأن ملفات المعيدين instructor_profiles يجب أن تكون موجودة أولاً).
+     */
+    private function seedInstructors(): void
+    {
+        // معيد بحساب ثابت معروف لتسهيل الاختبار اليدوي
+        User::factory()->instructor()->create([
+            'first_name' => 'سارة',
+            'last_name' => 'يوسف',
+            'email' => 'instructor@dentex.test',
+        ]);
 
-        foreach ($instructorsData as $index => $inst) {
-            $user = User::forceCreate([
-                'first_name' => $inst['first'],
-                'last_name' => $inst['last'],
-                'email' => "dr.instructor{$index}@dentsyria.edu.sy",
-                'password' => Hash::make('password'),
-                'email_verified_at' => now(),
-            ]);
-            $user->assignRole('instructor');
-            $profile = $user->instructorProfile()->create([
-                'phone' => '09' . rand(3,9) . rand(1000000, 9999999),
-                'specialty' => $inst['specialty'],
-                'specialty_year' => (string)rand(2015, 2022),
-            ]);
+        User::factory()->count(self::INSTRUCTORS_COUNT - 1)->instructor()->create();
 
-            $randomGroups = Group::inRandomOrder()->limit(3)->pluck('id');
-            $profile->groups()->sync($randomGroups);
-        }
+        $groupIds = Group::pluck('id');
 
-        // 4. Students
-        $studentNames = [
-            ['محمد', 'الأحمد'], ['أحمد', 'الخطيب'], ['خالد', 'السيد'], ['عمر', 'الزين'],
-            ['يامن', 'العمر'], ['فراس', 'المصري'], ['وائل', 'الأسعد'], ['مصطفى', 'النابلسي'],
-            ['مريم', 'الشيخ'], ['فاطمة', 'البني'], ['شام', 'الحسين'], ['ريم', 'الصالح'],
-            ['لانا', 'الكردي'], ['تالا', 'القاضي'], ['نرمين', 'السلمان'], ['جوري', 'الرفاعي'],
-            ['أمل', 'الجابر'], ['سارة', 'العثمان'], ['هلا', 'الدرويش'], ['رفيف', 'الحمصي'],
-        ];
+        InstructorProfile::query()->chunkById(50, function ($profiles) use ($groupIds): void {
+            foreach ($profiles as $profile) {
+                $randomGroupIds = $groupIds->random(min($groupIds->count(), random_int(1, 3)));
+                $profile->groups()->syncWithoutDetaching($randomGroupIds);
+            }
+        });
+    }
 
-        $academicOptions = [
-            ['academic_year' => 4, 'semester' => 1],
-            ['academic_year' => 4, 'semester' => 2],
-            ['academic_year' => 5, 'semester' => 1],
-            ['academic_year' => 5, 'semester' => 2],
-        ];
-
-        foreach ($studentNames as $index => $name) {
-            $user = User::forceCreate([
-                'first_name' => $name[0],
-                'last_name' => $name[1],
-                'email' => "student{$index}@dentsyria.edu.sy",
-                'password' => Hash::make('password'),
-                'email_verified_at' => now(),
-            ]);
-            $user->assignRole('student');
-
-            $selected = collect($academicOptions)->random();
-            $group = Group::where('academic_year', $selected['academic_year'])->inRandomOrder()->first();
-
-            $user->studentProfile()->create([
-                'group_id' => $group->id ?? 1,
-                'phone' => '09' . rand(3,9) . rand(1000000, 9999999),
-                'university' => 'جامعة دمشق - كلية طب الأسنان',
-                'exam_number' => '2024' . str_pad((string)($index + 1), 4, '0', STR_PAD_LEFT),
-                'academic_year' => $selected['academic_year'],
-                'semester' => $selected['semester'],
-            ]);
-        }
-
-        // 5. Store Owner
-        $storeOwner = User::forceCreate([
+    private function seedStoreOwners(): void
+    {
+        User::factory()->asStoreOwner()->create([
             'first_name' => 'سامر',
             'last_name' => 'البني',
-            'email' => 'store@dentsyria.edu.sy',
-            'password' => Hash::make('password'),
-            'email_verified_at' => now(),
+            'email' => 'store@dentex.test',
         ]);
-        $storeOwner->assignRole('store_owner');
-        $storeOwner->storeProfile()->create([
-            'store_name' => 'مستودع البني لطب الأسنان',
-            'store_phone' => '0114444444',
-            'store_address' => 'دمشق - البحصة'
+
+        User::factory()->count(self::STORE_OWNERS_COUNT - 1)->asStoreOwner()->create();
+    }
+
+    /** 200 طالب، كل طالب يُسنَد تلقائياً لمجموعة موافقة لسنته الدراسية عبر UserFactory::student() */
+    private function seedStudents(): void
+    {
+        User::factory()->student()->create([
+            'first_name' => 'أحمد',
+            'last_name' => 'خالد',
+            'email' => 'student@dentex.test',
         ]);
+
+        User::factory()->count(self::STUDENTS_COUNT - 1)->student()->create();
     }
 }
