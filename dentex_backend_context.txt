@@ -473,6 +473,55 @@ class DiagnosisReviewedEvent
 
 
 =================================================
+File: app\Events\InstructorDelegatedEvent.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Events;
+
+use App\Models\User;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+// يُطلق هذا الحدث عند قيام رئيس القسم بتفويض صلاحية مراجعة الحالات السريرية لأحد المعيدين
+class InstructorDelegatedEvent
+{
+    use Dispatchable, SerializesModels;
+
+    public function __construct(public readonly User $instructor) {}
+}
+
+
+=================================================
+File: app\Events\NewDiagnosesAvailableEvent.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Events;
+
+use App\Models\PatientDiagnose;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
+
+// يُطلق هذا الحدث عند إضافة المدرّس لحالات تشخيصية جديدة متاحة أمام الطلاب
+class NewDiagnosesAvailableEvent
+{
+    use Dispatchable, SerializesModels;
+
+    /**
+     * @param array<int, PatientDiagnose> $diagnoses الحالات التشخيصية المُنشأة حديثاً
+     */
+    public function __construct(public readonly array $diagnoses) {}
+}
+
+
+=================================================
 File: app\Events\NewStoreOrderPlacedEvent.php
 =================================================
 
@@ -1019,7 +1068,7 @@ class GroupController extends Controller
 
 
 =================================================
-File: app\Http\Controllers\hod\DepartmentDelegationController.php
+File: app\Http\Controllers\Hod\DepartmentDelegationController.php
 =================================================
 
 <?php
@@ -1103,7 +1152,7 @@ class DepartmentDelegationController extends Controller
 
 
 =================================================
-File: app\Http\Controllers\hod\DepartmentRequirementController.php
+File: app\Http\Controllers\Hod\DepartmentRequirementController.php
 =================================================
 
 <?php
@@ -1271,7 +1320,7 @@ class DepartmentRequirementController extends Controller
 
 
 =================================================
-File: app\Http\Controllers\hod\DepartmentStatisticController.php
+File: app\Http\Controllers\Hod\DepartmentStatisticController.php
 =================================================
 
 <?php
@@ -1322,7 +1371,7 @@ class DepartmentStatisticController extends Controller
 
 
 =================================================
-File: app\Http\Controllers\hod\DepartmentTreatmentController.php
+File: app\Http\Controllers\Hod\DepartmentTreatmentController.php
 =================================================
 
 <?php
@@ -1423,6 +1472,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\ApproveCaseRequest;
 use App\Http\Requests\DiagnoseRequest;
+use App\Http\Requests\ReferPatientRequest;
 use App\Http\Requests\RejectCaseRequest;
 use App\Http\Requests\ReviewTreatmentRequest;
 use App\Http\Resources\PatientDiagnosisResource;
@@ -1489,6 +1539,24 @@ class InstructorController extends Controller
             return response_success(PatientDiagnosisResource::collection($result), 201, 'Diagnoses have been created successfully.');
         } catch (Exception $e) {
             return response_error(null, 422, $e->getMessage());
+        }
+    }
+
+    // إحالة المريض سريرياً إلى قسم آخر بإضافة نوع حالة جديد يتبع لذلك القسم
+    public function referPatient(ReferPatientRequest $request, int $patientId)
+    {
+        try {
+            $diagnosis = $this->diagnosisService->referPatientToDepartment(
+                $patientId,
+                $request->validated(),
+                Auth::id()
+            );
+
+            return response_success(new PatientDiagnosisResource($diagnosis), 201, 'Patient has been referred to the target department successfully.');
+        } catch (ModelNotFoundException) {
+            return response_error(null, 404, 'Patient or case type not found.');
+        } catch (Exception $e) {
+            return response_error(null, $e->getCode() ?: 400, $e->getMessage());
         }
     }
 
@@ -3496,6 +3564,39 @@ class UpdateCaseRequirementRequest extends FormRequest
     {
         return [
             'required_count' => ['required', 'integer', 'min:1', 'max:100'],
+        ];
+    }
+}
+
+
+=================================================
+File: app\Http\Requests\ReferPatientRequest.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests;
+
+use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Foundation\Http\FormRequest;
+
+class ReferPatientRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, ValidationRule|array<mixed>|string>
+     */
+    public function rules(): array
+    {
+        return [
+            'case_type_id' => 'required|integer|exists:case_types,id',
+            'referral_notes' => 'required|string|max:1000',
         ];
     }
 }
@@ -5654,6 +5755,38 @@ class ProcessProductImagesJob implements ShouldQueue
 }
 
 =================================================
+File: app\Listeners\SendDelegationNotificationListener.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Listeners;
+
+use App\Events\InstructorDelegatedEvent;
+use App\Services\FirebaseNotificationService;
+use Illuminate\Contracts\Queue\ShouldQueue;
+
+// يعمل ضمن قائمة انتظار (Queue) حتى لا يؤخر إرسال الإشعار استجابة الـ API الرئيسية
+class SendDelegationNotificationListener implements ShouldQueue
+{
+    public function __construct(protected FirebaseNotificationService $notificationService) {}
+
+    // إشعار المعيد بحصوله على صلاحية مراجعة الحالات السريرية من رئيس القسم
+    public function handle(InstructorDelegatedEvent $event): void
+    {
+        $this->notificationService->sendNotificationToUser(
+            $event->instructor->id,
+            'صلاحيات إدارية جديدة 🔑',
+            'لقد قام رئيس القسم بتفويضك بصلاحية مراجعة الحالات السريرية لطلاب القسم.',
+            ['type' => 'instructor_delegated']
+        );
+    }
+}
+
+
+=================================================
 File: app\Listeners\SendInstructorNotificationListener.php
 =================================================
 
@@ -5690,6 +5823,72 @@ class SendInstructorNotificationListener implements ShouldQueue
             'قام أحد الطلاب بإنهاء تنفيذ العلاج، والحالة الآن بانتظار مراجعتك.',
             ['type' => 'treatment_completed_by_student', 'treatment_id' => (string) $treatment->id]
         );
+    }
+}
+
+
+=================================================
+File: app\Listeners\SendNewCaseNotificationListener.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Listeners;
+
+use App\Enums\EnrollmentStatus;
+use App\Events\NewDiagnosesAvailableEvent;
+use App\Models\CaseType;
+use App\Services\FirebaseNotificationService;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Support\Facades\DB;
+
+// يعمل ضمن قائمة انتظار (Queue) حتى لا يؤخر إرسال الإشعارات استجابة الـ API الرئيسية
+class SendNewCaseNotificationListener implements ShouldQueue
+{
+    public function __construct(protected FirebaseNotificationService $notificationService) {}
+
+    // إشعار الطلاب المسجلين فعلياً في المقررات المرتبطة بأنواع الحالات المُضافة حديثاً
+    public function handle(NewDiagnosesAvailableEvent $event): void
+    {
+        $caseTypeIds = collect($event->diagnoses)
+            ->pluck('case_type_id')
+            ->unique()
+            ->values();
+
+        if ($caseTypeIds->isEmpty()) {
+            return;
+        }
+
+        // إيجاد المقررات الدراسية التي تتبع لها أنواع الحالات هذه
+        $courseIds = CaseType::query()
+            ->whereIn('id', $caseTypeIds)
+            ->pluck('course_id')
+            ->unique()
+            ->values();
+
+        if ($courseIds->isEmpty()) {
+            return;
+        }
+
+        // ربط جدول التسجيل الأكاديمي بملفات الطلاب للحصول على معرّفات المستخدمين الفعليين
+        // لأن عمود student_id في جدول التسجيل يشير إلى student_profiles وليس إلى users مباشرة
+        $studentUserIds = DB::table('student_course_enrollments')
+            ->join('student_profiles', 'student_profiles.id', '=', 'student_course_enrollments.student_id')
+            ->whereIn('student_course_enrollments.course_id', $courseIds)
+            ->where('student_course_enrollments.status', EnrollmentStatus::ACTIVE->value)
+            ->distinct()
+            ->pluck('student_profiles.user_id');
+
+        foreach ($studentUserIds as $studentUserId) {
+            $this->notificationService->sendNotificationToUser(
+                (int) $studentUserId,
+                'حالات مرضية جديدة متاحة 🚨',
+                'تم إضافة حالات سريرية جديدة تناسب متطلبات مقرراتك الفعالة. سارع بحجزها!',
+                ['type' => 'new_cases_available']
+            );
+        }
     }
 }
 
@@ -6099,7 +6298,9 @@ class Department extends Model
 
     public function departmentHeadProfile()
     {
-        return $this->hasOne(DepartmentHeadProfile::class, 'user_id');
+        // تصحيح: العلاقة يجب أن تربط عبر عمود department_id وليس user_id
+        // لأن department_head_profiles.department_id هو ما يشير فعلياً إلى departments.id
+        return $this->hasOne(DepartmentHeadProfile::class, 'department_id');
     }
 
     public function courses()
@@ -6382,7 +6583,10 @@ class Patient extends Model implements HasMedia
     {
         static::creating(function ($patient) {
 
-            $patient->patient_code = date('Y') . '-' . Str::upper(Str::random(4));
+            // زيادة طول الجزء العشوائي من 4 إلى 8 محارف لتقليل احتمال تصادم
+            // القيم (patient_code فريد UNIQUE في قاعدة البيانات) عند توليد
+            // أعداد كبيرة من المرضى دفعة واحدة (كما في Seeders الاختبار)
+            $patient->patient_code = date('Y') . '-' . Str::upper(Str::random(8));
 
             $patient->availability_status = PatientStatus::WAITING_DIAGNOSIS;
 
@@ -6512,6 +6716,7 @@ class PatientMedicalHistory extends Model
         'medications_details',
         'has_allergies',
         'allergies_details',
+        'is_pregnant',
     ];
 
     protected $casts = [
@@ -6519,6 +6724,8 @@ class PatientMedicalHistory extends Model
         'is_special_needs' => 'boolean',
         'takes_medications' => 'boolean',
         'has_allergies' => 'boolean',
+        // العمود nullable لأنه ذو معنى فقط للمريضات الإناث
+        'is_pregnant' => 'boolean',
     ];
 }
 
@@ -6834,6 +7041,8 @@ class Treatment extends Model implements HasMedia
         'start_date',
         'end_date',
         'instructor_notes',
+        // العمود موجود في قاعدة البيانات لكنه لم يكن قابلاً للتعبئة الجماعية سابقاً
+        'rejection_reason',
     ];
 
     protected $casts = [
@@ -7104,7 +7313,15 @@ class CategoryObserver
 
     private function clearCache(): void
     {
-        Cache::tags(['categories'])->flush();
+        // مخزن الكاش الحالي (CACHE_STORE=file) لا يدعم الوسوم (Tags)، وسيرمي
+        // BadMethodCallException عند استدعاء Cache::tags() مباشرة، مما كان يوقف
+        // أي عملية إنشاء/تعديل/حذف لفئة بأكملها. نتجاهل الاستثناء بأمان هنا لأن
+        // لا يوجد حالياً أي كود آخر يخزّن بيانات فعلية تحت الوسم 'categories'.
+        try {
+            Cache::tags(['categories'])->flush();
+        } catch (\BadMethodCallException) {
+            //
+        }
     }
 }
 
@@ -9793,6 +10010,7 @@ namespace App\Services;
 use App\Enums\DiagnosisStatus;
 use App\Enums\PatientStatus;
 use App\Events\DiagnosisReviewedEvent;
+use App\Events\NewDiagnosesAvailableEvent;
 use App\Models\CaseType;
 use App\Models\Group;
 use App\Models\InstructorProfile;
@@ -9847,7 +10065,7 @@ class DiagnosisService
 
             $lock->block(3);
 
-            return DB::transaction(function () use ($data, $instructorId) {
+            $createdDiagnoses = DB::transaction(function () use ($data, $instructorId) {
                 $patient = $this->patientRepo->FindOrFail($data['patient_id']);
 
                 if ($patient->availability_status !== PatientStatus::WAITING_DIAGNOSIS->value) {
@@ -9899,6 +10117,11 @@ class DiagnosisService
                 $this->patientRepo->updateAvailability($data['patient_id'], PatientStatus::AVAILABLE->value);
                 return $createdDiagnoses;
             });
+
+            // إطلاق الحدث بعد نجاح المعاملة لإشعار الطلاب المسجلين بالحالات الجديدة دون تأخير استجابة الـ API الرئيسية
+            NewDiagnosesAvailableEvent::dispatch($createdDiagnoses);
+
+            return $createdDiagnoses;
         } catch (LockTimeoutException $e) {
             throw new Exception('This patient is currently being diagnosed by another instructor.', 409);
         } finally {
@@ -9976,6 +10199,34 @@ class DiagnosisService
         } finally {
             optional($lock)->release();
         }
+    }
+
+    // إحالة المريض إلى قسم آخر عبر إضافة نوع حالة جديد يخص ذلك القسم، ليظهر فوراً لطلاب القسم المُحال إليه
+    public function referPatientToDepartment(int $patientId, array $data, int $instructorId)
+    {
+        $diagnosis = DB::transaction(function () use ($patientId, $data, $instructorId) {
+            $patient = $this->patientRepo->FindOrFail($patientId);
+
+            $caseType = CaseType::with('course')->findOrFail($data['case_type_id']);
+
+            $diagnosis = $this->diagnosisRepo->create([
+                'patient_id' => $patient->id,
+                'instructor_id' => $instructorId,
+                'case_type_id' => $caseType->id,
+                'department_id' => $caseType->course->department_id,
+                'final_diagnosis' => $data['referral_notes'],
+                'status' => DiagnosisStatus::AVAILABLE->value,
+            ]);
+
+            $this->patientRepo->updateAvailability($patient->id, PatientStatus::AVAILABLE->value);
+
+            return $diagnosis;
+        });
+
+        // إطلاق الحدث بعد نجاح المعاملة لإشعار طلاب القسم المُحال إليه فوراً بالحالة الجديدة
+        NewDiagnosesAvailableEvent::dispatch([$diagnosis]);
+
+        return $diagnosis;
     }
 
     private function validatePendingStatus($diagnosis)
@@ -10071,6 +10322,7 @@ declare(strict_types=1);
 namespace App\Services\hod;
 
 use App\Enums\TreatmentStatus;
+use App\Events\InstructorDelegatedEvent;
 use App\Models\CaseType;
 use App\Models\Course;
 use App\Repositories\Contracts\TreatmentRepositoryInterface;
@@ -10247,6 +10499,9 @@ class DepartmentHeadService
         if (! $instructor->hasPermissionTo($permission)) {
             $instructor->givePermissionTo($permission);
         }
+
+        // إطلاق الحدث لإشعار المعيد بحصوله على صلاحية جديدة دون تأخير استجابة الـ API الرئيسية
+        InstructorDelegatedEvent::dispatch($instructor);
 
         return true;
     }
@@ -13817,6 +14072,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/diagnose', [InstructorController::class, 'diagnose']);
         Route::post('/patients/{id}/approve', [InstructorController::class, 'approve']);
         Route::post('/patients/{id}/reject', [InstructorController::class, 'reject']);
+        Route::post('/patients/{id}/refer', [InstructorController::class, 'referPatient']);
         Route::get('/treatments/pending', [InstructorController::class, 'getPendingTreatmentsList']);
         Route::get('/treatments/pending/{id}', [InstructorController::class, 'getTreatmentDetails']);
         Route::post('treatments/review', [InstructorController::class, 'reviewTreatment']);
