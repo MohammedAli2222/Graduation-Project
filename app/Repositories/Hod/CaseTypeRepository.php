@@ -2,7 +2,7 @@
 
 
 
-namespace App\Repositories\hod;
+namespace App\Repositories\Hod;
 
 use App\Enums\TreatmentStatus;
 use App\Models\CaseType;

@@ -1,7 +1,7 @@
 <?php
 
 
-namespace App\Http\Requests\hod;
+namespace App\Http\Requests\Hod;
 
 use Illuminate\Foundation\Http\FormRequest;
 

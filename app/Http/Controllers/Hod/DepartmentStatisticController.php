@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Hod;
 
 use App\Http\Controllers\Controller;
-use App\Services\hod\DepartmentHeadService;
+use App\Services\Hod\DepartmentHeadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;

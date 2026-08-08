@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Services\hod;
+namespace App\Services\Hod;
 
 use App\Enums\TreatmentStatus;
 use App\Events\InstructorDelegatedEvent;

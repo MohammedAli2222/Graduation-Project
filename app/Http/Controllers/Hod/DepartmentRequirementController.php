@@ -5,10 +5,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Hod;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\hod\StoreCaseTypeRequest;
-use App\Http\Requests\hod\UpdateCaseRequirementRequest;
-use App\Http\Resources\hod\CaseTypeResource;
-use App\Services\hod\DepartmentHeadService;
+use App\Http\Requests\Hod\StoreCaseTypeRequest;
+use App\Http\Requests\Hod\UpdateCaseRequirementRequest;
+use App\Http\Resources\Hod\CaseTypeResource;
+use App\Services\Hod\DepartmentHeadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;

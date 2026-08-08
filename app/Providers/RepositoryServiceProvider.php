@@ -12,9 +12,9 @@ use App\Repositories\Contracts\TreatmentRepositoryInterface;
 use App\Repositories\Contracts\CaseTypeRepositoryInterface;
 use App\Repositories\Contracts\InstructorRepositoryInterface;
 use App\Repositories\Contracts\StudentMarketplaceRepositoryInterface;
-use App\Repositories\hod\TreatmentRepository;
-use App\Repositories\hod\CaseTypeRepository;
-use App\Repositories\hod\InstructorRepository;
+use App\Repositories\Hod\TreatmentRepository;
+use App\Repositories\Hod\CaseTypeRepository;
+use App\Repositories\Hod\InstructorRepository;
 use App\Repositories\StudentMarketplaceRepository;
 
 class RepositoryServiceProvider extends ServiceProvider

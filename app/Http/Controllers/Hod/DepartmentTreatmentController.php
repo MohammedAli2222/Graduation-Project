@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Hod;
 
 use App\Http\Controllers\Controller;
-use App\Http\Resources\hod\TreatmentResource;
-use App\Services\hod\DepartmentHeadService;
+use App\Http\Resources\Hod\TreatmentResource;
+use App\Services\Hod\DepartmentHeadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
