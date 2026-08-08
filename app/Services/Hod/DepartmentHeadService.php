@@ -52,12 +52,30 @@ class DepartmentHeadService
         return $treatment;
     }
 
-    public function getCaseTypesForDepartment(int $departmentId): Collection
+    public function getCaseTypesForDepartment(int $departmentId, ?int $courseId = null): Collection
     {
+        // نفس تحقق ملكية المقرر المستخدَم في getDepartmentStatistics: يمنع
+        // الاطلاع على أنواع حالات مقرر تابع لقسم آخر
+        if ($courseId !== null) {
+            $course = Course::find($courseId);
+
+            if (! $course) {
+                throw new Exception('المقرر الدراسي غير موجود.', 404);
+            }
+
+            if ($course->department_id !== $departmentId) {
+                throw new Exception('غير مصرح لك: هذا المقرر تابع لقسم آخر.', 403);
+            }
+        }
+
+        // مفتاح الكاش يتضمن معرف المقرر (أو 'all' في حال غيابه) حتى لا تُخلَط
+        // نتائج أنواع حالات القسم كاملاً مع أنواع حالات مقرر محدد ضمنه
+        $cacheKey = "department_{$departmentId}_case_types_course_" . ($courseId ?? 'all');
+
         return Cache::remember(
-            CacheVersion::taggedKey(["department_{$departmentId}", 'case_types'], "department_{$departmentId}_case_types"),
+            CacheVersion::taggedKey(["department_{$departmentId}", 'case_types'], $cacheKey),
             now()->addHours(2),
-            fn() => $this->caseTypeRepo->getCaseTypesByDepartment($departmentId)
+            fn() => $this->caseTypeRepo->getCaseTypesByDepartment($departmentId, $courseId)
         );
     }
 

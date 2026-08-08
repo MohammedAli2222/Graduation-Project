@@ -10,6 +10,7 @@ use App\Http\Requests\Hod\UpdateCaseRequirementRequest;
 use App\Http\Resources\Hod\CaseTypeResource;
 use App\Services\Hod\DepartmentHeadService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Exception;
@@ -57,8 +58,19 @@ class DepartmentRequirementController extends Controller
     }
 
 
-    public function indexCaseTypes(): JsonResponse
+    public function indexCaseTypes(Request $request): JsonResponse
     {
+        // نفس منطق endpoint الإحصائيات: course_id اختياري، وإن وُجد نتحقق من
+        // صيغته هنا فقط (integer وموجود فعلاً)، بينما التحقق من ملكيته لقسم
+        // رئيس القسم الحالي يتم داخل طبقة الخدمة
+        $validated = $request->validate([
+            'course_id' => ['sometimes', 'nullable', 'integer', 'exists:courses,id'],
+        ]);
+
+        // نُحوّل الناتج صراحةً إلى int لأن قاعدة integer في validate() تتحقق من
+        // الصيغة فقط ولا تُبدّل نوع القيمة، وقيم الاستعلام تصل دائماً كنصوص
+        $courseId = isset($validated['course_id']) ? (int) $validated['course_id'] : null;
+
         try {
             /** @var \App\Models\User $user */
             $user = Auth::user();
@@ -68,7 +80,7 @@ class DepartmentRequirementController extends Controller
                 return response_error(null, 403, 'غير مصرح لك: حسابك لا يملك صلاحيات رئيس قسم.');
             }
 
-            $caseTypes = $this->hodService->getCaseTypesForDepartment($hodProfile->department_id);
+            $caseTypes = $this->hodService->getCaseTypesForDepartment($hodProfile->department_id, $courseId);
 
             return response_success(
                 CaseTypeResource::collection($caseTypes),
@@ -76,8 +88,16 @@ class DepartmentRequirementController extends Controller
                 'تم جلب أنواع الحالات التابعة لقسمك بنجاح.'
             );
         } catch (Exception $e) {
-            Log::error("خطأ أثناء جلب الحالات لرئيس القسم: " . $e->getMessage());
-            return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة البيانات.');
+            // نُميّز بين استثناءات مقصودة (403/404 عند طلب مقرر تابع لقسم آخر)
+            // وأخطاء داخلية حقيقية، بنفس منطق endpoint الإحصائيات
+            $statusCode = ($e->getCode() >= 400 && $e->getCode() <= 500) ? $e->getCode() : 500;
+
+            if ($statusCode === 500) {
+                Log::error("خطأ أثناء جلب الحالات لرئيس القسم: " . $e->getMessage());
+                return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة البيانات.');
+            }
+
+            return response_error(null, $statusCode, $e->getMessage());
         }
     }
 

@@ -28,12 +28,14 @@ class CaseTypeRepository implements CaseTypeRepositoryInterface
         return $caseType->update(['required_count' => $newCount]);
     }
 
-    public function getCaseTypesByDepartment(int $departmentId): Collection
+    public function getCaseTypesByDepartment(int $departmentId, ?int $courseId = null): Collection
     {
         $caseTypes = $this->model->newQuery()
             ->select('case_types.*')
             ->join('courses', 'case_types.course_id', '=', 'courses.id')
             ->where('courses.department_id', $departmentId)
+            // تصفية اختيارية بمقرر محدد ضمن القسم نفسه؛ لا تُطبَّق إن لم يُمرَّر $courseId
+            ->when($courseId, fn ($q) => $q->where('case_types.course_id', $courseId))
             ->with('course:id,name')
             ->orderBy('courses.name')
             ->get();
