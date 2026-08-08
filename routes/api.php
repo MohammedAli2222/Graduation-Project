@@ -122,6 +122,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware(['role:student'])->prefix('student')->group(function () {
         Route::post('/setup-courses', [StudentController::class, 'setupAcademicCourses']);
         Route::post('/courses/enroll', [StudentController::class, 'enrollInCourses']);
+        // سحب مقرر: يعالج أيضاً حالة الطالب المعيد للسنة ومقرر سبق نجاحه فيه.
+        Route::post('/courses/drop', [StudentController::class, 'dropCourses']);
         Route::get('case-types', [StudentController::class, 'getCaseTypesDropdown']);
         Route::post('/update-profile', [AuthController::class, 'updateProfile']);
 
@@ -186,6 +188,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:instructor')->prefix('instructor')->group(function () {
         Route::get('/dashboard/stats', [InstructorController::class, 'getStats']);
         Route::get('/case-types', [InstructorController::class, 'getCaseTypesDropdown']);
+
+        /*
+         * فصل مهام المعيد المعلّقة إلى نقطتين مستقلتين:
+         * A) pending-diagnoses  → مرضى ينتظرون وضع خطة تشخيص (استقبال + اقتراح طلاب).
+         * B) treatments/pending → علاجات نُفِّذت وتنتظر التقييم النهائي فقط.
+         */
+        Route::get('/patients/pending-diagnoses', [InstructorController::class, 'pendingDiagnoses']);
+
+        // نقطة قديمة (deprecated) تُبقي الإصدارات الحالية من التطبيق تعمل.
         Route::get('/patients/student-pending', [InstructorController::class, 'studentPending']);
         Route::post('/diagnose', [InstructorController::class, 'diagnose']);
         Route::post('/patients/{id}/approve', [InstructorController::class, 'approve']);

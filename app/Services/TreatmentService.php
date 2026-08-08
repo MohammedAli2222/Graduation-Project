@@ -169,9 +169,14 @@ class TreatmentService
                 throw new TreatmentNotInProgressException();
             }
 
-            $firstApp = $treatment->appointments()->first();
-            if ($firstApp && $firstApp->student_id !== auth()->id()) {
-                throw new Exception('Unauthorized! Not your treatment.');
+            // التحقق من الملكية عبر وجود أي موعد لهذا الطالب ضمن الحالة، بدل
+            // الاكتفاء بأول موعد فقط (قد يكون أُلغي أو أُعيد ترتيبه).
+            $ownsTreatment = $treatment->appointments()
+                ->where('student_id', auth()->id())
+                ->exists();
+
+            if (! $ownsTreatment) {
+                throw new Exception('Unauthorized! Not your treatment.', 403);
             }
 
             $hasUpcoming = $treatment->appointments()
@@ -180,6 +185,16 @@ class TreatmentService
 
             if ($hasUpcoming) {
                 throw new PendingAppointmentsException();
+            }
+
+            // حارس دورة الحياة: لا تُرفع صور "بعد" على حالة بلا صور "قبل"،
+            // فالمقارنة بينهما هي أساس تقييم المعيد.
+            if ($treatment->getMedia('before_treatment_images')->isEmpty()) {
+                throw new Exception('This treatment has no before-treatment images and cannot be completed.', 422);
+            }
+
+            if (empty($data['after_images'])) {
+                throw new Exception('After-treatment images are required to complete the treatment.', 422);
             }
 
             $this->mediaService->upload(

@@ -6,12 +6,6 @@ namespace App\Support;
 
 use Illuminate\Support\Facades\Cache;
 
-/**
- * يحاكي إبطال الكاش بالوسوم (Cache::tags) على مخازن لا تدعمها مثل file/database
- * (المستخدَمة حالياً في الاستضافة لعدم توفر Redis)، عبر رقم إصدار لكل مجموعة:
- * كل مفتاح كاش يتضمن رقم الإصدار الحالي لمجموعاته، وإبطال مجموعة بأكملها يتم
- * بزيادة رقم إصدارها بدلاً من حذف كل مفتاح على حدة كما تفعل Cache::tags()->flush().
- */
 final class CacheVersion
 {
     public static function key(string $group, string $cacheKey): string

@@ -18,35 +18,40 @@ class ReceptionistController extends Controller
         $this->patientService = $patientService;
     }
 
+    /**
+     * تسجيل مريض جديد من شاشة الاستقبال.
+     *
+     * الاستجابة فورية (201) ولا تنتظر معالجة الصور إطلاقاً: الصور تُخزَّن
+     * مؤقتاً ثم يتولّى ProcessPatientImagesJob نقلها لمكتبة الوسائط وتوليد
+     * تحويلاتها في الخلفية. لذلك حقل الوسائط في الرد يعود فارغاً وهذا مقصود.
+     */
     public function store(StorePatientRequest $request)
     {
-
         try {
-
-            $validatedData = $request->validated();
-
-            $files = [
-                'id_card'         => $request->file('id_card'),
-                'clinical_images' => $request->file('clinical_images'),
-                'x_ray_images'    => $request->file('x_ray_images'),
-            ];
-
             $patient = $this->patientService->registerPatient(
-                $validatedData,
-                $files
+                $request->validated(),
+                [
+                    'id_card' => $request->file('id_card'),
+                    'clinical_images' => $request->file('clinical_images'),
+                    'x_ray_images' => $request->file('x_ray_images'),
+                ]
             );
 
-            // media ستكون فارغة هنا غالباً لأن ProcessPatientImagesJob لم يُنفَّذ بعد؛
-            // هذا متوقع ومقصود، فالهدف هو استجابة فورية لموظف الاستقبال
-            $patient->load(['medicalHistory', 'media']);
-
-            return response_success(new PatientResource($patient), 201, 'تم تسجيل المريض بنجاح، جاري معالجة الصور في الخلفية.');
+            // لا load إضافي هنا: الخدمة أعادت المريض مع medicalHistory فقط،
+            // وأي تحميل لعلاقة media سيكلّف استعلاماً بلا نتيجة في هذه اللحظة.
+            return response_success(
+                new PatientResource($patient),
+                201,
+                'تم تسجيل المريض بنجاح، وجاري معالجة الصور في الخلفية.'
+            );
         } catch (\Exception $e) {
-            return response_error(
-                null,
-                500,
-                'Something went wrong: ' . $e->getMessage()
-            );
+            // نحترم كود الخطأ القادم من طبقة الخدمة (403/404/422) بدل
+            // تحويل كل شيء إلى 500 كما كان سابقاً.
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? (int) $e->getCode()
+                : 500;
+
+            return response_error(null, $statusCode, $e->getMessage());
         }
     }
 

@@ -7,38 +7,50 @@ File: app\Actions\Treatment\ReviewTreatmentAction.php
 
 <?php
 
+declare(strict_types=1);
+
 namespace App\Actions\Treatment;
 
 use App\Enums\DiagnosisStatus;
 use App\Enums\TreatmentStatus;
 use App\Events\TreatmentReviewedEvent;
 use App\Models\Treatment;
+use App\Models\User;
 use App\Repositories\TreatmentRepository;
 use Exception;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * الخطوة الأخيرة في دورة حياة الحالة: تقييم المعيد للعلاج المُنجَز.
+ *
+ * - الاعتماد (approve): الحالة تصبح completed والتشخيص finished، وعندها فقط
+ *   تُحتسب ضمن متطلبات الطالب السريرية (العدّاد مشتق من الحالات المعتمدة).
+ * - الرفض (reject): الحالة تصبح rejected مع سبب رفض إلزامي يُخزَّن في العمود
+ *   rejection_reason ويعود للطالب في الرد.
+ */
 class ReviewTreatmentAction
 {
-    protected TreatmentRepository $treatmentRepo;
+    public function __construct(
+        private readonly TreatmentRepository $treatmentRepo,
+    ) {}
 
-    public function __construct(TreatmentRepository $treatmentRepo)
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function execute(array $data, User $user): Treatment
     {
-        $this->treatmentRepo = $treatmentRepo;
-    }
+        $isApproval = $data['action'] === 'approve';
 
-    public function execute(array $data, $user): Treatment
-    {
-        $treatment = $this->treatmentRepo->find($data['treatment_id']);
+        $treatment = DB::transaction(function () use ($data, $user, $isApproval): Treatment {
+            // القفل داخل المعاملة يمنع مراجعتين متزامنتين لنفس الحالة
+            // (اعتماد ورفض في آن واحد من معيدَين يشرفان على نفس المجموعة).
+            $treatment = $this->treatmentRepo->findForUpdate((int) $data['treatment_id']);
 
-        $this->validateReview($treatment, $user);
+            $this->validateReview($treatment, $user);
 
-        $treatment = DB::transaction(function () use ($data, $treatment, $user) {
-            if ($data['action'] === 'approve') {
-                $this->approveTreatment($treatment, $data);
-            } else {
-                $insId = $user->instructorProfile->id;
-                $this->rejectTreatment($treatment, $data, $insId);
-            }
+            $isApproval
+                ? $this->approveTreatment($treatment, $data, $user)
+                : $this->rejectTreatment($treatment, $data, $user);
 
             return $treatment->load([
                 'media',
@@ -48,36 +60,60 @@ class ReviewTreatmentAction
             ]);
         });
 
-        // إطلاق الحدث بعد نجاح المعاملة لإشعار الطالب بنتيجة المراجعة دون تأخير استجابة الـ API الرئيسية
+        // تصفير كاش إحصائيات الطالب بعد المراجعة: عدّاد الحالات المنجزة
+        // مشتقّ من حالات العلاج، وبدون التصفير يبقى الطالب يرى رقماً قديماً
+        // حتى انتهاء مدة الكاش رغم اعتماد حالته.
+        $studentId = $this->treatmentRepo->getOwningStudentId($treatment);
+
+        if ($studentId !== null) {
+            $this->treatmentRepo->clearStudentProgressCache($studentId);
+        }
+
+        // إطلاق الحدث بعد نجاح المعاملة لإشعار الطالب بنتيجة المراجعة
+        // دون تأخير استجابة الـ API الرئيسية.
         TreatmentReviewedEvent::dispatch(
             $treatment,
-            $data['action'] === 'approve' ? TreatmentStatus::COMPLETED->value : TreatmentStatus::REJECTED->value
+            $isApproval
+                ? TreatmentStatus::COMPLETED->value
+                : TreatmentStatus::REJECTED->value
         );
 
         return $treatment;
     }
 
-    private function validateReview(?Treatment $treatment, $user): void
+    private function validateReview(?Treatment $treatment, User $user): void
     {
         if (! $treatment) {
-            throw new Exception('Treatment record not found.');
+            throw new Exception('Treatment record not found.', 404);
         }
 
+        // لا تُراجَع إلا حالة رفعها الطالب فعلاً وبانتظار التقييم؛ هذا يمنع
+        // اعتماد حالة ما تزال in_progress أو إعادة مراجعة حالة محسومة.
         if ($treatment->status !== TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL) {
-            throw new Exception('This treatment cannot be reviewed.');
+            throw new Exception(
+                'This treatment cannot be reviewed. Current status: '
+                    .($treatment->status->value ?? (string) $treatment->status),
+                422
+            );
         }
 
         if (! $user->instructorProfile) {
-            throw new Exception('Unauthorized! Profile must be an instructor.');
+            throw new Exception('Unauthorized! Profile must be an instructor.', 403);
         }
     }
 
-    private function approveTreatment(Treatment $treatment, array $data): void
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function approveTreatment(Treatment $treatment, array $data, User $user): void
     {
         $treatment->update([
             'status' => TreatmentStatus::COMPLETED->value,
-            'instructor_id' => auth()->id(),
+            // instructor_id مفتاح أجنبي على جدول users وليس instructor_profiles،
+            // وكان الرفض يكتب معرّف البروفايل هنا فينتج ربط بمستخدم خاطئ.
+            'instructor_id' => $user->id,
             'instructor_notes' => $data['instructor_notes'] ?? null,
+            'rejection_reason' => null,
             'end_date' => now(),
         ]);
 
@@ -88,15 +124,17 @@ class ReviewTreatmentAction
         }
     }
 
-    private function rejectTreatment(
-        Treatment $treatment,
-        array $data,
-        int $instructorId
-    ): void {
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function rejectTreatment(Treatment $treatment, array $data, User $user): void
+    {
         $treatment->update([
             'status' => TreatmentStatus::REJECTED->value,
-            'instructor_id' => $instructorId,
+            'instructor_id' => $user->id,
             'instructor_notes' => $data['instructor_notes'] ?? null,
+            // السبب الإلزامي الذي يعود للطالب ليعرف ما يجب تصحيحه.
+            'rejection_reason' => $data['rejection_reason'],
         ]);
     }
 }
@@ -108,6 +146,8 @@ File: app\Actions\Treatment\StartTreatmentAction.php
 
 <?php
 
+declare(strict_types=1);
+
 namespace App\Actions\Treatment;
 
 use App\Enums\AppointmentStatus;
@@ -116,6 +156,7 @@ use App\Enums\TreatmentStatus;
 use App\Exceptions\AppointmentAlreadyAttendedException;
 use App\Exceptions\UnauthorizedTreatmentException;
 use App\Models\Appointment;
+use App\Models\Treatment;
 use App\Repositories\AppointmentRepository;
 use App\Repositories\TreatmentRepository;
 use App\Services\MediaService;
@@ -123,54 +164,70 @@ use Carbon\Carbon;
 use Exception;
 use Illuminate\Support\Facades\DB;
 
+/**
+ * الخطوة الأولى في دورة حياة الحالة: الطالب يحضر موعده ويبدأ العلاج.
+ *
+ * مسارَان:
+ * - موعد أول (treatment_id = null) → إنشاء علاج جديد بحالة in_progress مع
+ *   رفع صور ما قبل المعالجة إلزامياً.
+ * - موعد متابعة (مرتبط بعلاج قائم) → تسجيل حضور فقط دون إنشاء علاج جديد.
+ */
 class StartTreatmentAction
 {
-    protected TreatmentRepository $treatmentRepo;
-    protected AppointmentRepository $appointmentRepo;
-    protected MediaService $mediaService;
+    /** المنطقة الزمنية المعتمدة للعيادة في كل عمليات التاريخ والوقت. */
+    private const CLINIC_TIMEZONE = 'Asia/Damascus';
 
     public function __construct(
-        TreatmentRepository $treatmentRepo,
-        AppointmentRepository $appointmentRepo,
-        MediaService $mediaService
-    ) {
-        $this->treatmentRepo = $treatmentRepo;
-        $this->appointmentRepo = $appointmentRepo;
-        $this->mediaService = $mediaService;
-    }
+        private readonly TreatmentRepository $treatmentRepo,
+        private readonly AppointmentRepository $appointmentRepo,
+        private readonly MediaService $mediaService,
+    ) {}
 
-    public function execute(array $data): mixed
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function execute(array $data): Treatment
     {
-        $appointment = Appointment::where('id', $data['appointment_id'])->lockForUpdate()->first();
+        // القفل داخل المعاملة: lockForUpdate خارج transaction لا يحجز فعلياً،
+        // فكان بإمكان طلبين متزامنين إنشاء علاجين لنفس الموعد.
+        return DB::transaction(function () use ($data): Treatment {
+            $appointment = Appointment::query()
+                ->whereKey($data['appointment_id'])
+                ->lockForUpdate()
+                ->first();
 
-        if (! $appointment) {
-            throw new Exception('Appointment not found.');
-        }
-
-        $this->validateAppointment($appointment);
-
-        return DB::transaction(function () use ($data, $appointment) {
-            if ($appointment->treatment_id !== null) {
-                return $this->handleFollowUp($appointment);
+            if (! $appointment) {
+                throw new Exception('Appointment not found.', 404);
             }
 
-            return $this->createNewTreatment($appointment, $data);
+            $this->validateAppointment($appointment);
+
+            return $appointment->treatment_id !== null
+                ? $this->handleFollowUp($appointment)
+                : $this->createNewTreatment($appointment, $data);
         });
     }
 
-    private function handleFollowUp($appointment): mixed
+    /**
+     * موعد متابعة لعلاج قائم: نسجّل الحضور فقط، ولا نلمس حالة العلاج
+     * لأنه ما يزال in_progress حتى ينهيه الطالب برفع صور ما بعد المعالجة.
+     */
+    private function handleFollowUp(Appointment $appointment): Treatment
     {
-        $appointment->update([
-            'status' => AppointmentStatus::ATTENDED->value,
-        ]);
+        $appointment->update(['status' => AppointmentStatus::ATTENDED->value]);
 
         return $appointment->treatment->load(['diagnosis', 'appointments']);
     }
 
-    private function createNewTreatment($appointment, array $data): mixed
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function createNewTreatment(Appointment $appointment, array $data): Treatment
     {
+        // حارس ثانٍ بعد FormRequest: الـ Action قد تُستدعى من سياق آخر
+        // (أمر console أو اختبار) لا يمرّ بطبقة التحقق.
         if (empty($data['before_images'])) {
-            throw new Exception('Before-treatment images are required.');
+            throw new Exception('Before-treatment images are required to start a new treatment.', 422);
         }
 
         $treatment = $this->treatmentRepo->create([
@@ -178,17 +235,22 @@ class StartTreatmentAction
             'instructor_id' => null,
             'status' => TreatmentStatus::IN_PROGRESS->value,
             'instructor_notes' => null,
-            'start_date' => Carbon::now('Asia/Damascus'),
+            'rejection_reason' => null,
+            'start_date' => Carbon::now(self::CLINIC_TIMEZONE),
         ]);
 
         $this->mediaService->upload($treatment, $data['before_images'], 'before_treatment_images');
 
         $this->linkAndCompleteAppointment($appointment, $treatment->id);
 
+        // إبطال كاش إحصائيات الطالب: عدّاد "قيد المعالجة" في لوحة التحكم
+        // يُحتسب من الحالات، فبدون التصفير يبقى قديماً حتى انتهاء مدة الكاش.
+        $this->treatmentRepo->clearStudentProgressCache((int) $appointment->student_id);
+
         return $treatment->load(['diagnosis', 'appointments']);
     }
 
-    private function linkAndCompleteAppointment($appointment, int $treatmentId): void
+    private function linkAndCompleteAppointment(Appointment $appointment, int $treatmentId): void
     {
         $this->appointmentRepo->linkAppointmentsToTreatment(
             $appointment->student_id,
@@ -197,18 +259,16 @@ class StartTreatmentAction
             $treatmentId
         );
 
-        $appointment->update([
-            'status' => AppointmentStatus::ATTENDED->value,
-        ]);
+        $appointment->update(['status' => AppointmentStatus::ATTENDED->value]);
 
         $appointment->diagnosis()->update([
             'status' => DiagnosisStatus::CONVERTED_TO_TREATMENT->value,
         ]);
     }
 
-    private function validateAppointment($appointment): void
+    private function validateAppointment(Appointment $appointment): void
     {
-        if ($appointment->student_id !== auth()->id()) {
+        if ((int) $appointment->student_id !== (int) auth()->id()) {
             throw new UnauthorizedTreatmentException();
         }
 
@@ -216,35 +276,36 @@ class StartTreatmentAction
             throw new AppointmentAlreadyAttendedException();
         }
 
+        if ($appointment->status === AppointmentStatus::CANCELLED) {
+            throw new Exception('This appointment has been cancelled and cannot be started.', 422);
+        }
+
         $this->validateTimeSlot($appointment);
     }
 
-    private function validateTimeSlot($appointment): void
+    /**
+     * لا يُسمح ببدء العلاج إلا في يوم الموعد نفسه.
+     *
+     * ملاحظة: التحقق من الساعة ضمن الفترة معطّل عمداً لتسهيل الاختبار على
+     * البيئة التجريبية؛ يكفي حالياً ضبط اليوم.
+     */
+    private function validateTimeSlot(Appointment $appointment): void
     {
-        $now = Carbon::now('Asia/Damascus');
-        $appointmentDate = Carbon::parse($appointment->appointment_date, 'Asia/Damascus');
+        $now = Carbon::now(self::CLINIC_TIMEZONE);
+        $appointmentDate = Carbon::parse($appointment->appointment_date, self::CLINIC_TIMEZONE);
 
-        if (!$now->isSameDay($appointmentDate)) {
-            throw new Exception('Treatment can only be started on the scheduled date: ' . $appointmentDate->format('Y-m-d'));
+        if (! $now->isSameDay($appointmentDate)) {
+            throw new Exception(
+                'Treatment can only be started on the scheduled date: '.$appointmentDate->format('Y-m-d'),
+                422
+            );
         }
 
-        $slotTimes = [
-            1 => ['start' => '08:00', 'end' => '10:00'],
-            2 => ['start' => '10:30', 'end' => '12:30'],
-            3 => ['start' => '13:00', 'end' => '15:00'],
-            4 => ['start' => '15:30', 'end' => '17:30'],
-        ];
+        $slotsPerDay = (int) config('clinic.working_slots_per_day');
 
-        if (!isset($slotTimes[$appointment->slot_number])) {
-            throw new Exception('Invalid appointment slot.');
+        if ($appointment->slot_number < 1 || $appointment->slot_number > $slotsPerDay) {
+            throw new Exception('Invalid appointment slot.', 422);
         }
-
-        $startTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->slot_number]['start'], 'Asia/Damascus');
-        $endTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->slot_number]['end'], 'Asia/Damascus');
-
-        // if ($now->lessThan($startTime) || $now->greaterThan($endTime)) {
-        //     throw new Exception("Treatment can only be started between {$slotTimes[$appointment->slot_number]['start']} and {$slotTimes[$appointment->slot_number]['end']}.");
-        // }
     }
 }
 
@@ -1652,16 +1713,52 @@ class InstructorController extends Controller
         }
     }
 
+    /**
+     * Endpoint A — قائمة المرضى بانتظار *وضع خطة تشخيص*.
+     *
+     * تجمع مصدرَي الانتظار في نقطة واحدة مع إمكانية الفلترة:
+     * - ?source=reception → مرضى الاستقبال بلا تشخيص بعد.
+     * - ?source=student   → تشخيصات اقترحها طلاب المعيد وتنتظر الاعتماد.
+     * - بدون المعامل      → الاثنان معاً مرتّبين زمنياً.
+     *
+     * هذه النقطة لا تُرجع أبداً حالات نُفِّذ علاجها؛ تلك في Endpoint B.
+     */
+    public function pendingDiagnoses(Request $request)
+    {
+        try {
+            $instructorId = $this->getInstructorId();
+
+            $patients = $this->patientservice->getPendingDiagnosisPatients(
+                $instructorId,
+                (string) $request->query('source', 'all'),
+                (int) $request->query('per_page', 10)
+            );
+
+            return response_success([
+                'patients' => PatientResource::collection($patients->items()),
+                'pagination' => [
+                    'total' => $patients->total(),
+                    'count' => $patients->count(),
+                    'per_page' => $patients->perPage(),
+                    'current_page' => $patients->currentPage(),
+                    'last_page' => $patients->lastPage(),
+                ],
+            ], 200, 'Patients pending diagnosis fetched successfully.');
+        } catch (Exception $e) {
+            return response_error(null, $e->getCode() ?: 400, $e->getMessage());
+        }
+    }
+
+    /**
+     * @deprecated نقطة قديمة تُبقي التطبيق الحالي يعمل؛ استخدم
+     * /instructor/patients/pending-diagnoses?source=student بدلاً منها.
+     */
     public function studentPending()
     {
 
         $instructorId = $this->getInstructorId();
 
-        $patients = $this->patientservice->getStudentPendingPatients($instructorId);
-
-        if ($patients->isEmpty()) {
-            return response_success([], 200, 'Waiting list is currently empty.');
-        }
+        $patients = $this->patientservice->getPendingDiagnosisPatients($instructorId, 'student');
 
         return response_success([
             'patients' => PatientResource::collection($patients->items()),
@@ -1675,6 +1772,9 @@ class InstructorController extends Controller
         ], 200, 'Student pending requests fetched successfully.');
     }
 
+    /**
+     * Endpoint B — العلاجات المنجزة من الطلاب وتنتظر تقييم المعيد فقط.
+     */
     public function getPendingTreatmentsList(Request $request)
     {
         try {
@@ -1757,35 +1857,40 @@ class ReceptionistController extends Controller
         $this->patientService = $patientService;
     }
 
+    /**
+     * تسجيل مريض جديد من شاشة الاستقبال.
+     *
+     * الاستجابة فورية (201) ولا تنتظر معالجة الصور إطلاقاً: الصور تُخزَّن
+     * مؤقتاً ثم يتولّى ProcessPatientImagesJob نقلها لمكتبة الوسائط وتوليد
+     * تحويلاتها في الخلفية. لذلك حقل الوسائط في الرد يعود فارغاً وهذا مقصود.
+     */
     public function store(StorePatientRequest $request)
     {
-
         try {
-
-            $validatedData = $request->validated();
-
-            $files = [
-                'id_card'         => $request->file('id_card'),
-                'clinical_images' => $request->file('clinical_images'),
-                'x_ray_images'    => $request->file('x_ray_images'),
-            ];
-
             $patient = $this->patientService->registerPatient(
-                $validatedData,
-                $files
+                $request->validated(),
+                [
+                    'id_card' => $request->file('id_card'),
+                    'clinical_images' => $request->file('clinical_images'),
+                    'x_ray_images' => $request->file('x_ray_images'),
+                ]
             );
 
-            // media ستكون فارغة هنا غالباً لأن ProcessPatientImagesJob لم يُنفَّذ بعد؛
-            // هذا متوقع ومقصود، فالهدف هو استجابة فورية لموظف الاستقبال
-            $patient->load(['medicalHistory', 'media']);
-
-            return response_success(new PatientResource($patient), 201, 'تم تسجيل المريض بنجاح، جاري معالجة الصور في الخلفية.');
+            // لا load إضافي هنا: الخدمة أعادت المريض مع medicalHistory فقط،
+            // وأي تحميل لعلاقة media سيكلّف استعلاماً بلا نتيجة في هذه اللحظة.
+            return response_success(
+                new PatientResource($patient),
+                201,
+                'تم تسجيل المريض بنجاح، وجاري معالجة الصور في الخلفية.'
+            );
         } catch (\Exception $e) {
-            return response_error(
-                null,
-                500,
-                'Something went wrong: ' . $e->getMessage()
-            );
+            // نحترم كود الخطأ القادم من طبقة الخدمة (403/404/422) بدل
+            // تحويل كل شيء إلى 500 كما كان سابقاً.
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? (int) $e->getCode()
+                : 500;
+
+            return response_error(null, $statusCode, $e->getMessage());
         }
     }
 
@@ -2841,6 +2946,7 @@ File: app\Http\Controllers\StudentController.php
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\DropStudentCoursesRequest;
 use App\Http\Requests\EnrollStudentCoursesRequest;
 use App\Http\Requests\StoreExistingPatientDiagnosisRequest;
 use App\Http\Requests\StudentStorePatientRequest;
@@ -3001,6 +3107,33 @@ class StudentController extends Controller
         } catch (\Exception $e) {
             $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
                 ? $e->getCode()
+                : 500;
+
+            return response_error(null, $statusCode, $e->getMessage());
+        }
+    }
+
+    /**
+     * سحب مقررات من التسجيل الفعّال للطالب.
+     *
+     * يغطي الحالة الحدّية للطالب المعيد للسنة: مقرر سبق نجاحه فيه أُدرج
+     * تلقائياً ضمن مقرراته، فيستطيع إزالته بدل إعادته بلا داعٍ.
+     */
+    public function dropCourses(DropStudentCoursesRequest $request)
+    {
+        try {
+            $student = $request->user()->studentProfile;
+
+            if (! $student) {
+                return response_error(null, 404, 'Student profile not found.');
+            }
+
+            $result = $this->courseService->dropCourses($student, $request->validated()['course_ids']);
+
+            return response_success($result, 200, 'Courses updated successfully.');
+        } catch (\Exception $e) {
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? (int) $e->getCode()
                 : 500;
 
             return response_error(null, $statusCode, $e->getMessage());
@@ -3473,32 +3606,54 @@ File: app\Http\Requests\CompleteTreatmentRequest.php
 
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Requests;
 
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
+/**
+ * طلب إنهاء العلاج من طرف الطالب.
+ *
+ * صور ما بعد المعالجة إلزامية دائماً هنا، لأنها الدليل الذي يقيّم عليه المعيد
+ * الحالة قبل اعتمادها. سقف الصور مطابق لصور ما قبل المعالجة (٥) حتى تبقى
+ * تجربة الرفع في التطبيق واحدة في الخطوتين.
+ */
 class CompleteTreatmentRequest extends FormRequest
 {
-    /**
-     * Determine if the user is authorized to make this request.
-     */
     public function authorize(): bool
     {
         return true;
     }
 
     /**
-     * Get the validation rules that apply to the request.
-     *
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
         return [
-            'treatment_id' => 'required|exists:treatments,id',
-            'after_images' => 'required|array|min:1',
-            'after_images.*' => 'image|mimes:jpeg,png,jpg|max:5120',
+            'treatment_id' => ['required', 'integer', 'exists:treatments,id'],
+            'after_images' => ['required', 'array', 'min:1', 'max:5'],
+            'after_images.*' => ['image', 'mimes:jpeg,png,jpg', 'max:5120'],
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'treatment_id.required' => 'The treatment ID is required.',
+            'treatment_id.exists' => 'The selected treatment record does not exist.',
+
+            'after_images.required' => 'After-treatment images are mandatory to submit the case for instructor review.',
+            'after_images.min' => 'At least one after-treatment image must be uploaded.',
+            'after_images.max' => 'You cannot upload more than 5 after-treatment images.',
+            'after_images.*.image' => 'Each after-treatment file must be a valid image.',
+            'after_images.*.mimes' => 'After-treatment images must be of type: jpeg, png, jpg.',
+            'after_images.*.max' => 'Each after-treatment image must not exceed 5 MB.',
         ];
     }
 }
@@ -3541,6 +3696,59 @@ class DiagnoseRequest extends FormRequest
 
             'diagnoses.*.media_ids' => 'nullable|array',
             'diagnoses.*.media_ids.*' => 'exists:media,id',
+        ];
+    }
+}
+
+
+=================================================
+File: app\Http\Requests\DropStudentCoursesRequest.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests;
+
+use Illuminate\Contracts\Validation\ValidationRule;
+use Illuminate\Foundation\Http\FormRequest;
+
+/**
+ * طلب سحب مقررات من تسجيل الطالب الفعّال.
+ *
+ * التحقق هنا شكلي فقط (وجود المقررات)؛ أما قواعد العمل — منع السحب عند وجود
+ * نشاط سريري، والحفاظ على المقرر الناجح بحالة COMPLETED — فمكانها الخدمة
+ * StudentCourseService::dropCourses لأنها تحتاج سياق الطالب وتاريخه.
+ */
+class DropStudentCoursesRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, ValidationRule|array<mixed>|string>
+     */
+    public function rules(): array
+    {
+        return [
+            'course_ids' => ['required', 'array', 'min:1'],
+            'course_ids.*' => ['required', 'integer', 'distinct', 'exists:courses,id'],
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'course_ids.required' => 'You must specify at least one course to drop.',
+            'course_ids.min' => 'You must specify at least one course to drop.',
+            'course_ids.*.exists' => 'One or more selected courses do not exist.',
+            'course_ids.*.distinct' => 'Duplicate course IDs are not allowed.',
         ];
     }
 }
@@ -3705,10 +3913,21 @@ File: app\Http\Requests\ReviewTreatmentRequest.php
 
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Requests;
 
+use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
+/**
+ * طلب مراجعة المعيد لعلاج أنجزه الطالب (اعتماد أو رفض).
+ *
+ * القاعدة الأساسية: عند الرفض يجب أن يصل الطالبَ سببٌ مكتوب، فبدونه يبقى بلا
+ * معرفة بما يجب إصلاحه. كانت instructor_notes مطلوبة في الحالتين معاً، وسبب
+ * الرفض لا يُخزَّن إطلاقاً رغم وجود العمود rejection_reason في جدول treatments.
+ * الآن نفصل بينهما: ملاحظات تقييمية اختيارية + سبب رفض إلزامي عند الرفض.
+ */
 class ReviewTreatmentRequest extends FormRequest
 {
     public function authorize(): bool
@@ -3716,27 +3935,50 @@ class ReviewTreatmentRequest extends FormRequest
         return true;
     }
 
+    /**
+     * @return array<string, ValidationRule|array<mixed>|string>
+     */
     public function rules(): array
     {
         return [
-            'treatment_id' => 'required|exists:treatments,id',
-            'action' => 'required|in:approve,reject',
-            'instructor_notes' => 'required|string|max:1000',
+            'treatment_id' => ['required', 'integer', 'exists:treatments,id'],
+            'action' => ['required', 'in:approve,reject'],
+
+            // ملاحظات تقييمية اختيارية تُعرض للطالب في الحالتين.
+            'instructor_notes' => ['nullable', 'string', 'max:1000'],
+
+            // سبب الرفض إلزامي عند الرفض فقط، وممنوع مع الاعتماد حتى لا
+            // يُخزَّن سبب رفض على حالة معتمدة.
+            'rejection_reason' => [
+                'required_if:action,reject',
+                'prohibited_if:action,approve',
+                'nullable',
+                'string',
+                'min:5',
+                'max:1000',
+            ],
         ];
     }
 
+    /**
+     * @return array<string, string>
+     */
     public function messages(): array
     {
         return [
-            'treatment_id.required' => 'The treatment case ID  required.',
+            'treatment_id.required' => 'The treatment case ID is required.',
             'treatment_id.exists' => 'The selected treatment record does not exist in our database.',
 
             'action.required' => 'The review action (approve or reject) must be specified.',
             'action.in' => 'The review action must be either "approve" or "reject" only.',
 
-            'instructor_notes.required' => 'Instructor notes are strictly required for both approval and rejection cases.',
             'instructor_notes.string' => 'The instructor notes field must be a valid text string.',
             'instructor_notes.max' => 'The instructor notes field must not exceed 1000 characters.',
+
+            'rejection_reason.required_if' => 'A rejection reason is mandatory when rejecting a treatment.',
+            'rejection_reason.prohibited_if' => 'A rejection reason cannot be provided when approving a treatment.',
+            'rejection_reason.min' => 'The rejection reason must be at least 5 characters so the student can act on it.',
+            'rejection_reason.max' => 'The rejection reason must not exceed 1000 characters.',
         ];
     }
 }
@@ -3748,33 +3990,108 @@ File: app\Http\Requests\StartTreatmentRequest.php
 
 <?php
 
+declare(strict_types=1);
+
 namespace App\Http\Requests;
 
+use App\Models\Appointment;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
 
+/**
+ * طلب بدء جلسة علاج من الطالب.
+ *
+ * نفس النقطة تخدم حالتين:
+ * 1) بدء علاج جديد → صور ما قبل المعالجة إلزامية (بداية دورة حياة الحالة).
+ * 2) حضور موعد متابعة لعلاج قائم → لا صور مطلوبة، فالعلاج بدأ أصلاً.
+ *
+ * لذلك يُحسب شرط الإلزام ديناميكياً من الموعد نفسه بدل جعله ثابتاً، وكانت
+ * القاعدة السابقة nullable فتسمح ببدء علاج جديد بلا صور إطلاقاً.
+ */
 class StartTreatmentRequest extends FormRequest
 {
     /**
-     * Determine if the user is authorized to make this request.
+     * الموعد المطلوب بدء العلاج عليه — يُحمَّل مرة واحدة ويُعاد استخدامه،
+     * لأن قاعدة الإلزام قد تُستدعى أكثر من مرة أثناء التحقق.
      */
+    private ?Appointment $resolvedAppointment = null;
+
+    private bool $appointmentResolved = false;
+
     public function authorize(): bool
     {
         return true;
     }
 
     /**
-     * Get the validation rules that apply to the request.
-     *
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
         return [
-            'appointment_id' => 'required|exists:appointments,id',
-            'before_images' => 'nullable|array|min:1|max:5',
-            'before_images.*' => 'image|mimes:jpeg,png,jpg|max:5120',
+            'appointment_id' => ['required', 'integer', 'exists:appointments,id'],
+
+            // إلزامية فقط عند إنشاء علاج جديد (موعد بلا treatment_id).
+            'before_images' => [
+                Rule::requiredIf(fn (): bool => $this->startsNewTreatment()),
+                'array',
+                'min:1',
+                'max:5',
+            ],
+            'before_images.*' => ['image', 'mimes:jpeg,png,jpg', 'max:5120'],
         ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'appointment_id.required' => 'The appointment ID is required to start a treatment session.',
+            'appointment_id.exists' => 'The selected appointment does not exist.',
+
+            'before_images.required' => 'Before-treatment images are mandatory when starting a new treatment.',
+            'before_images.min' => 'At least one before-treatment image must be uploaded.',
+            'before_images.max' => 'You cannot upload more than 5 before-treatment images.',
+            'before_images.*.image' => 'Each before-treatment file must be a valid image.',
+            'before_images.*.mimes' => 'Before-treatment images must be of type: jpeg, png, jpg.',
+            'before_images.*.max' => 'Each before-treatment image must not exceed 5 MB.',
+        ];
+    }
+
+    /**
+     * هل سيُنشئ هذا الطلب علاجاً جديداً؟ (الموعد غير مرتبط بعلاج قائم)
+     *
+     * إذا كان الموعد غير موجود نُرجع false ونترك قاعدة exists تتكفّل بالخطأ،
+     * حتى لا تظهر رسالتا خطأ متناقضتان للطلب نفسه.
+     */
+    private function startsNewTreatment(): bool
+    {
+        $appointment = $this->resolveAppointment();
+
+        return $appointment !== null && $appointment->treatment_id === null;
+    }
+
+    private function resolveAppointment(): ?Appointment
+    {
+        if ($this->appointmentResolved) {
+            return $this->resolvedAppointment;
+        }
+
+        $this->appointmentResolved = true;
+
+        $appointmentId = $this->input('appointment_id');
+
+        if (! is_numeric($appointmentId)) {
+            return $this->resolvedAppointment = null;
+        }
+
+        // select محدود: لا نحتاج سوى الربط بالعلاج لتحديد نوع العملية.
+        return $this->resolvedAppointment = Appointment::query()
+            ->select(['id', 'treatment_id'])
+            ->find((int) $appointmentId);
     }
 }
 
@@ -9001,29 +9318,37 @@ File: app\Repositories\PatientRepository.php
 
 <?php
 
+declare(strict_types=1);
+
 namespace App\Repositories;
 
 use App\Enums\DiagnosisStatus;
 use App\Enums\EnrollmentStatus;
 use App\Enums\PatientStatus;
-use App\Models\Course;
 use App\Models\Patient;
 use App\Models\PatientDiagnose;
 use App\Models\StudentCourseEnrollment;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 class PatientRepository
 {
-    public function FindOrFail(int $id)
+    public function FindOrFail(int $id): Patient
     {
         return Patient::findOrFail($id);
     }
 
-    public function create(array $data)
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function create(array $data): Patient
     {
         return Patient::create($data);
     }
 
-    public function search(string $term)
+    public function search(string $term): ?Patient
     {
         return Patient::with('media')
             ->where('patient_code', $term)
@@ -9031,12 +9356,12 @@ class PatientRepository
             ->first();
     }
 
-    public function findWithMedia(int $id)
+    public function findWithMedia(int $id): Patient
     {
         return Patient::with('media')->findOrFail($id);
     }
 
-    public function getReceptionistWaitingList()
+    public function getReceptionistWaitingList(): LengthAwarePaginator
     {
         return Patient::with(['media', 'medicalHistory'])
             ->where('availability_status', PatientStatus::WAITING_DIAGNOSIS->value)
@@ -9045,30 +9370,119 @@ class PatientRepository
             ->paginate(10);
     }
 
-    public function getStudentPendingRequests(int $instructorProfileId)
-    {
-        return Patient::whereHas('diagnoses', function ($query) use ($instructorProfileId) {
-            $query->where('status', DiagnosisStatus::WAITING_APPROVAL->value)
-                ->whereHas('student.studentProfile.group.instructors', function ($instructorQuery) use ($instructorProfileId) {
-                    $instructorQuery->where('instructor_profiles.id', $instructorProfileId);
-                });
-        })
+    // =====================================================================
+    // Endpoint A — المرضى بانتظار وضع خطة تشخيص من المعيد
+    // =====================================================================
+
+    /**
+     * قائمة موحّدة للمرضى الذين ينتظرون قرار المعيد على مستوى *التشخيص*،
+     * من مصدرَين مختلفين تماماً:
+     *
+     * - reception: مريض سجّله موظف الاستقبال ولا يحمل أي تشخيص بعد، فالمعيد
+     *   هو من يضع له خطة الحالات (لا علاقة له بمجموعة طلابية).
+     * - student: تشخيص اقترحه طالب من مجموعة يشرف عليها هذا المعيد وينتظر
+     *   الاعتماد أو الرفض.
+     *
+     * سبب الدمج في استعلام واحد: الشاشة تعرضهما في قائمة واحدة مرتّبة زمنياً،
+     * ولو جُلبا باستعلامين لتعذّر الترقيم (pagination) الصحيح بينهما.
+     *
+     * ملاحظة مهمة: هذه القائمة لا تحوي أبداً حالات نُفِّذ علاجها وتنتظر
+     * التقييم — تلك مسؤولية Endpoint B حصراً.
+     *
+     * @param  'all'|'reception'|'student'  $source
+     */
+    public function getPendingDiagnosisPatients(
+        int $instructorProfileId,
+        string $source = 'all',
+        int $perPage = 10
+    ): LengthAwarePaginator {
+        $query = Patient::query()
+            ->select(['id', 'patient_code', 'full_name', 'gender', 'phone', 'birth_date', 'address', 'preliminary_diagnosis', 'availability_status', 'added_by', 'created_at'])
             ->with([
                 'media',
                 'medicalHistory',
-                'diagnoses' => function ($query) use ($instructorProfileId) {
-                    $query->where('status', DiagnosisStatus::WAITING_APPROVAL->value)
-                        ->whereHas('student.studentProfile.group.instructors', function ($instructorQuery) use ($instructorProfileId) {
-                            $instructorQuery->where('instructor_profiles.id', $instructorProfileId);
-                        })
-                        ->with(['caseType', 'student.studentProfile.group']);
+                // نحمّل فقط التشخيصات المعلّقة التابعة لطلاب هذا المعيد؛ أما
+                // مرضى الاستقبال فتأتي علاقتهم فارغة وهذا هو المتوقع.
+                'diagnoses' => function ($relation) use ($instructorProfileId): void {
+                    $relation->where('patient_diagnoses.status', DiagnosisStatus::WAITING_APPROVAL->value)
+                        ->whereExists(fn ($sub) => $this->supervisedStudentExists($sub, $instructorProfileId))
+                        // media/department/caseType كلها يقرأها PatientResource؛
+                        // بدون تحميلها هنا ينطلق استعلام لكل تشخيص (N+1).
+                        ->with([
+                            'caseType:id,name,course_id',
+                            'department:id,name',
+                            'student:id,first_name,last_name',
+                            'media',
+                        ]);
                 },
-            ])
-            ->orderBy('created_at', 'asc')
-            ->paginate(10);
+            ]);
+
+        match ($source) {
+            'reception' => $query->where(fn (Builder $q) => $this->scopeReceptionSource($q)),
+            'student' => $query->where(fn (Builder $q) => $this->scopeStudentSource($q, $instructorProfileId)),
+            default => $query->where(function (Builder $q) use ($instructorProfileId): void {
+                $q->where(fn (Builder $inner) => $this->scopeReceptionSource($inner))
+                    ->orWhere(fn (Builder $inner) => $this->scopeStudentSource($inner, $instructorProfileId));
+            }),
+        };
+
+        return $query->orderBy('created_at', 'asc')->paginate($perPage);
     }
 
-    public function update(int $id, array $data)
+    /**
+     * مرضى الاستقبال: بانتظار التشخيص وبلا أي تشخيص مسجّل بعد.
+     */
+    private function scopeReceptionSource(Builder $query): Builder
+    {
+        return $query
+            ->where('availability_status', PatientStatus::WAITING_DIAGNOSIS->value)
+            ->whereDoesntHave('diagnoses');
+    }
+
+    /**
+     * مرضى باقتراح طالب: يملكون تشخيصاً بانتظار الاعتماد مقترحاً من طالب
+     * ينتمي لمجموعة يشرف عليها هذا المعيد.
+     */
+    private function scopeStudentSource(Builder $query, int $instructorProfileId): Builder
+    {
+        return $query->whereHas('diagnoses', function ($diagnosisQuery) use ($instructorProfileId): void {
+            $diagnosisQuery
+                ->where('patient_diagnoses.status', DiagnosisStatus::WAITING_APPROVAL->value)
+                ->whereExists(fn ($sub) => $this->supervisedStudentExists($sub, $instructorProfileId));
+        });
+    }
+
+    /**
+     * شرط الإشراف: الطالب مقترِح التشخيص ينتمي لمجموعة مرتبطة بهذا المعيد.
+     *
+     * نستعمل whereExists مع joins مباشرة بدل سلسلة whereHas المتداخلة
+     * (student → studentProfile → group → instructors) التي كانت تولّد أربعة
+     * استعلامات فرعية متشعّبة لكل صف.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $sub
+     */
+    private function supervisedStudentExists($sub, int $instructorProfileId)
+    {
+        return $sub->select(DB::raw(1))
+            ->from('student_profiles')
+            ->join('group_instructor', 'group_instructor.group_id', '=', 'student_profiles.group_id')
+            ->whereColumn('student_profiles.user_id', 'patient_diagnoses.suggested_by_student_id')
+            ->where('group_instructor.instructor_profile_id', $instructorProfileId);
+    }
+
+    /**
+     * @deprecated استُبدلت بـ getPendingDiagnosisPatients(..., source: 'student').
+     * أُبقيت لتوافق النقطة القديمة /instructor/patients/student-pending.
+     */
+    public function getStudentPendingRequests(int $instructorProfileId): LengthAwarePaginator
+    {
+        return $this->getPendingDiagnosisPatients($instructorProfileId, 'student');
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function update(int $id, array $data): Patient
     {
         $patient = Patient::findOrFail($id);
         $patient->update($data);
@@ -9076,7 +9490,7 @@ class PatientRepository
         return $patient;
     }
 
-    public function getReceptionistStatsByStatus(int $receptionistId, $status = null)
+    public function getReceptionistStatsByStatus(int $receptionistId, ?string $status = null): int
     {
         $query = Patient::where('added_by', $receptionistId)
             ->whereDate('created_at', now()->today());
@@ -9088,12 +9502,12 @@ class PatientRepository
         return $query->count();
     }
 
-    public function updateAvailability(int $patientId, string $status)
+    public function updateAvailability(int $patientId, string $status): bool
     {
-        return Patient::where('id', $patientId)->update(['availability_status' => $status]);
+        return (bool) Patient::where('id', $patientId)->update(['availability_status' => $status]);
     }
 
-    public function getByCaseTypeAndStatus(int $caseTypeId, string $statusValue)
+    public function getByCaseTypeAndStatus(int $caseTypeId, string $statusValue): LengthAwarePaginator
     {
         return PatientDiagnose::select(
             'id',
@@ -9107,16 +9521,16 @@ class PatientRepository
             'created_at'
         )
             ->with([
-                'patient' => function ($query) {
+                'patient' => function ($query): void {
                     $query->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address');
                 },
-                'caseType' => function ($query) {
+                'caseType' => function ($query): void {
                     $query->select('id', 'name');
                 },
-                'department' => function ($query) {
+                'department' => function ($query): void {
                     $query->select('id', 'name');
                 },
-                'instructor' => function ($query) {
+                'instructor' => function ($query): void {
                     $query->select('id', 'first_name', 'last_name');
                 },
             ])
@@ -9126,83 +9540,49 @@ class PatientRepository
             ->paginate(15);
     }
 
-
     public function checkIfCaseBelongsToActiveCourse(int $caseTypeId, int $studentId): bool
     {
         return StudentCourseEnrollment::where('student_id', $studentId)
             ->where('status', EnrollmentStatus::ACTIVE)
-            ->whereHas('course.caseTypes', function ($query) use ($caseTypeId) {
+            ->whereHas('course.caseTypes', function ($query) use ($caseTypeId): void {
                 $query->where('id', $caseTypeId);
             })
             ->exists();
     }
 
-    public function getDiagnosisDetailsWithPatientMedia(int $id)
+    public function getDiagnosisDetailsWithPatientMedia(int $id): PatientDiagnose
     {
         return PatientDiagnose::with([
-            'patient' => fn($q) => $q->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address'),
+            'patient' => fn ($q) => $q->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address'),
             'patient.media',
             'patient.medicalHistory',
             // وسائط التشخيص نفسه: يقرأها PatientDiagnosisDetailsResource إلى جانب
             // وسائط المريض، وبدون تحميلها مسبقاً ينطلق استعلام إضافي عند بناء الرد
             'media',
-            'caseType' => fn($q) => $q->select('id', 'name'),
-            'department' => fn($q) => $q->select('id', 'name'),
-            'instructor' => fn($q) => $q->select('id', 'first_name', 'last_name'),
+            'caseType' => fn ($q) => $q->select('id', 'name'),
+            'department' => fn ($q) => $q->select('id', 'name'),
+            'instructor' => fn ($q) => $q->select('id', 'first_name', 'last_name'),
         ])
-            ->where(function ($query) use ($id) {
+            ->where(function ($query) use ($id): void {
                 $query->where('id', $id)
-                    ->where(function ($q) {
+                    ->where(function ($q): void {
                         $q->where('status', DiagnosisStatus::AVAILABLE->value)
-                            ->orWhereHas('appointments', function ($appointmentQuery) {
+                            ->orWhereHas('appointments', function ($appointmentQuery): void {
                                 $appointmentQuery->where('student_id', auth()->id());
                             });
                     });
             })
             ->findOrFail($id);
     }
-    // public function getDiagnosisDetailsWithPatientMedia(int $id)
-    // {
-    //     return PatientDiagnose::select(
-    //         'id',
-    //         'patient_id',
-    //         'case_type_id',
-    //         'department_id',
-    //         'instructor_id',
-    //         'status',
-    //         'estimated_cost',
-    //         'final_diagnosis',
-    //         'created_at'
-    //     )
-    //         ->with([
-    //             'patient' => function ($query) {
-    //                 $query->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address');
-    //             },
-    //             'patient.media',
-    //             'patient.medicalHistory',
 
-    //             'caseType' => function ($query) {
-    //                 $query->select('id', 'name');
-    //             },
-    //             'department' => function ($query) {
-    //                 $query->select('id', 'name');
-    //             },
-    //             'instructor' => function ($query) {
-    //                 $query->select('id', 'first_name', 'last_name');
-    //             },
-    //         ])
-    //         ->where('status', DiagnosisStatus::AVAILABLE->value)
-    //         ->findOrFail($id);
-    // }
-
-    public function getAvailableDiagnosesForPatient(int $patientId, int $studentId)
+    public function getAvailableDiagnosesForPatient(int $patientId, int $studentId): Collection
     {
         $activeCourseIds = StudentCourseEnrollment::where('student_id', $studentId)
             ->where('status', EnrollmentStatus::ACTIVE)
             ->pluck('course_id');
 
         return PatientDiagnose::where('patient_id', $patientId)
-            ->whereHas('caseType', function ($query) use ($activeCourseIds) {
+            ->whereHas('caseType', function ($query) use ($activeCourseIds): void {
                 $query->whereIn('course_id', $activeCourseIds);
             })
             ->with(['caseType', 'department', 'instructor'])
@@ -9496,11 +9876,14 @@ File: app\Repositories\StudentRepository.php
 
 namespace App\Repositories;
 
+use App\Enums\AppointmentStatus;
 use App\Enums\EnrollmentStatus;
+use App\Enums\TreatmentStatus;
 use App\Models\CaseType;
 use App\Models\Course;
 use App\Models\StudentCourseEnrollment;
 use App\Models\StudentProfile;
+use Illuminate\Support\Facades\DB;
 
 class StudentRepository
 {
@@ -9534,6 +9917,61 @@ class StudentRepository
     public function createEnrollment(array $data)
     {
         return StudentCourseEnrollment::create($data);
+    }
+
+    /**
+     * جلب مقررات بمعرّفاتها بأعمدة السنة والفصل فقط — تكفي للتحقق من
+     * انتماء المقرر لفصل الطالب الحالي دون تحميل الصف كاملاً.
+     *
+     * @param  array<int, int>  $courseIds
+     */
+    public function getCoursesByIds(array $courseIds): \Illuminate\Database\Eloquent\Collection
+    {
+        return Course::query()
+            ->select(['id', 'name', 'year', 'semester'])
+            ->whereIn('id', $courseIds)
+            ->get();
+    }
+
+    /**
+     * هل للطالب سجل نجاح سابق في هذا المقرر؟
+     *
+     * نتحقق من سجلات التسجيل التاريخية بحالة COMPLETED، وهي الدليل الوحيد
+     * الموثوق على أنه اجتاز المقرر في محاولة سابقة.
+     */
+    public function hasPassedCourseBefore(int $studentProfileId, int $courseId): bool
+    {
+        return StudentCourseEnrollment::query()
+            ->where('student_id', $studentProfileId)
+            ->where('course_id', $courseId)
+            ->where('status', EnrollmentStatus::COMPLETED->value)
+            ->exists();
+    }
+
+    /**
+     * هل بدأ الطالب أي نشاط سريري ضمن هذا المقرر؟
+     *
+     * أي موعد غير ملغى، أو علاج غير ملغى، على نوع حالة يتبع المقرر. نمنع
+     * سحب المقرر في هذه الحالة حتى لا تبقى حالات مرتبطة بمقرر غير مسجَّل.
+     *
+     * استعلام واحد بـ exists وبدون تحميل أي صفوف، فهو يُنفَّذ لكل مقرر يُسحب.
+     */
+    public function hasClinicalActivityInCourse(int $studentUserId, int $courseId): bool
+    {
+        return DB::table('appointments')
+            ->join('patient_diagnoses', 'appointments.diagnosis_id', '=', 'patient_diagnoses.id')
+            ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
+            ->leftJoin('treatments', 'treatments.diagnosis_id', '=', 'patient_diagnoses.id')
+            ->where('appointments.student_id', $studentUserId)
+            ->where('case_types.course_id', $courseId)
+            ->where(function ($query): void {
+                $query->where('appointments.status', '!=', AppointmentStatus::CANCELLED->value)
+                    ->orWhere(function ($inner): void {
+                        $inner->whereNotNull('treatments.id')
+                            ->where('treatments.status', '!=', TreatmentStatus::CANCELLED->value);
+                    });
+            })
+            ->exists();
     }
 
     public function getActiveEnrollmentsForStudent(int $studentId)
@@ -9581,33 +10019,77 @@ File: app\Repositories\TreatmentRepository.php
 
 <?php
 
+declare(strict_types=1);
+
 namespace App\Repositories;
 
 use App\Enums\TreatmentStatus;
 use App\Models\Treatment;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class TreatmentRepository
 {
+    /**
+     * @param  array<string, mixed>  $data
+     */
     public function create(array $data): Treatment
     {
         return Treatment::create($data);
     }
 
-    public function find($id)
+    public function find(int|string $id): ?Treatment
     {
         return Treatment::with('diagnosis')->find($id);
     }
 
-    public function updateStatus(int $treatmentId, string $status): bool
+    /**
+     * جلب العلاج مع قفل صفّه حتى نهاية المعاملة — يُستعمل في المراجعة لمنع
+     * تقييمين متزامنين لنفس الحالة.
+     */
+    public function findForUpdate(int $id): ?Treatment
     {
-        return Treatment::where('id', $treatmentId)->update(['status' => $status]);
+        return Treatment::query()
+            ->with('diagnosis')
+            ->whereKey($id)
+            ->lockForUpdate()
+            ->first();
     }
 
-    public function getHistoryByPatientId(int $patientId)
+    public function updateStatus(int $treatmentId, string $status): bool
     {
-        return Treatment::whereHas('diagnosis', function ($query) use ($patientId) {
+        return (bool) Treatment::where('id', $treatmentId)->update(['status' => $status]);
+    }
+
+    /**
+     * معرّف المستخدم (الطالب) صاحب العلاج، مأخوذاً من أول موعد ضمن الحالة.
+     *
+     * نحتاجه لتصفير كاش إحصائياته بعد كل تغيير يمسّ عدّاد المتطلبات، ولا
+     * يوجد عمود student_id مباشر على جدول treatments.
+     */
+    public function getOwningStudentId(Treatment $treatment): ?int
+    {
+        $studentId = DB::table('appointments')
+            ->where('treatment_id', $treatment->id)
+            ->orderBy('id')
+            ->value('student_id');
+
+        if ($studentId === null && $treatment->diagnosis_id !== null) {
+            // احتياط: مواعيد لم تُربط بالعلاج بعد، فنرجع لأول موعد على التشخيص.
+            $studentId = DB::table('appointments')
+                ->where('diagnosis_id', $treatment->diagnosis_id)
+                ->orderBy('id')
+                ->value('student_id');
+        }
+
+        return $studentId !== null ? (int) $studentId : null;
+    }
+
+    public function getHistoryByPatientId(int $patientId): Collection
+    {
+        return Treatment::whereHas('diagnosis', function ($query) use ($patientId): void {
             $query->where('patient_id', $patientId);
         })
             ->whereIn('status', [
@@ -9616,10 +10098,10 @@ class TreatmentRepository
                 TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value,
             ])
             ->with([
-                'diagnosis' => function ($query) {
+                'diagnosis' => function ($query): void {
                     $query->select('id', 'patient_id', 'case_type_id', 'department_id', 'final_diagnosis', 'status', 'created_at');
                 },
-                'appointments' => function ($query) {
+                'appointments' => function ($query): void {
                     $query->select('id', 'treatment_id', 'appointment_date', 'status', 'slot_number', 'created_at', 'updated_at')
                         ->orderBy('appointment_date', 'desc');
                 },
@@ -9628,32 +10110,54 @@ class TreatmentRepository
             ->get();
     }
 
-    public function getPendingApprovalsListForInstructor(int $instructorProfileId, int $perPage = 10)
+    /**
+     * Endpoint B — العلاجات التي أنهاها الطلاب وتنتظر تقييم المعيد فقط.
+     *
+     * لا تتضمن أبداً مرضى بانتظار وضع خطة تشخيص (تلك مسؤولية Endpoint A)،
+     * لأن الشرط الوحيد هنا هو حالة العلاج waiting_instructor_approval.
+     *
+     * تحسين الاستعلام:
+     * - whereExists مباشر على الجداول بدل سلسلة whereHas المتداخلة (٤ مستويات)
+     *   التي كانت تولّد استعلامات فرعية متشعّبة وبطيئة.
+     * - تقييد المواعيد المحمَّلة بأعمدة محددة، فالمورد يحتاج أول موعد فقط.
+     */
+    public function getPendingApprovalsListForInstructor(int $instructorProfileId, int $perPage = 10): LengthAwarePaginator
     {
         return Treatment::query()
-            ->where('status', TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value)
-            ->whereHas('diagnosis.appointments.student.studentProfile', function ($query) use ($instructorProfileId) {
-                $query->whereHas('group.instructors', function ($q) use ($instructorProfileId) {
-                    $q->where('instructor_profiles.id', $instructorProfileId);
-                });
+            ->where('treatments.status', TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value)
+            ->whereExists(function ($query) use ($instructorProfileId): void {
+                $query->select(DB::raw(1))
+                    ->from('appointments')
+                    ->join('student_profiles', 'student_profiles.user_id', '=', 'appointments.student_id')
+                    ->join('group_instructor', 'group_instructor.group_id', '=', 'student_profiles.group_id')
+                    ->whereColumn('appointments.diagnosis_id', 'treatments.diagnosis_id')
+                    ->where('group_instructor.instructor_profile_id', $instructorProfileId);
             })
             ->with([
+                'diagnosis:id,patient_id,case_type_id',
+                'diagnosis.caseType:id,name',
+                'diagnosis.appointments' => function ($query): void {
+                    $query->select('id', 'diagnosis_id', 'student_id', 'patient_id')
+                        ->orderBy('id');
+                },
                 'diagnosis.appointments.student:id,first_name,last_name',
                 'diagnosis.appointments.patient:id,full_name',
-                'diagnosis.caseType:id,name',
             ])
-            ->latest()
+            ->latest('treatments.updated_at')
             ->paginate($perPage);
     }
 
-    public function getTreatmentDetailsForInstructor(int $treatmentId, int $instructorProfileId)
+    public function getTreatmentDetailsForInstructor(int $treatmentId, int $instructorProfileId): ?Treatment
     {
         return Treatment::query()
-            ->where('id', $treatmentId)
-            ->whereHas('diagnosis.appointments.student.studentProfile', function ($query) use ($instructorProfileId) {
-                $query->whereHas('group.instructors', function ($q) use ($instructorProfileId) {
-                    $q->where('instructor_profiles.id', $instructorProfileId);
-                });
+            ->whereKey($treatmentId)
+            ->whereExists(function ($query) use ($instructorProfileId): void {
+                $query->select(DB::raw(1))
+                    ->from('appointments')
+                    ->join('student_profiles', 'student_profiles.user_id', '=', 'appointments.student_id')
+                    ->join('group_instructor', 'group_instructor.group_id', '=', 'student_profiles.group_id')
+                    ->whereColumn('appointments.diagnosis_id', 'treatments.diagnosis_id')
+                    ->where('group_instructor.instructor_profile_id', $instructorProfileId);
             })
             ->with([
                 'media',
@@ -9665,9 +10169,12 @@ class TreatmentRepository
             ->first();
     }
 
-    public function getStudentProgressStats(int $userId)
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getStudentProgressStats(int $userId): ?array
     {
-        return Cache::remember("student_progress_stats_{$userId}", 300, function () use ($userId) {
+        return Cache::remember("student_progress_stats_{$userId}", 300, function () use ($userId): ?array {
             return $this->fetchStudentProgressStats($userId);
         });
     }
@@ -9677,9 +10184,12 @@ class TreatmentRepository
         Cache::forget("student_progress_stats_{$userId}");
     }
 
-    private function fetchStudentProgressStats(int $userId)
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function fetchStudentProgressStats(int $userId): ?array
     {
-        $studentProfile = \DB::table('student_profiles')->where('user_id', $userId)->first();
+        $studentProfile = DB::table('student_profiles')->where('user_id', $userId)->first();
 
         if (! $studentProfile) {
             return null;
@@ -9690,7 +10200,7 @@ class TreatmentRepository
         $treatmentsCount = DB::table('treatments')
             ->join('patient_diagnoses', 'treatments.diagnosis_id', '=', 'patient_diagnoses.id')
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
-            ->join('student_course_enrollments', function ($join) use ($profileId) {
+            ->join('student_course_enrollments', function ($join) use ($profileId): void {
                 $join->on('case_types.course_id', '=', 'student_course_enrollments.course_id')
                     ->where('student_course_enrollments.student_id', $profileId)
                     ->where('student_course_enrollments.status', 'active');
@@ -9710,7 +10220,7 @@ class TreatmentRepository
             ->join('courses', 'case_types.course_id', '=', 'courses.id')
             ->leftJoin('patient_diagnoses', 'case_types.id', '=', 'patient_diagnoses.case_type_id')
             ->leftJoin('treatments', 'patient_diagnoses.id', '=', 'treatments.diagnosis_id')
-            ->leftJoin('appointments', function ($join) use ($userId) {
+            ->leftJoin('appointments', function ($join) use ($userId): void {
                 $join->on('patient_diagnoses.id', '=', 'appointments.diagnosis_id')
                     ->where('appointments.student_id', $userId);
             })
@@ -9723,14 +10233,14 @@ class TreatmentRepository
             courses.name as course_name,
             case_types.required_count as required_to_pass,
             COUNT(DISTINCT CASE WHEN treatments.status = 'completed' THEN treatments.id END) as completed_count,
-            COUNT(DISTINCT CASE WHEN treatments.status = 'in_progress' THEN treatments.id END) as in_progress_count
+            COUNT(DISTINCT CASE WHEN treatments.status IN ('in_progress','waiting_instructor_approval') THEN treatments.id END) as in_progress_count
         ")
             ->get();
 
         $appointmentsCount = DB::table('appointments')
             ->join('patient_diagnoses', 'appointments.diagnosis_id', '=', 'patient_diagnoses.id')
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
-            ->join('student_course_enrollments', function ($join) use ($profileId) {
+            ->join('student_course_enrollments', function ($join) use ($profileId): void {
                 $join->on('case_types.course_id', '=', 'student_course_enrollments.course_id')
                     ->where('student_course_enrollments.student_id', $profileId)
                     ->where('student_course_enrollments.status', 'active');
@@ -9743,28 +10253,31 @@ class TreatmentRepository
             ->first();
 
         return [
-            'treatments'   => $treatmentsCount,
+            'treatments' => $treatmentsCount,
             'types_detail' => $casesByType,
             'appointments' => $appointmentsCount,
         ];
-    } // end fetchStudentProgressStats
+    }
 
-
-    public function getStudentTreatmentsList(int $userId, string $statusType, int $perPage = 10)
+    public function getStudentTreatmentsList(int $userId, string $statusType, int $perPage = 10): LengthAwarePaginator
     {
         $query = Treatment::query()
             ->with([
                 'diagnosis.patient:id,full_name',
                 'diagnosis.caseType.course:id,name',
             ])
-            ->whereHas('diagnosis.appointments', function ($q) use ($userId) {
+            ->whereHas('diagnosis.appointments', function ($q) use ($userId): void {
                 $q->where('student_id', $userId);
             });
 
         if ($statusType === 'completed') {
-            $query->where('status', 'completed');
+            $query->where('status', TreatmentStatus::COMPLETED->value);
         } else {
-            $query->whereIn('status', ['in_progress', 'waiting_instructor_approval', 'rejected']);
+            $query->whereIn('status', [
+                TreatmentStatus::IN_PROGRESS->value,
+                TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value,
+                TreatmentStatus::REJECTED->value,
+            ]);
         }
 
         return $query->orderBy('updated_at', 'desc')->paginate($perPage);
@@ -10795,18 +11308,17 @@ class OtpService
 
         $otpCode = (string) random_int(100000, 999999);
 
-        Cache::put('otp_user_'.$user->id, $otpCode, 300);
+        Cache::put('otp_user_' . $user->id, $otpCode, 300);
 
         $user->notify(new SendOtpNotification($otpCode));
     }
 
     public function verifyOtp(int $userId, string $inputCode)
     {
-        $cacheKey = 'otp_user_'.$userId;
-
+        $cacheKey = 'otp_user_' . $userId;
         $cachedOtp = Cache::get($cacheKey);
 
-        if (! $cachedOtp || $cachedOtp !== $inputCode) {
+        if (! $cachedOtp || (string) $cachedOtp !== (string) $inputCode) {
             throw new \Exception('The verification code is invalid or has expired.', 422);
         }
 
@@ -10830,6 +11342,7 @@ use App\Models\CaseType;
 use App\Models\Patient;
 use App\Repositories\PatientRepository;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class PatientService
@@ -10844,9 +11357,113 @@ class PatientService
         $this->mediaService = $mediaService;
     }
 
-    public function registerPatient(array $data, array $files = [], array $diagnosisData = null)
+    /**
+     * تسجيل مريض جديد (من الاستقبال أو من الطالب).
+     *
+     * أسباب البطء التي عُولجت هنا:
+     * 1) رفع الصور لمكتبة الوسائط كان يتم أثناء الطلب (نقل ملف + توليد
+     *    تحويلات) → نُقل بالكامل إلى ProcessPatientImagesJob.
+     * 2) نقل الملفات المؤقتة كان *داخل* معاملة قاعدة البيانات، فتبقى المعاملة
+     *    مفتوحة طوال زمن الـ I/O وتحجز الصفوف بلا داعٍ → صار قبل فتحها.
+     * 3) الرد كان يحمّل diagnoses.media و media وهي فارغة أصلاً لأن الـ Job
+     *    لم يُنفَّذ بعد → أُزيلت من مسار الاستقبال.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $files
+     * @param  array<string, mixed>|null  $diagnosisData
+     */
+    public function registerPatient(array $data, array $files = [], ?array $diagnosisData = null)
     {
-        return DB::transaction(function () use ($data, $files, $diagnosisData) {
+        $user = auth()->user();
+        $isReceptionist = $user->hasRole('receptionist');
+
+        // نقل الملفات الخام إلى القرص المؤقت قبل فتح المعاملة: عملية I/O
+        // بحتة لا تحتاج قاعدة البيانات، وإبقاؤها داخل المعاملة كان يطيل
+        // زمن القفل على جدول المرضى بلا فائدة.
+        $tempImages = $isReceptionist ? $this->stageReceptionistImages($files) : [];
+
+        if (! empty($files['id_card'])) {
+            $tempImages['id_cards'] = $files['id_card']->store('temp/patients', 'local');
+        }
+
+        try {
+            $patient = $this->persistPatient($data, $files, $diagnosisData, $user);
+        } catch (\Throwable $e) {
+            // فشل الحفظ ⇒ لا مالك للملفات المؤقتة، فننظّفها فوراً بدل تركها.
+            $this->discardTempImages($tempImages);
+
+            throw $e;
+        }
+
+        if (! empty($tempImages)) {
+            // الإرسال بعد نجاح المعاملة فقط (المعاملة انتهت هنا فعلياً)،
+            // حتى لا يبحث الـ Job عن مريض غير موجود.
+            ProcessPatientImagesJob::dispatch($patient->id, $tempImages);
+        }
+
+        // مسار الاستقبال لا يُنشئ تشخيصات، وصور المريض تُعالَج في الخلفية،
+        // فتحميل العلاقتين هنا استعلامات بلا نتيجة تُذكر.
+        return $isReceptionist
+            ? $patient->load('medicalHistory')
+            : $patient->load(['medicalHistory', 'diagnoses.media', 'media']);
+    }
+
+    /**
+     * تخزين مؤقت سريع لصور الاستقبال على قرص local (نقل بلا معالجة).
+     *
+     * @param  array<string, mixed>  $files
+     * @return array<string, array<int, string>>
+     */
+    private function stageReceptionistImages(array $files): array
+    {
+        $tempImages = [];
+
+        foreach (['clinical_images', 'x_ray_images'] as $collection) {
+            if (empty($files[$collection])) {
+                continue;
+            }
+
+            foreach ($files[$collection] as $imageOrGroup) {
+                if (! $imageOrGroup) {
+                    continue;
+                }
+
+                // تسطيح المصفوفات المتداخلة كما كانت MediaService::upload
+                // تفعل ضمنياً، لأن الحقل قد يصل كمصفوفة صور لكل عنصر.
+                foreach ((is_array($imageOrGroup) ? $imageOrGroup : [$imageOrGroup]) as $image) {
+                    if ($image) {
+                        $tempImages[$collection][] = $image->store('temp/patients', 'local');
+                    }
+                }
+            }
+        }
+
+        return $tempImages;
+    }
+
+    /**
+     * @param  array<string, array<int, string>|string>  $tempImages
+     */
+    private function discardTempImages(array $tempImages): void
+    {
+        foreach ($tempImages as $paths) {
+            foreach ((array) $paths as $path) {
+                Storage::disk('local')->delete($path);
+            }
+        }
+    }
+
+    /**
+     * كتابة سجل المريض وتاريخه الطبي (وتشخيصات الطالب إن وُجدت) في معاملة
+     * واحدة قصيرة تقتصر على عمليات قاعدة البيانات.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $files
+     * @param  array<string, mixed>|null  $diagnosisData
+     */
+    private function persistPatient(array $data, array $files, ?array $diagnosisData, $user)
+    {
+        return DB::transaction(function () use ($data, $files, $diagnosisData, $user) {
 
             $patientData = [
                 'full_name'    => $data['full_name'],
@@ -10873,79 +11490,70 @@ class PatientService
                 'is_pregnant'              => $data['gender'] === 'female' ? filter_var($data['is_pregnant'] ?? false, FILTER_VALIDATE_BOOLEAN) : null,
             ]);
 
-            $user = auth()->user();
-
-            // تخزين سريع فقط للملفات الخام على قرص local المؤقت (نقل بلا معالجة)،
-            // بدل رفعها فوراً لمكتبة الوسائط داخل نفس الطلب. المعالجة الفعلية
-            // (النقل لقرص public + توليد التحويلات + الربط بسجل المريض) تُنقل
-            // بالكامل إلى ProcessPatientImagesJob لتستجيب شاشة الاستقبال فوراً
-            $tempImages = [];
-
-            if (! empty($files['id_card'])) {
-                $tempImages['id_cards'] = $files['id_card']->store('temp/patients', 'local');
+            // مسار الطالب: التشخيصات المقترحة تُنشأ ضمن نفس المعاملة لأنها
+            // بيانات وليست ملفات، وصورها قليلة ومرتبطة بكل تشخيص على حدة.
+            if ($user->hasRole('student') && ! empty($diagnosisData['case_type_ids'])) {
+                $this->createStudentSuggestedDiagnoses($patient, $files, $diagnosisData, $user);
             }
 
-            if ($user->hasRole('receptionist')) {
-                foreach (['clinical_images', 'x_ray_images'] as $collection) {
-                    if (empty($files[$collection])) {
-                        continue;
-                    }
-
-                    foreach ($files[$collection] as $imageOrGroup) {
-                        if (! $imageOrGroup) {
-                            continue;
-                        }
-
-                        // نفس تسطيح المصفوفات المتداخلة الذي كانت MediaService::upload
-                        // تقوم به ضمنياً، لأن clinical_images/x_ray_images قد تصل
-                        // كمصفوفة صور لكل عنصر وليس صورة واحدة فقط
-                        foreach ((is_array($imageOrGroup) ? $imageOrGroup : [$imageOrGroup]) as $image) {
-                            if ($image) {
-                                $tempImages[$collection][] = $image->store('temp/patients', 'local');
-                            }
-                        }
-                    }
-                }
-            } elseif ($user->hasRole('student') && !empty($diagnosisData['case_type_ids'])) {
-                $student = $user->studentProfile;
-
-                foreach ($diagnosisData['case_type_ids'] as $index => $caseTypeId) {
-                    $caseType = CaseType::with('course')->findOrFail($caseTypeId);
-                    $course = $caseType->course;
-
-                    $studentYear = (int) $student->academic_year;
-                    $studentSemester = (int) $student->semester;
-                    $isAllowed = ($course->year < $studentYear) || ($course->year == $studentYear && $course->semester <= $studentSemester);
-
-                    if (!$isAllowed) {
-                        throw new \Exception("Unauthorized: Cannot register for '{$caseType->name}'.", 403);
-                    }
-
-                    $diagnosis = $patient->diagnoses()->create([
-                        'case_type_id' => $caseTypeId,
-                        'department_id' => $course->department_id,
-                        'suggested_by_student_id' => $user->id,
-                        'status' => DiagnosisStatus::WAITING_APPROVAL->value,
-                        'estimated_cost' => $diagnosisData['estimated_costs'][$index] ?? 0,
-                    ]);
-
-                    if (isset($files['clinical_images'][$index])) {
-                        $this->mediaService->upload($diagnosis, $files['clinical_images'][$index], 'clinical_images');
-                    }
-                    if (isset($files['x_ray_images'][$index])) {
-                        $this->mediaService->upload($diagnosis, $files['x_ray_images'][$index], 'x_ray_images');
-                    }
-                }
-            }
-
-            if (! empty($tempImages)) {
-                // afterCommit(): نضمن أن الـ Job لا يبدأ قبل تأكيد حفظ سجل المريض
-                // فعلياً في قاعدة البيانات (commit)، حتى لا يبحث عن مريض غير موجود بعد
-                ProcessPatientImagesJob::dispatch($patient->id, $tempImages)->afterCommit();
-            }
-
-            return $patient->load(['medicalHistory', 'diagnoses.media', 'media']);
+            return $patient;
         });
+    }
+
+    /**
+     * إنشاء التشخيصات التي يقترحها الطالب عند تسجيل مريض جديد.
+     *
+     * @param  array<string, mixed>  $files
+     * @param  array<string, mixed>  $diagnosisData
+     */
+    private function createStudentSuggestedDiagnoses($patient, array $files, array $diagnosisData, $user): void
+    {
+        $student = $user->studentProfile;
+
+        if (! $student) {
+            throw new \Exception('Student academic profile not found.', 404);
+        }
+
+        $studentYear = (int) $student->academic_year;
+        $studentSemester = (int) $student->semester;
+
+        // تحميل أنواع الحالات دفعة واحدة بدل findOrFail داخل الحلقة (N+1).
+        $caseTypes = CaseType::with('course')
+            ->whereIn('id', $diagnosisData['case_type_ids'])
+            ->get()
+            ->keyBy('id');
+
+        foreach ($diagnosisData['case_type_ids'] as $index => $caseTypeId) {
+            $caseType = $caseTypes->get($caseTypeId);
+
+            if (! $caseType || ! $caseType->course) {
+                throw new \Exception("Case type #{$caseTypeId} not found.", 404);
+            }
+
+            $course = $caseType->course;
+
+            $isAllowed = ($course->year < $studentYear)
+                || ($course->year == $studentYear && $course->semester <= $studentSemester);
+
+            if (! $isAllowed) {
+                throw new \Exception("Unauthorized: Cannot register for '{$caseType->name}'.", 403);
+            }
+
+            $diagnosis = $patient->diagnoses()->create([
+                'case_type_id' => $caseTypeId,
+                'department_id' => $course->department_id,
+                'suggested_by_student_id' => $user->id,
+                'status' => DiagnosisStatus::WAITING_APPROVAL->value,
+                'estimated_cost' => $diagnosisData['estimated_costs'][$index] ?? 0,
+            ]);
+
+            if (isset($files['clinical_images'][$index])) {
+                $this->mediaService->upload($diagnosis, $files['clinical_images'][$index], 'clinical_images');
+            }
+            if (isset($files['x_ray_images'][$index])) {
+                $this->mediaService->upload($diagnosis, $files['x_ray_images'][$index], 'x_ray_images');
+            }
+        }
     }
 
     public function addDiagnosesToExistingPatient(int $patientId, array $data, array $files = [])
@@ -11017,9 +11625,27 @@ class PatientService
         return $this->repository->getReceptionistWaitingList();
     }
 
+    /**
+     * Endpoint A — المرضى بانتظار خطة تشخيص من المعيد (استقبال + اقتراح طلاب).
+     *
+     * @param  'all'|'reception'|'student'  $source
+     */
+    public function getPendingDiagnosisPatients(
+        int $instructorProfileId,
+        string $source = 'all',
+        int $perPage = 10
+    ): \Illuminate\Contracts\Pagination\LengthAwarePaginator {
+        $source = in_array($source, ['all', 'reception', 'student'], true) ? $source : 'all';
+
+        return $this->repository->getPendingDiagnosisPatients($instructorProfileId, $source, $perPage);
+    }
+
+    /**
+     * @deprecated استُبدلت بـ getPendingDiagnosisPatients(..., 'student').
+     */
     public function getStudentPendingPatients(int $instructorProfileId)
     {
-        return $this->repository->getStudentPendingRequests($instructorProfileId);
+        return $this->repository->getPendingDiagnosisPatients($instructorProfileId, 'student');
     }
 
     public function updatePatient(int $id, array $data, $images = null)
@@ -11894,22 +12520,22 @@ class StudentCourseService
         $this->studentRepo = $studentRepo;
     }
 
-    public function getCaseTypesForDropdown(StudentProfile $student)
+    public function getCaseTypesForDropdown(StudentProfile $student): array
     {
-
+        // إنشاء مفتاح التخزين المؤقت بناءً على معرف الطالب
         $cacheKey = "case_types:student_{$student->id}";
 
-
-        return Cache::remember($cacheKey, now()->addDay(), function () use ($student) {
+        return Cache::remember($cacheKey, now()->addDay(), function () use ($student): array {
             return $this->studentRepo->getCategorizedCaseTypes($student->user_id);
         });
     }
 
-    public function getActiveCoursesForStudent(int $studentId)
+    public function getActiveCoursesForStudent(int $studentId): \Illuminate\Support\Collection
     {
+        // جلب المقررات الفعالة للطالب
         $enrollments = $this->studentRepo->getActiveEnrollmentsForStudent($studentId);
 
-        return $enrollments->map(function ($enrollment) {
+        return $enrollments->map(function (StudentCourseEnrollment $enrollment) {
             $course = $enrollment->course;
             if ($course) {
                 $course->attempts_count = $enrollment->attempts_count;
@@ -11925,12 +12551,18 @@ class StudentCourseService
         $year = is_object($student->academic_year) ? (int) $student->academic_year->value : (int) $student->academic_year;
         $semester = is_object($student->semester) ? (int) $student->semester->value : (int) $student->semester;
 
-        $historicalEnrollments = StudentCourseEnrollment::where('student_id', $student->id)
+        $historicalEnrollments = StudentCourseEnrollment::with('course:id,semester')
+            ->where('student_id', $student->id)
             ->select('id', 'student_id', 'course_id', 'status', 'attempts_count')
             ->get();
 
         $completedCourseIds = $historicalEnrollments->where('status', EnrollmentStatus::COMPLETED)->pluck('course_id')->toArray();
-        $failedCourseIds = $historicalEnrollments->where('status', EnrollmentStatus::FAILED)->pluck('course_id')->toArray();
+
+        $failedCourseIds = $historicalEnrollments->filter(function (StudentCourseEnrollment $enrollment) use ($semester): bool {
+            return $enrollment->status === EnrollmentStatus::FAILED
+                && $enrollment->course !== null
+                && (int) $enrollment->course->semester === $semester;
+        })->pluck('course_id')->toArray();
 
         $finalCourseIds = [];
 
@@ -11944,7 +12576,7 @@ class StudentCourseService
             $finalCourseIds = $this->handleSecondSemesterLogic($year, $completedCourseIds, $failedCourseIds);
         }
 
-        DB::transaction(function () use ($student, $finalCourseIds, $historicalEnrollments) {
+        DB::transaction(function () use ($student, $finalCourseIds, $historicalEnrollments): void {
             $this->executeDatabaseEnrollment($student->id, $finalCourseIds, $historicalEnrollments);
         });
 
@@ -11955,10 +12587,27 @@ class StudentCourseService
         ];
     }
 
+    /**
+     * إضافة مقررات يدوياً إلى تسجيل الطالب الحالي.
+     *
+     * القيد رقم ١ (قواعد الفصل): لا يُسمح بإضافة إلا مقررات تعود لفصل الطالب
+     * الدراسي الحالي (نفس السنة ونفس الفصل)؛ إضافة مقرر من فصل آخر تكسر حساب
+     * المتطلبات السريرية وتفتح للطالب حالات خارج مستواه.
+     *
+     * @param  array<int, int|string>  $courseIds
+     * @return array{enrolled_course_ids: array<int, int>, skipped_course_ids: array<int, int>, enrolled_count: int}
+     */
     public function manualEnrollCourses(StudentProfile $student, array $courseIds): array
     {
-        return DB::transaction(function () use ($student, $courseIds) {
-            $historicalEnrollments = StudentCourseEnrollment::where('student_id', $student->id)->get();
+        $courseIds = array_values(array_unique(array_map('intval', $courseIds)));
+
+        $this->assertCoursesBelongToCurrentSemester($student, $courseIds);
+
+        $result = DB::transaction(function () use ($student, $courseIds): array {
+
+            $historicalEnrollments = StudentCourseEnrollment::where('student_id', $student->id)
+                ->lockForUpdate()
+                ->get();
 
             $enrolledCourseIds = [];
             $skippedCourseIds = [];
@@ -11972,16 +12621,20 @@ class StudentCourseService
                     }
 
                     if ($existing->status === EnrollmentStatus::ACTIVE) {
-                        $skippedCourseIds[] = $courseId;
+                        $skippedCourseIds[] = (int) $courseId;
                         continue;
                     }
 
+                    // إعادة تفعيل تسجيل سابق: الرسوب محاولة جديدة فيزيد
+                    // العدّاد، أما الانسحاب فليس محاولة ولا يجوز أن يعاقب عليه.
                     $existing->update([
                         'status' => EnrollmentStatus::ACTIVE,
-                        'attempts_count' => $existing->attempts_count + 1,
+                        'attempts_count' => $existing->status === EnrollmentStatus::FAILED
+                            ? $existing->attempts_count + 1
+                            : max(1, (int) $existing->attempts_count),
                     ]);
 
-                    $enrolledCourseIds[] = $courseId;
+                    $enrolledCourseIds[] = (int) $courseId;
                     continue;
                 }
 
@@ -11992,7 +12645,7 @@ class StudentCourseService
                     'attempts_count' => 1,
                 ]);
 
-                $enrolledCourseIds[] = $courseId;
+                $enrolledCourseIds[] = (int) $courseId;
             }
 
             return [
@@ -12001,19 +12654,171 @@ class StudentCourseService
                 'enrolled_count' => count($enrolledCourseIds),
             ];
         });
+
+        $this->flushStudentCaches($student);
+
+        return $result;
     }
 
     /**
-     * Logic handling for the first semester.
+     * سحب/إزالة مقررات من تسجيل الطالب الحالي.
+     *
+     * القيد رقم ٢ (الحالة الحدّية): الطالب المعيد للسنة قد يُسجَّل تلقائياً على
+     * مقرر سبق أن نجح فيه، فيُجبَر على إعادته بلا داعٍ. نسمح بسحبه، لكن
+     * نحفظه بحالة COMPLETED لا DROPPED حتى لا يضيع إنجازه السابق ولا يُعاد
+     * إدراجه في التسجيل التلقائي لاحقاً.
+     *
+     * الحماية: يُمنع السحب إن وُجد نشاط سريري قائم على المقرر (موعد أو علاج
+     * غير ملغى)، لأنه يترك حالات يتيمة خارج تسجيل الطالب وتفسد إحصاءاته.
+     *
+     * @param  array<int, int|string>  $courseIds
+     * @return array{dropped_course_ids: array<int, int>, preserved_as_completed: array<int, int>, skipped_course_ids: array<int, int>, dropped_count: int}
      */
+    public function dropCourses(StudentProfile $student, array $courseIds): array
+    {
+        $courseIds = array_values(array_unique(array_map('intval', $courseIds)));
+
+        if ($courseIds === []) {
+            throw new Exception('No courses provided to drop.', 422);
+        }
+
+        $result = DB::transaction(function () use ($student, $courseIds): array {
+            $enrollments = StudentCourseEnrollment::query()
+                ->with('course:id,name,year,semester')
+                ->where('student_id', $student->id)
+                ->whereIn('course_id', $courseIds)
+                ->lockForUpdate()
+                ->get();
+
+            $dropped = [];
+            $preservedAsCompleted = [];
+            $skipped = [];
+
+            foreach ($courseIds as $courseId) {
+                $enrollment = $enrollments->firstWhere('course_id', $courseId);
+
+                // غير مسجَّل أصلاً أو ليس فعّالاً → لا شيء لفعله.
+                if (! $enrollment || $enrollment->status !== EnrollmentStatus::ACTIVE) {
+                    $skipped[] = $courseId;
+                    continue;
+                }
+
+                if ($this->studentRepo->hasClinicalActivityInCourse((int) $student->user_id, $courseId)) {
+                    throw new Exception(
+                        "Course #{$courseId} cannot be dropped because you already have appointments or treatments registered under it.",
+                        422
+                    );
+                }
+
+                if ($this->wasPreviouslyPassed($student, $enrollment)) {
+                    $enrollment->update(['status' => EnrollmentStatus::COMPLETED]);
+                    $preservedAsCompleted[] = $courseId;
+                    continue;
+                }
+
+                $enrollment->update(['status' => EnrollmentStatus::DROPPED]);
+                $dropped[] = $courseId;
+            }
+
+            return [
+                'dropped_course_ids' => $dropped,
+                'preserved_as_completed' => $preservedAsCompleted,
+                'skipped_course_ids' => $skipped,
+                'dropped_count' => count($dropped) + count($preservedAsCompleted),
+            ];
+        });
+
+        $this->flushStudentCaches($student);
+
+        return $result;
+    }
+
+    /**
+     * التحقق من أن كل المقررات المطلوبة تعود لفصل الطالب الحالي.
+     *
+     * @param  array<int, int>  $courseIds
+     */
+    private function assertCoursesBelongToCurrentSemester(StudentProfile $student, array $courseIds): void
+    {
+        if ($courseIds === []) {
+            throw new Exception('No courses provided to enroll.', 422);
+        }
+
+        $year = $this->normalizeLevel($student->academic_year);
+        $semester = $this->normalizeLevel($student->semester);
+
+        $courses = $this->studentRepo->getCoursesByIds($courseIds);
+
+        if ($courses->count() !== count($courseIds)) {
+            throw new Exception('One or more selected courses do not exist.', 404);
+        }
+
+        $invalid = $courses->filter(
+            fn ($course): bool => (int) $course->year !== $year || (int) $course->semester !== $semester
+        );
+
+        if ($invalid->isNotEmpty()) {
+            throw new Exception(
+                sprintf(
+                    'You can only enroll in courses of your current semester (year %d, semester %d). Rejected: %s.',
+                    $year,
+                    $semester,
+                    $invalid->pluck('name')->implode(', ')
+                ),
+                422
+            );
+        }
+    }
+
+    /**
+     * هل نجح الطالب في هذا المقرر سابقاً؟
+     *
+     * مؤشران:
+     * 1) وجود سجل نجاح سابق لنفس المقرر في تاريخ الطالب.
+     * 2) المقرر يتبع سنة أقدم من سنة الطالب الحالية: التسجيل التلقائي لا
+     *    يُدرج مقررات السنوات السابقة إلا إن كانت راسبة، فوجودها فعّالة مع
+     *    عدم رسوبها يعني أنها أُدرجت بالخطأ عند إعادة السنة.
+     */
+    private function wasPreviouslyPassed(StudentProfile $student, StudentCourseEnrollment $enrollment): bool
+    {
+        if ($this->studentRepo->hasPassedCourseBefore((int) $student->id, (int) $enrollment->course_id)) {
+            return true;
+        }
+
+        $course = $enrollment->course;
+
+        if (! $course) {
+            return false;
+        }
+
+        return (int) $course->year < $this->normalizeLevel($student->academic_year);
+    }
+
+    /**
+     * academic_year و semester قد يكونان Enum أو رقماً حسب مصدر البيانات.
+     */
+    private function normalizeLevel(mixed $value): int
+    {
+        return is_object($value) ? (int) $value->value : (int) $value;
+    }
+
+    /**
+     * أي تعديل على التسجيل يغيّر أنواع الحالات المتاحة وإحصائيات التقدّم،
+     * فنُبطل الكاشين معاً وإلا بقي الطالب يرى مقررات وحالات قديمة ليوم كامل.
+     */
+    private function flushStudentCaches(StudentProfile $student): void
+    {
+        Cache::forget("case_types:student_{$student->id}");
+        Cache::forget("student_progress_stats_{$student->user_id}");
+    }
+
     private function handleFirstSemesterLogic(int $year, array $completedCourseIds, array $failedCourseIds): array
     {
         $currentCourseIds = $this->studentRepo->getCourseIdsByLevel($year, 1);
 
         $newCourses = array_diff($currentCourseIds, $completedCourseIds, $failedCourseIds);
 
-        $coursesToEnroll = array_unique(array_merge($newCourses, $failedCourseIds));
-
+        $coursesToEnroll = array_values(array_unique(array_merge($newCourses, $failedCourseIds)));
 
         if (empty($coursesToEnroll)) {
             return [
@@ -12022,8 +12827,6 @@ class StudentCourseService
                 'course_ids' => [],
             ];
         }
-
-        //$coursesToEnroll = array_diff($currentCourseIds, $completedCourseIds);
 
         return [
             'status' => 'proceed',
@@ -12034,12 +12837,13 @@ class StudentCourseService
     private function handleSecondSemesterLogic(int $year, array $completedCourseIds, array $failedCourseIds): array
     {
         $currentCourseIds = $this->studentRepo->getCourseIdsByLevel($year, 2);
-        $coursesToEnroll = array_diff($currentCourseIds, $completedCourseIds);
 
-        return array_unique(array_merge($coursesToEnroll, $failedCourseIds));
+        $newCourses = array_diff($currentCourseIds, $completedCourseIds, $failedCourseIds);
+
+        return array_values(array_unique(array_merge($newCourses, $failedCourseIds)));
     }
 
-    private function executeDatabaseEnrollment(int $studentId, array $courseIds, $historicalEnrollments): void
+    private function executeDatabaseEnrollment(int $studentId, array $courseIds, \Illuminate\Database\Eloquent\Collection $historicalEnrollments): void
     {
         $now = Carbon::now();
         $inserts = [];
@@ -12058,7 +12862,7 @@ class StudentCourseService
                 $inserts[] = [
                     'student_id' => $studentId,
                     'course_id' => $courseId,
-                    'status' => EnrollmentStatus::ACTIVE,
+                    'status' => EnrollmentStatus::ACTIVE->value,
                     'attempts_count' => 1,
                     'created_at' => $now,
                     'updated_at' => $now,
@@ -12248,9 +13052,14 @@ class TreatmentService
                 throw new TreatmentNotInProgressException();
             }
 
-            $firstApp = $treatment->appointments()->first();
-            if ($firstApp && $firstApp->student_id !== auth()->id()) {
-                throw new Exception('Unauthorized! Not your treatment.');
+            // التحقق من الملكية عبر وجود أي موعد لهذا الطالب ضمن الحالة، بدل
+            // الاكتفاء بأول موعد فقط (قد يكون أُلغي أو أُعيد ترتيبه).
+            $ownsTreatment = $treatment->appointments()
+                ->where('student_id', auth()->id())
+                ->exists();
+
+            if (! $ownsTreatment) {
+                throw new Exception('Unauthorized! Not your treatment.', 403);
             }
 
             $hasUpcoming = $treatment->appointments()
@@ -12259,6 +13068,16 @@ class TreatmentService
 
             if ($hasUpcoming) {
                 throw new PendingAppointmentsException();
+            }
+
+            // حارس دورة الحياة: لا تُرفع صور "بعد" على حالة بلا صور "قبل"،
+            // فالمقارنة بينهما هي أساس تقييم المعيد.
+            if ($treatment->getMedia('before_treatment_images')->isEmpty()) {
+                throw new Exception('This treatment has no before-treatment images and cannot be completed.', 422);
+            }
+
+            if (empty($data['after_images'])) {
+                throw new Exception('After-treatment images are required to complete the treatment.', 422);
             }
 
             $this->mediaService->upload(
@@ -12690,6 +13509,85 @@ class SellerProductService
         }
     }
 }
+
+=================================================
+File: app\Support\CacheGroup.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Support;
+
+/**
+ * أسماء مجموعات الكاش — مصدر واحد للحقيقة.
+ *
+ * كل مفتاح كاش في النظام ينتمي لمجموعة أو أكثر، والإبطال يتم بزيادة رقم إصدار
+ * المجموعة عبر CacheVersion::bump() بدل تتبّع المفاتيح واحداً واحداً (وهو ما
+ * كان مستحيلاً عملياً مع المفاتيح المتغيّرة مثل مفاتيح الترقيم والفلاتر).
+ *
+ * القاعدة عند إضافة كاش جديد:
+ * 1) اقرأ عبر CacheVersion::remember() مع المجموعات التي تصف مصدر البيانات.
+ * 2) سجّل النموذج المؤثّر في خريطة CacheInvalidationRegistry ليُبطَل تلقائياً.
+ */
+final class CacheGroup
+{
+    /** المتاجر الرسمية وقوائمها. */
+    public const STORES = 'stores';
+
+    /** المنتجات بكل قوائمها (متجر، سوق الطلاب، تفاصيل منتج). */
+    public const PRODUCTS = 'products';
+
+    /** منتجات الطلاب في السوق. */
+    public const STUDENT_PRODUCTS = 'student_products';
+
+    /** التصنيفات (dropdown). */
+    public const CATEGORIES = 'categories';
+
+    /** الأفواج/المجموعات الطلابية. */
+    public const GROUPS = 'groups';
+
+    /** أنواع الحالات السريرية وقوائمها المنسدلة. */
+    public const CASE_TYPES = 'case_types';
+
+    /** المقررات والتسجيل الأكاديمي. */
+    public const COURSES = 'courses';
+
+    /** العلاجات وإحصاءاتها. */
+    public const TREATMENTS = 'treatments';
+
+    /** إحصاءات عامة (لوحات التحكم). */
+    public const STATISTICS = 'statistics';
+
+    /** إعدادات الأقسام. */
+    public const DEPARTMENTS = 'departments';
+
+    /**
+     * مجموعة خاصة بمتجر واحد — تتيح إبطال كاش متجر بعينه دون المساس بالباقي.
+     */
+    public static function store(int $storeId): string
+    {
+        return "store_{$storeId}";
+    }
+
+    /**
+     * مجموعة خاصة بطالب واحد (مقرراته، أنواع حالاته، إحصاءات تقدّمه).
+     */
+    public static function student(int $studentUserId): string
+    {
+        return "student_{$studentUserId}";
+    }
+
+    /**
+     * مجموعة خاصة بقسم واحد (يستعملها رئيس القسم).
+     */
+    public static function department(int $departmentId): string
+    {
+        return "department_{$departmentId}";
+    }
+}
+
 
 =================================================
 File: app\Support\CacheVersion.php
@@ -14442,6 +15340,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware(['role:student'])->prefix('student')->group(function () {
         Route::post('/setup-courses', [StudentController::class, 'setupAcademicCourses']);
         Route::post('/courses/enroll', [StudentController::class, 'enrollInCourses']);
+        // سحب مقرر: يعالج أيضاً حالة الطالب المعيد للسنة ومقرر سبق نجاحه فيه.
+        Route::post('/courses/drop', [StudentController::class, 'dropCourses']);
         Route::get('case-types', [StudentController::class, 'getCaseTypesDropdown']);
         Route::post('/update-profile', [AuthController::class, 'updateProfile']);
 
@@ -14506,6 +15406,15 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:instructor')->prefix('instructor')->group(function () {
         Route::get('/dashboard/stats', [InstructorController::class, 'getStats']);
         Route::get('/case-types', [InstructorController::class, 'getCaseTypesDropdown']);
+
+        /*
+         * فصل مهام المعيد المعلّقة إلى نقطتين مستقلتين:
+         * A) pending-diagnoses  → مرضى ينتظرون وضع خطة تشخيص (استقبال + اقتراح طلاب).
+         * B) treatments/pending → علاجات نُفِّذت وتنتظر التقييم النهائي فقط.
+         */
+        Route::get('/patients/pending-diagnoses', [InstructorController::class, 'pendingDiagnoses']);
+
+        // نقطة قديمة (deprecated) تُبقي الإصدارات الحالية من التطبيق تعمل.
         Route::get('/patients/student-pending', [InstructorController::class, 'studentPending']);
         Route::post('/diagnose', [InstructorController::class, 'diagnose']);
         Route::post('/patients/{id}/approve', [InstructorController::class, 'approve']);

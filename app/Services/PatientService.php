@@ -9,6 +9,7 @@ use App\Models\CaseType;
 use App\Models\Patient;
 use App\Repositories\PatientRepository;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class PatientService
@@ -23,9 +24,88 @@ class PatientService
         $this->mediaService = $mediaService;
     }
 
-    public function registerPatient(array $data, array $files = [], array $diagnosisData = null)
+    public function registerPatient(array $data, array $files = [], ?array $diagnosisData = null)
     {
-        return DB::transaction(function () use ($data, $files, $diagnosisData) {
+        $user = auth()->user();
+        $isReceptionist = $user->hasRole('receptionist');
+
+        $tempImages = $isReceptionist ? $this->stageReceptionistImages($files) : [];
+
+        if (! empty($files['id_card'])) {
+            $tempImages['id_cards'] = $files['id_card']->store('temp/patients', 'local');
+        }
+
+        try {
+            $patient = $this->persistPatient($data, $files, $diagnosisData, $user);
+        } catch (\Throwable $e) {
+            // فشل الحفظ ⇒ لا مالك للملفات المؤقتة، فننظّفها فوراً بدل تركها.
+            $this->discardTempImages($tempImages);
+
+            throw $e;
+        }
+
+        if (! empty($tempImages)) {
+            // الإرسال بعد نجاح المعاملة فقط (المعاملة انتهت هنا فعلياً)،
+            // حتى لا يبحث الـ Job عن مريض غير موجود.
+            ProcessPatientImagesJob::dispatch($patient->id, $tempImages);
+        }
+
+        // مسار الاستقبال لا يُنشئ تشخيصات، وصور المريض تُعالَج في الخلفية،
+        // فتحميل العلاقتين هنا استعلامات بلا نتيجة تُذكر.
+        return $isReceptionist
+            ? $patient->load('medicalHistory')
+            : $patient->load(['medicalHistory', 'diagnoses.media', 'media']);
+    }
+
+    /**
+     * تخزين مؤقت سريع لصور الاستقبال على قرص local (نقل بلا معالجة).
+     *
+     * @param  array<string, mixed>  $files
+     * @return array<string, array<int, string>>
+     */
+    private function stageReceptionistImages(array $files): array
+    {
+        $tempImages = [];
+
+        foreach (['clinical_images', 'x_ray_images'] as $collection) {
+            if (empty($files[$collection])) {
+                continue;
+            }
+
+            foreach ($files[$collection] as $imageOrGroup) {
+                if (! $imageOrGroup) {
+                    continue;
+                }
+
+                // تسطيح المصفوفات المتداخلة كما كانت MediaService::upload
+                // تفعل ضمنياً، لأن الحقل قد يصل كمصفوفة صور لكل عنصر.
+                foreach ((is_array($imageOrGroup) ? $imageOrGroup : [$imageOrGroup]) as $image) {
+                    if ($image) {
+                        $tempImages[$collection][] = $image->store('temp/patients', 'local');
+                    }
+                }
+            }
+        }
+
+        return $tempImages;
+    }
+
+    /**
+     * @param  array<string, array<int, string>|string>  $tempImages
+     */
+    private function discardTempImages(array $tempImages): void
+    {
+        foreach ($tempImages as $paths) {
+            foreach ((array) $paths as $path) {
+                Storage::disk('local')->delete($path);
+            }
+        }
+    }
+
+
+    private function persistPatient(array $data, array $files, ?array $diagnosisData, $user)
+    {
+        return DB::transaction(function () use ($data, $files, $diagnosisData, $user) {
 
             $patientData = [
                 'full_name'    => $data['full_name'],
@@ -52,79 +132,68 @@ class PatientService
                 'is_pregnant'              => $data['gender'] === 'female' ? filter_var($data['is_pregnant'] ?? false, FILTER_VALIDATE_BOOLEAN) : null,
             ]);
 
-            $user = auth()->user();
-
-            // تخزين سريع فقط للملفات الخام على قرص local المؤقت (نقل بلا معالجة)،
-            // بدل رفعها فوراً لمكتبة الوسائط داخل نفس الطلب. المعالجة الفعلية
-            // (النقل لقرص public + توليد التحويلات + الربط بسجل المريض) تُنقل
-            // بالكامل إلى ProcessPatientImagesJob لتستجيب شاشة الاستقبال فوراً
-            $tempImages = [];
-
-            if (! empty($files['id_card'])) {
-                $tempImages['id_cards'] = $files['id_card']->store('temp/patients', 'local');
+            if ($user->hasRole('student') && ! empty($diagnosisData['case_type_ids'])) {
+                $this->createStudentSuggestedDiagnoses($patient, $files, $diagnosisData, $user);
             }
 
-            if ($user->hasRole('receptionist')) {
-                foreach (['clinical_images', 'x_ray_images'] as $collection) {
-                    if (empty($files[$collection])) {
-                        continue;
-                    }
-
-                    foreach ($files[$collection] as $imageOrGroup) {
-                        if (! $imageOrGroup) {
-                            continue;
-                        }
-
-                        // نفس تسطيح المصفوفات المتداخلة الذي كانت MediaService::upload
-                        // تقوم به ضمنياً، لأن clinical_images/x_ray_images قد تصل
-                        // كمصفوفة صور لكل عنصر وليس صورة واحدة فقط
-                        foreach ((is_array($imageOrGroup) ? $imageOrGroup : [$imageOrGroup]) as $image) {
-                            if ($image) {
-                                $tempImages[$collection][] = $image->store('temp/patients', 'local');
-                            }
-                        }
-                    }
-                }
-            } elseif ($user->hasRole('student') && !empty($diagnosisData['case_type_ids'])) {
-                $student = $user->studentProfile;
-
-                foreach ($diagnosisData['case_type_ids'] as $index => $caseTypeId) {
-                    $caseType = CaseType::with('course')->findOrFail($caseTypeId);
-                    $course = $caseType->course;
-
-                    $studentYear = (int) $student->academic_year;
-                    $studentSemester = (int) $student->semester;
-                    $isAllowed = ($course->year < $studentYear) || ($course->year == $studentYear && $course->semester <= $studentSemester);
-
-                    if (!$isAllowed) {
-                        throw new \Exception("Unauthorized: Cannot register for '{$caseType->name}'.", 403);
-                    }
-
-                    $diagnosis = $patient->diagnoses()->create([
-                        'case_type_id' => $caseTypeId,
-                        'department_id' => $course->department_id,
-                        'suggested_by_student_id' => $user->id,
-                        'status' => DiagnosisStatus::WAITING_APPROVAL->value,
-                        'estimated_cost' => $diagnosisData['estimated_costs'][$index] ?? 0,
-                    ]);
-
-                    if (isset($files['clinical_images'][$index])) {
-                        $this->mediaService->upload($diagnosis, $files['clinical_images'][$index], 'clinical_images');
-                    }
-                    if (isset($files['x_ray_images'][$index])) {
-                        $this->mediaService->upload($diagnosis, $files['x_ray_images'][$index], 'x_ray_images');
-                    }
-                }
-            }
-
-            if (! empty($tempImages)) {
-                // afterCommit(): نضمن أن الـ Job لا يبدأ قبل تأكيد حفظ سجل المريض
-                // فعلياً في قاعدة البيانات (commit)، حتى لا يبحث عن مريض غير موجود بعد
-                ProcessPatientImagesJob::dispatch($patient->id, $tempImages)->afterCommit();
-            }
-
-            return $patient->load(['medicalHistory', 'diagnoses.media', 'media']);
+            return $patient;
         });
+    }
+
+    /**
+     * إنشاء التشخيصات التي يقترحها الطالب عند تسجيل مريض جديد.
+     *
+     * @param  array<string, mixed>  $files
+     * @param  array<string, mixed>  $diagnosisData
+     */
+    private function createStudentSuggestedDiagnoses($patient, array $files, array $diagnosisData, $user): void
+    {
+        $student = $user->studentProfile;
+
+        if (! $student) {
+            throw new \Exception('Student academic profile not found.', 404);
+        }
+
+        $studentYear = (int) $student->academic_year;
+        $studentSemester = (int) $student->semester;
+
+        // تحميل أنواع الحالات دفعة واحدة بدل findOrFail داخل الحلقة (N+1).
+        $caseTypes = CaseType::with('course')
+            ->whereIn('id', $diagnosisData['case_type_ids'])
+            ->get()
+            ->keyBy('id');
+
+        foreach ($diagnosisData['case_type_ids'] as $index => $caseTypeId) {
+            $caseType = $caseTypes->get($caseTypeId);
+
+            if (! $caseType || ! $caseType->course) {
+                throw new \Exception("Case type #{$caseTypeId} not found.", 404);
+            }
+
+            $course = $caseType->course;
+
+            $isAllowed = ($course->year < $studentYear)
+                || ($course->year == $studentYear && $course->semester <= $studentSemester);
+
+            if (! $isAllowed) {
+                throw new \Exception("Unauthorized: Cannot register for '{$caseType->name}'.", 403);
+            }
+
+            $diagnosis = $patient->diagnoses()->create([
+                'case_type_id' => $caseTypeId,
+                'department_id' => $course->department_id,
+                'suggested_by_student_id' => $user->id,
+                'status' => DiagnosisStatus::WAITING_APPROVAL->value,
+                'estimated_cost' => $diagnosisData['estimated_costs'][$index] ?? 0,
+            ]);
+
+            if (isset($files['clinical_images'][$index])) {
+                $this->mediaService->upload($diagnosis, $files['clinical_images'][$index], 'clinical_images');
+            }
+            if (isset($files['x_ray_images'][$index])) {
+                $this->mediaService->upload($diagnosis, $files['x_ray_images'][$index], 'x_ray_images');
+            }
+        }
     }
 
     public function addDiagnosesToExistingPatient(int $patientId, array $data, array $files = [])
@@ -196,9 +265,27 @@ class PatientService
         return $this->repository->getReceptionistWaitingList();
     }
 
+    /**
+     * Endpoint A — المرضى بانتظار خطة تشخيص من المعيد (استقبال + اقتراح طلاب).
+     *
+     * @param  'all'|'reception'|'student'  $source
+     */
+    public function getPendingDiagnosisPatients(
+        int $instructorProfileId,
+        string $source = 'all',
+        int $perPage = 10
+    ): \Illuminate\Contracts\Pagination\LengthAwarePaginator {
+        $source = in_array($source, ['all', 'reception', 'student'], true) ? $source : 'all';
+
+        return $this->repository->getPendingDiagnosisPatients($instructorProfileId, $source, $perPage);
+    }
+
+    /**
+     * @deprecated استُبدلت بـ getPendingDiagnosisPatients(..., 'student').
+     */
     public function getStudentPendingPatients(int $instructorProfileId)
     {
-        return $this->repository->getStudentPendingRequests($instructorProfileId);
+        return $this->repository->getPendingDiagnosisPatients($instructorProfileId, 'student');
     }
 
     public function updatePatient(int $id, array $data, $images = null)
@@ -316,12 +403,12 @@ class PatientService
         return $diagnosis;
     }
 
-    public function getPatientDiagnoses(int $patientId ,$studentId)
+    public function getPatientDiagnoses(int $patientId, $studentId)
     {
         if (!Patient::where('id', $patientId)->exists()) {
             throw new \Exception('Patient not found.', 404);
         }
 
-        return $this->repository->getAvailableDiagnosesForPatient($patientId ,$studentId);
+        return $this->repository->getAvailableDiagnosesForPatient($patientId, $studentId);
     }
 }

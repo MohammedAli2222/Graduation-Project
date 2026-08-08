@@ -87,11 +87,27 @@ class StudentCourseService
         ];
     }
 
+    /**
+     * إضافة مقررات يدوياً إلى تسجيل الطالب الحالي.
+     *
+     * القيد رقم ١ (قواعد الفصل): لا يُسمح بإضافة إلا مقررات تعود لفصل الطالب
+     * الدراسي الحالي (نفس السنة ونفس الفصل)؛ إضافة مقرر من فصل آخر تكسر حساب
+     * المتطلبات السريرية وتفتح للطالب حالات خارج مستواه.
+     *
+     * @param  array<int, int|string>  $courseIds
+     * @return array{enrolled_course_ids: array<int, int>, skipped_course_ids: array<int, int>, enrolled_count: int}
+     */
     public function manualEnrollCourses(StudentProfile $student, array $courseIds): array
     {
-        return DB::transaction(function () use ($student, $courseIds): array {
+        $courseIds = array_values(array_unique(array_map('intval', $courseIds)));
 
-            $historicalEnrollments = StudentCourseEnrollment::where('student_id', $student->id)->get();
+        $this->assertCoursesBelongToCurrentSemester($student, $courseIds);
+
+        $result = DB::transaction(function () use ($student, $courseIds): array {
+
+            $historicalEnrollments = StudentCourseEnrollment::where('student_id', $student->id)
+                ->lockForUpdate()
+                ->get();
 
             $enrolledCourseIds = [];
             $skippedCourseIds = [];
@@ -109,9 +125,13 @@ class StudentCourseService
                         continue;
                     }
 
+                    // إعادة تفعيل تسجيل سابق: الرسوب محاولة جديدة فيزيد
+                    // العدّاد، أما الانسحاب فليس محاولة ولا يجوز أن يعاقب عليه.
                     $existing->update([
                         'status' => EnrollmentStatus::ACTIVE,
-                        'attempts_count' => $existing->attempts_count + 1,
+                        'attempts_count' => $existing->status === EnrollmentStatus::FAILED
+                            ? $existing->attempts_count + 1
+                            : max(1, (int) $existing->attempts_count),
                     ]);
 
                     $enrolledCourseIds[] = (int) $courseId;
@@ -134,6 +154,135 @@ class StudentCourseService
                 'enrolled_count' => count($enrolledCourseIds),
             ];
         });
+
+        $this->flushStudentCaches($student);
+
+        return $result;
+    }
+
+    /**
+     * سحب مقررات من التسجيل الفعّال للطالب مع تطبيق حواجز الحماية (Guardrails).
+     *
+     * السلوك: نجاح جزئي — كل مقرر يُعالَج على حدة، وما يتعذّر سحبه يعود ضمن
+     * failed_to_drop مع سبب واضح بدل إفشال الطلب كاملاً. لا نرمي استثناءً إلا
+     * إذا لم يُسحب أي مقرر إطلاقاً.
+     *
+     * @param  array<int, int|string>  $courseIds
+     * @return array{dropped_courses: array<int, int>, failed_to_drop: array<int|string, string>}
+     */
+    public function dropCourses(StudentProfile $student, array $courseIds): array
+    {
+        $result = DB::transaction(function () use ($student, $courseIds): array {
+            $droppedCourseIds = [];
+            $failedToDropIds = [];
+
+            $activeEnrollments = StudentCourseEnrollment::query()
+                ->where('student_id', $student->id)
+                ->whereIn('course_id', $courseIds)
+                ->where('status', EnrollmentStatus::ACTIVE->value)
+                ->get()
+                ->keyBy('course_id');
+
+            foreach ($courseIds as $courseId) {
+                $enrollment = $activeEnrollments->get($courseId);
+
+                if (! $enrollment) {
+                    $failedToDropIds[$courseId] = 'Course is not currently active.';
+                    continue;
+                }
+
+                // حماية معمارية: منع سحب المقرر إذا كان الطالب قد بدأ بأي نشاط سريري يتبعه
+                $hasClinicalActivity = $this->studentRepo->hasClinicalActivityInCourse($student->user_id, $courseId);
+
+                if ($hasClinicalActivity) {
+                    $failedToDropIds[$courseId] = 'Cannot drop course. You have active patients or treatments linked to it.';
+                    continue;
+                }
+
+                // التحقق مما إذا كان الطالب قد اجتاز المقرر بنجاح في سنة سابقة
+                $hasPassedBefore = $this->studentRepo->hasPassedCourseBefore($student->id, $courseId);
+
+                if ($hasPassedBefore) {
+                    // إذا كان ناجحاً فيه سابقاً، نقوم بإلغاء التسجيل النشط فقط دون مسح السجل التاريخي الناجح
+                    $enrollment->delete();
+                } else {
+                    // إذا كان مقرراً جديداً ولم ينجح فيه سابقاً، نحوله إلى مسحوب
+                    $enrollment->update(['status' => EnrollmentStatus::DROPPED->value]);
+                }
+
+                $droppedCourseIds[] = (int) $courseId;
+            }
+
+            if (empty($droppedCourseIds) && ! empty($failedToDropIds)) {
+                throw new Exception('Failed to drop any courses due to existing clinical activities or invalid states.', 422);
+            }
+
+            return [
+                'dropped_courses' => $droppedCourseIds,
+                'failed_to_drop' => $failedToDropIds,
+            ];
+        });
+
+        // سحب المقرر يغيّر أنواع الحالات المتاحة وإحصائيات التقدّم، فبدون
+        // تصفير الكاش يبقى الطالب يرى مقرراته القديمة حتى انتهاء مدة الكاش.
+        $this->flushStudentCaches($student);
+
+        return $result;
+    }
+
+    /**
+     * التحقق من أن كل المقررات المطلوبة تعود لفصل الطالب الحالي.
+     *
+     * @param  array<int, int>  $courseIds
+     */
+    private function assertCoursesBelongToCurrentSemester(StudentProfile $student, array $courseIds): void
+    {
+        if ($courseIds === []) {
+            throw new Exception('No courses provided to enroll.', 422);
+        }
+
+        $year = $this->normalizeLevel($student->academic_year);
+        $semester = $this->normalizeLevel($student->semester);
+
+        $courses = $this->studentRepo->getCoursesByIds($courseIds);
+
+        if ($courses->count() !== count($courseIds)) {
+            throw new Exception('One or more selected courses do not exist.', 404);
+        }
+
+        $invalid = $courses->filter(
+            fn ($course): bool => (int) $course->year !== $year || (int) $course->semester !== $semester
+        );
+
+        if ($invalid->isNotEmpty()) {
+            throw new Exception(
+                sprintf(
+                    'You can only enroll in courses of your current semester (year %d, semester %d). Rejected: %s.',
+                    $year,
+                    $semester,
+                    $invalid->pluck('name')->implode(', ')
+                ),
+                422
+            );
+        }
+    }
+
+    /**
+     * academic_year و semester قد يكونان Enum أو رقماً حسب مصدر البيانات.
+     */
+    private function normalizeLevel(mixed $value): int
+    {
+        return is_object($value) ? (int) $value->value : (int) $value;
+    }
+
+    /**
+     * أي تعديل على التسجيل يغيّر أنواع الحالات المتاحة وإحصائيات التقدّم،
+     * فنُبطل الكاشين معاً وإلا بقي الطالب يرى مقررات وحالات قديمة ليوم كامل.
+     */
+    private function flushStudentCaches(StudentProfile $student): void
+    {
+        Cache::forget("case_types:student_{$student->id}");
+        Cache::forget("student_progress_stats_{$student->user_id}");
     }
 
     private function handleFirstSemesterLogic(int $year, array $completedCourseIds, array $failedCourseIds): array

@@ -139,16 +139,52 @@ class InstructorController extends Controller
         }
     }
 
+    /**
+     * Endpoint A — قائمة المرضى بانتظار *وضع خطة تشخيص*.
+     *
+     * تجمع مصدرَي الانتظار في نقطة واحدة مع إمكانية الفلترة:
+     * - ?source=reception → مرضى الاستقبال بلا تشخيص بعد.
+     * - ?source=student   → تشخيصات اقترحها طلاب المعيد وتنتظر الاعتماد.
+     * - بدون المعامل      → الاثنان معاً مرتّبين زمنياً.
+     *
+     * هذه النقطة لا تُرجع أبداً حالات نُفِّذ علاجها؛ تلك في Endpoint B.
+     */
+    public function pendingDiagnoses(Request $request)
+    {
+        try {
+            $instructorId = $this->getInstructorId();
+
+            $patients = $this->patientservice->getPendingDiagnosisPatients(
+                $instructorId,
+                (string) $request->query('source', 'all'),
+                (int) $request->query('per_page', 10)
+            );
+
+            return response_success([
+                'patients' => PatientResource::collection($patients->items()),
+                'pagination' => [
+                    'total' => $patients->total(),
+                    'count' => $patients->count(),
+                    'per_page' => $patients->perPage(),
+                    'current_page' => $patients->currentPage(),
+                    'last_page' => $patients->lastPage(),
+                ],
+            ], 200, 'Patients pending diagnosis fetched successfully.');
+        } catch (Exception $e) {
+            return response_error(null, $e->getCode() ?: 400, $e->getMessage());
+        }
+    }
+
+    /**
+     * @deprecated نقطة قديمة تُبقي التطبيق الحالي يعمل؛ استخدم
+     * /instructor/patients/pending-diagnoses?source=student بدلاً منها.
+     */
     public function studentPending()
     {
 
         $instructorId = $this->getInstructorId();
 
-        $patients = $this->patientservice->getStudentPendingPatients($instructorId);
-
-        if ($patients->isEmpty()) {
-            return response_success([], 200, 'Waiting list is currently empty.');
-        }
+        $patients = $this->patientservice->getPendingDiagnosisPatients($instructorId, 'student');
 
         return response_success([
             'patients' => PatientResource::collection($patients->items()),
@@ -162,6 +198,9 @@ class InstructorController extends Controller
         ], 200, 'Student pending requests fetched successfully.');
     }
 
+    /**
+     * Endpoint B — العلاجات المنجزة من الطلاب وتنتظر تقييم المعيد فقط.
+     */
     public function getPendingTreatmentsList(Request $request)
     {
         try {

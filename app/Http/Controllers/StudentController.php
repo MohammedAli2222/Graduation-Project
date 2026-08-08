@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\DropStudentCoursesRequest;
 use App\Http\Requests\EnrollStudentCoursesRequest;
 use App\Http\Requests\StoreExistingPatientDiagnosisRequest;
 use App\Http\Requests\StudentStorePatientRequest;
@@ -162,6 +163,33 @@ class StudentController extends Controller
         } catch (\Exception $e) {
             $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
                 ? $e->getCode()
+                : 500;
+
+            return response_error(null, $statusCode, $e->getMessage());
+        }
+    }
+
+    /**
+     * سحب مقررات من التسجيل الفعّال للطالب.
+     *
+     * يغطي الحالة الحدّية للطالب المعيد للسنة: مقرر سبق نجاحه فيه أُدرج
+     * تلقائياً ضمن مقرراته، فيستطيع إزالته بدل إعادته بلا داعٍ.
+     */
+    public function dropCourses(DropStudentCoursesRequest $request)
+    {
+        try {
+            $student = $request->user()->studentProfile;
+
+            if (! $student) {
+                return response_error(null, 404, 'Student profile not found.');
+            }
+
+            $result = $this->courseService->dropCourses($student, $request->validated()['course_ids']);
+
+            return response_success($result, 200, 'Courses updated successfully.');
+        } catch (\Exception $e) {
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? (int) $e->getCode()
                 : 500;
 
             return response_error(null, $statusCode, $e->getMessage());

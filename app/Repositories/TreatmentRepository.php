@@ -1,32 +1,76 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Repositories;
 
 use App\Enums\TreatmentStatus;
 use App\Models\Treatment;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class TreatmentRepository
 {
+    /**
+     * @param  array<string, mixed>  $data
+     */
     public function create(array $data): Treatment
     {
         return Treatment::create($data);
     }
 
-    public function find($id)
+    public function find(int|string $id): ?Treatment
     {
         return Treatment::with('diagnosis')->find($id);
     }
 
-    public function updateStatus(int $treatmentId, string $status): bool
+    /**
+     * جلب العلاج مع قفل صفّه حتى نهاية المعاملة — يُستعمل في المراجعة لمنع
+     * تقييمين متزامنين لنفس الحالة.
+     */
+    public function findForUpdate(int $id): ?Treatment
     {
-        return Treatment::where('id', $treatmentId)->update(['status' => $status]);
+        return Treatment::query()
+            ->with('diagnosis')
+            ->whereKey($id)
+            ->lockForUpdate()
+            ->first();
     }
 
-    public function getHistoryByPatientId(int $patientId)
+    public function updateStatus(int $treatmentId, string $status): bool
     {
-        return Treatment::whereHas('diagnosis', function ($query) use ($patientId) {
+        return (bool) Treatment::where('id', $treatmentId)->update(['status' => $status]);
+    }
+
+    /**
+     * معرّف المستخدم (الطالب) صاحب العلاج، مأخوذاً من أول موعد ضمن الحالة.
+     *
+     * نحتاجه لتصفير كاش إحصائياته بعد كل تغيير يمسّ عدّاد المتطلبات، ولا
+     * يوجد عمود student_id مباشر على جدول treatments.
+     */
+    public function getOwningStudentId(Treatment $treatment): ?int
+    {
+        $studentId = DB::table('appointments')
+            ->where('treatment_id', $treatment->id)
+            ->orderBy('id')
+            ->value('student_id');
+
+        if ($studentId === null && $treatment->diagnosis_id !== null) {
+            // احتياط: مواعيد لم تُربط بالعلاج بعد، فنرجع لأول موعد على التشخيص.
+            $studentId = DB::table('appointments')
+                ->where('diagnosis_id', $treatment->diagnosis_id)
+                ->orderBy('id')
+                ->value('student_id');
+        }
+
+        return $studentId !== null ? (int) $studentId : null;
+    }
+
+    public function getHistoryByPatientId(int $patientId): Collection
+    {
+        return Treatment::whereHas('diagnosis', function ($query) use ($patientId): void {
             $query->where('patient_id', $patientId);
         })
             ->whereIn('status', [
@@ -35,10 +79,10 @@ class TreatmentRepository
                 TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value,
             ])
             ->with([
-                'diagnosis' => function ($query) {
+                'diagnosis' => function ($query): void {
                     $query->select('id', 'patient_id', 'case_type_id', 'department_id', 'final_diagnosis', 'status', 'created_at');
                 },
-                'appointments' => function ($query) {
+                'appointments' => function ($query): void {
                     $query->select('id', 'treatment_id', 'appointment_date', 'status', 'slot_number', 'created_at', 'updated_at')
                         ->orderBy('appointment_date', 'desc');
                 },
@@ -47,32 +91,54 @@ class TreatmentRepository
             ->get();
     }
 
-    public function getPendingApprovalsListForInstructor(int $instructorProfileId, int $perPage = 10)
+    /**
+     * Endpoint B — العلاجات التي أنهاها الطلاب وتنتظر تقييم المعيد فقط.
+     *
+     * لا تتضمن أبداً مرضى بانتظار وضع خطة تشخيص (تلك مسؤولية Endpoint A)،
+     * لأن الشرط الوحيد هنا هو حالة العلاج waiting_instructor_approval.
+     *
+     * تحسين الاستعلام:
+     * - whereExists مباشر على الجداول بدل سلسلة whereHas المتداخلة (٤ مستويات)
+     *   التي كانت تولّد استعلامات فرعية متشعّبة وبطيئة.
+     * - تقييد المواعيد المحمَّلة بأعمدة محددة، فالمورد يحتاج أول موعد فقط.
+     */
+    public function getPendingApprovalsListForInstructor(int $instructorProfileId, int $perPage = 10): LengthAwarePaginator
     {
         return Treatment::query()
-            ->where('status', TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value)
-            ->whereHas('diagnosis.appointments.student.studentProfile', function ($query) use ($instructorProfileId) {
-                $query->whereHas('group.instructors', function ($q) use ($instructorProfileId) {
-                    $q->where('instructor_profiles.id', $instructorProfileId);
-                });
+            ->where('treatments.status', TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value)
+            ->whereExists(function ($query) use ($instructorProfileId): void {
+                $query->select(DB::raw(1))
+                    ->from('appointments')
+                    ->join('student_profiles', 'student_profiles.user_id', '=', 'appointments.student_id')
+                    ->join('group_instructor', 'group_instructor.group_id', '=', 'student_profiles.group_id')
+                    ->whereColumn('appointments.diagnosis_id', 'treatments.diagnosis_id')
+                    ->where('group_instructor.instructor_profile_id', $instructorProfileId);
             })
             ->with([
+                'diagnosis:id,patient_id,case_type_id',
+                'diagnosis.caseType:id,name',
+                'diagnosis.appointments' => function ($query): void {
+                    $query->select('id', 'diagnosis_id', 'student_id', 'patient_id')
+                        ->orderBy('id');
+                },
                 'diagnosis.appointments.student:id,first_name,last_name',
                 'diagnosis.appointments.patient:id,full_name',
-                'diagnosis.caseType:id,name',
             ])
-            ->latest()
+            ->latest('treatments.updated_at')
             ->paginate($perPage);
     }
 
-    public function getTreatmentDetailsForInstructor(int $treatmentId, int $instructorProfileId)
+    public function getTreatmentDetailsForInstructor(int $treatmentId, int $instructorProfileId): ?Treatment
     {
         return Treatment::query()
-            ->where('id', $treatmentId)
-            ->whereHas('diagnosis.appointments.student.studentProfile', function ($query) use ($instructorProfileId) {
-                $query->whereHas('group.instructors', function ($q) use ($instructorProfileId) {
-                    $q->where('instructor_profiles.id', $instructorProfileId);
-                });
+            ->whereKey($treatmentId)
+            ->whereExists(function ($query) use ($instructorProfileId): void {
+                $query->select(DB::raw(1))
+                    ->from('appointments')
+                    ->join('student_profiles', 'student_profiles.user_id', '=', 'appointments.student_id')
+                    ->join('group_instructor', 'group_instructor.group_id', '=', 'student_profiles.group_id')
+                    ->whereColumn('appointments.diagnosis_id', 'treatments.diagnosis_id')
+                    ->where('group_instructor.instructor_profile_id', $instructorProfileId);
             })
             ->with([
                 'media',
@@ -84,9 +150,12 @@ class TreatmentRepository
             ->first();
     }
 
-    public function getStudentProgressStats(int $userId)
+    /**
+     * @return array<string, mixed>|null
+     */
+    public function getStudentProgressStats(int $userId): ?array
     {
-        return Cache::remember("student_progress_stats_{$userId}", 300, function () use ($userId) {
+        return Cache::remember("student_progress_stats_{$userId}", 300, function () use ($userId): ?array {
             return $this->fetchStudentProgressStats($userId);
         });
     }
@@ -96,9 +165,12 @@ class TreatmentRepository
         Cache::forget("student_progress_stats_{$userId}");
     }
 
-    private function fetchStudentProgressStats(int $userId)
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function fetchStudentProgressStats(int $userId): ?array
     {
-        $studentProfile = \DB::table('student_profiles')->where('user_id', $userId)->first();
+        $studentProfile = DB::table('student_profiles')->where('user_id', $userId)->first();
 
         if (! $studentProfile) {
             return null;
@@ -109,7 +181,7 @@ class TreatmentRepository
         $treatmentsCount = DB::table('treatments')
             ->join('patient_diagnoses', 'treatments.diagnosis_id', '=', 'patient_diagnoses.id')
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
-            ->join('student_course_enrollments', function ($join) use ($profileId) {
+            ->join('student_course_enrollments', function ($join) use ($profileId): void {
                 $join->on('case_types.course_id', '=', 'student_course_enrollments.course_id')
                     ->where('student_course_enrollments.student_id', $profileId)
                     ->where('student_course_enrollments.status', 'active');
@@ -129,7 +201,7 @@ class TreatmentRepository
             ->join('courses', 'case_types.course_id', '=', 'courses.id')
             ->leftJoin('patient_diagnoses', 'case_types.id', '=', 'patient_diagnoses.case_type_id')
             ->leftJoin('treatments', 'patient_diagnoses.id', '=', 'treatments.diagnosis_id')
-            ->leftJoin('appointments', function ($join) use ($userId) {
+            ->leftJoin('appointments', function ($join) use ($userId): void {
                 $join->on('patient_diagnoses.id', '=', 'appointments.diagnosis_id')
                     ->where('appointments.student_id', $userId);
             })
@@ -142,14 +214,14 @@ class TreatmentRepository
             courses.name as course_name,
             case_types.required_count as required_to_pass,
             COUNT(DISTINCT CASE WHEN treatments.status = 'completed' THEN treatments.id END) as completed_count,
-            COUNT(DISTINCT CASE WHEN treatments.status = 'in_progress' THEN treatments.id END) as in_progress_count
+            COUNT(DISTINCT CASE WHEN treatments.status IN ('in_progress','waiting_instructor_approval') THEN treatments.id END) as in_progress_count
         ")
             ->get();
 
         $appointmentsCount = DB::table('appointments')
             ->join('patient_diagnoses', 'appointments.diagnosis_id', '=', 'patient_diagnoses.id')
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
-            ->join('student_course_enrollments', function ($join) use ($profileId) {
+            ->join('student_course_enrollments', function ($join) use ($profileId): void {
                 $join->on('case_types.course_id', '=', 'student_course_enrollments.course_id')
                     ->where('student_course_enrollments.student_id', $profileId)
                     ->where('student_course_enrollments.status', 'active');
@@ -162,28 +234,31 @@ class TreatmentRepository
             ->first();
 
         return [
-            'treatments'   => $treatmentsCount,
+            'treatments' => $treatmentsCount,
             'types_detail' => $casesByType,
             'appointments' => $appointmentsCount,
         ];
-    } // end fetchStudentProgressStats
+    }
 
-
-    public function getStudentTreatmentsList(int $userId, string $statusType, int $perPage = 10)
+    public function getStudentTreatmentsList(int $userId, string $statusType, int $perPage = 10): LengthAwarePaginator
     {
         $query = Treatment::query()
             ->with([
                 'diagnosis.patient:id,full_name',
                 'diagnosis.caseType.course:id,name',
             ])
-            ->whereHas('diagnosis.appointments', function ($q) use ($userId) {
+            ->whereHas('diagnosis.appointments', function ($q) use ($userId): void {
                 $q->where('student_id', $userId);
             });
 
         if ($statusType === 'completed') {
-            $query->where('status', 'completed');
+            $query->where('status', TreatmentStatus::COMPLETED->value);
         } else {
-            $query->whereIn('status', ['in_progress', 'waiting_instructor_approval', 'rejected']);
+            $query->whereIn('status', [
+                TreatmentStatus::IN_PROGRESS->value,
+                TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value,
+                TreatmentStatus::REJECTED->value,
+            ]);
         }
 
         return $query->orderBy('updated_at', 'desc')->paginate($perPage);

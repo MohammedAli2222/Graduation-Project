@@ -1,28 +1,36 @@
 <?php
 
+declare(strict_types=1);
+
 namespace App\Repositories;
 
 use App\Enums\DiagnosisStatus;
 use App\Enums\EnrollmentStatus;
 use App\Enums\PatientStatus;
-use App\Models\Course;
 use App\Models\Patient;
 use App\Models\PatientDiagnose;
 use App\Models\StudentCourseEnrollment;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 class PatientRepository
 {
-    public function FindOrFail(int $id)
+    public function FindOrFail(int $id): Patient
     {
         return Patient::findOrFail($id);
     }
 
-    public function create(array $data)
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function create(array $data): Patient
     {
         return Patient::create($data);
     }
 
-    public function search(string $term)
+    public function search(string $term): ?Patient
     {
         return Patient::with('media')
             ->where('patient_code', $term)
@@ -30,12 +38,12 @@ class PatientRepository
             ->first();
     }
 
-    public function findWithMedia(int $id)
+    public function findWithMedia(int $id): Patient
     {
         return Patient::with('media')->findOrFail($id);
     }
 
-    public function getReceptionistWaitingList()
+    public function getReceptionistWaitingList(): LengthAwarePaginator
     {
         return Patient::with(['media', 'medicalHistory'])
             ->where('availability_status', PatientStatus::WAITING_DIAGNOSIS->value)
@@ -44,30 +52,119 @@ class PatientRepository
             ->paginate(10);
     }
 
-    public function getStudentPendingRequests(int $instructorProfileId)
-    {
-        return Patient::whereHas('diagnoses', function ($query) use ($instructorProfileId) {
-            $query->where('status', DiagnosisStatus::WAITING_APPROVAL->value)
-                ->whereHas('student.studentProfile.group.instructors', function ($instructorQuery) use ($instructorProfileId) {
-                    $instructorQuery->where('instructor_profiles.id', $instructorProfileId);
-                });
-        })
+    // =====================================================================
+    // Endpoint A — المرضى بانتظار وضع خطة تشخيص من المعيد
+    // =====================================================================
+
+    /**
+     * قائمة موحّدة للمرضى الذين ينتظرون قرار المعيد على مستوى *التشخيص*،
+     * من مصدرَين مختلفين تماماً:
+     *
+     * - reception: مريض سجّله موظف الاستقبال ولا يحمل أي تشخيص بعد، فالمعيد
+     *   هو من يضع له خطة الحالات (لا علاقة له بمجموعة طلابية).
+     * - student: تشخيص اقترحه طالب من مجموعة يشرف عليها هذا المعيد وينتظر
+     *   الاعتماد أو الرفض.
+     *
+     * سبب الدمج في استعلام واحد: الشاشة تعرضهما في قائمة واحدة مرتّبة زمنياً،
+     * ولو جُلبا باستعلامين لتعذّر الترقيم (pagination) الصحيح بينهما.
+     *
+     * ملاحظة مهمة: هذه القائمة لا تحوي أبداً حالات نُفِّذ علاجها وتنتظر
+     * التقييم — تلك مسؤولية Endpoint B حصراً.
+     *
+     * @param  'all'|'reception'|'student'  $source
+     */
+    public function getPendingDiagnosisPatients(
+        int $instructorProfileId,
+        string $source = 'all',
+        int $perPage = 10
+    ): LengthAwarePaginator {
+        $query = Patient::query()
+            ->select(['id', 'patient_code', 'full_name', 'gender', 'phone', 'birth_date', 'address', 'preliminary_diagnosis', 'availability_status', 'added_by', 'created_at'])
             ->with([
                 'media',
                 'medicalHistory',
-                'diagnoses' => function ($query) use ($instructorProfileId) {
-                    $query->where('status', DiagnosisStatus::WAITING_APPROVAL->value)
-                        ->whereHas('student.studentProfile.group.instructors', function ($instructorQuery) use ($instructorProfileId) {
-                            $instructorQuery->where('instructor_profiles.id', $instructorProfileId);
-                        })
-                        ->with(['caseType', 'student.studentProfile.group']);
+                // نحمّل فقط التشخيصات المعلّقة التابعة لطلاب هذا المعيد؛ أما
+                // مرضى الاستقبال فتأتي علاقتهم فارغة وهذا هو المتوقع.
+                'diagnoses' => function ($relation) use ($instructorProfileId): void {
+                    $relation->where('patient_diagnoses.status', DiagnosisStatus::WAITING_APPROVAL->value)
+                        ->whereExists(fn ($sub) => $this->supervisedStudentExists($sub, $instructorProfileId))
+                        // media/department/caseType كلها يقرأها PatientResource؛
+                        // بدون تحميلها هنا ينطلق استعلام لكل تشخيص (N+1).
+                        ->with([
+                            'caseType:id,name,course_id',
+                            'department:id,name',
+                            'student:id,first_name,last_name',
+                            'media',
+                        ]);
                 },
-            ])
-            ->orderBy('created_at', 'asc')
-            ->paginate(10);
+            ]);
+
+        match ($source) {
+            'reception' => $query->where(fn (Builder $q) => $this->scopeReceptionSource($q)),
+            'student' => $query->where(fn (Builder $q) => $this->scopeStudentSource($q, $instructorProfileId)),
+            default => $query->where(function (Builder $q) use ($instructorProfileId): void {
+                $q->where(fn (Builder $inner) => $this->scopeReceptionSource($inner))
+                    ->orWhere(fn (Builder $inner) => $this->scopeStudentSource($inner, $instructorProfileId));
+            }),
+        };
+
+        return $query->orderBy('created_at', 'asc')->paginate($perPage);
     }
 
-    public function update(int $id, array $data)
+    /**
+     * مرضى الاستقبال: بانتظار التشخيص وبلا أي تشخيص مسجّل بعد.
+     */
+    private function scopeReceptionSource(Builder $query): Builder
+    {
+        return $query
+            ->where('availability_status', PatientStatus::WAITING_DIAGNOSIS->value)
+            ->whereDoesntHave('diagnoses');
+    }
+
+    /**
+     * مرضى باقتراح طالب: يملكون تشخيصاً بانتظار الاعتماد مقترحاً من طالب
+     * ينتمي لمجموعة يشرف عليها هذا المعيد.
+     */
+    private function scopeStudentSource(Builder $query, int $instructorProfileId): Builder
+    {
+        return $query->whereHas('diagnoses', function ($diagnosisQuery) use ($instructorProfileId): void {
+            $diagnosisQuery
+                ->where('patient_diagnoses.status', DiagnosisStatus::WAITING_APPROVAL->value)
+                ->whereExists(fn ($sub) => $this->supervisedStudentExists($sub, $instructorProfileId));
+        });
+    }
+
+    /**
+     * شرط الإشراف: الطالب مقترِح التشخيص ينتمي لمجموعة مرتبطة بهذا المعيد.
+     *
+     * نستعمل whereExists مع joins مباشرة بدل سلسلة whereHas المتداخلة
+     * (student → studentProfile → group → instructors) التي كانت تولّد أربعة
+     * استعلامات فرعية متشعّبة لكل صف.
+     *
+     * @param  \Illuminate\Database\Query\Builder  $sub
+     */
+    private function supervisedStudentExists($sub, int $instructorProfileId)
+    {
+        return $sub->select(DB::raw(1))
+            ->from('student_profiles')
+            ->join('group_instructor', 'group_instructor.group_id', '=', 'student_profiles.group_id')
+            ->whereColumn('student_profiles.user_id', 'patient_diagnoses.suggested_by_student_id')
+            ->where('group_instructor.instructor_profile_id', $instructorProfileId);
+    }
+
+    /**
+     * @deprecated استُبدلت بـ getPendingDiagnosisPatients(..., source: 'student').
+     * أُبقيت لتوافق النقطة القديمة /instructor/patients/student-pending.
+     */
+    public function getStudentPendingRequests(int $instructorProfileId): LengthAwarePaginator
+    {
+        return $this->getPendingDiagnosisPatients($instructorProfileId, 'student');
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function update(int $id, array $data): Patient
     {
         $patient = Patient::findOrFail($id);
         $patient->update($data);
@@ -75,7 +172,7 @@ class PatientRepository
         return $patient;
     }
 
-    public function getReceptionistStatsByStatus(int $receptionistId, $status = null)
+    public function getReceptionistStatsByStatus(int $receptionistId, ?string $status = null): int
     {
         $query = Patient::where('added_by', $receptionistId)
             ->whereDate('created_at', now()->today());
@@ -87,12 +184,12 @@ class PatientRepository
         return $query->count();
     }
 
-    public function updateAvailability(int $patientId, string $status)
+    public function updateAvailability(int $patientId, string $status): bool
     {
-        return Patient::where('id', $patientId)->update(['availability_status' => $status]);
+        return (bool) Patient::where('id', $patientId)->update(['availability_status' => $status]);
     }
 
-    public function getByCaseTypeAndStatus(int $caseTypeId, string $statusValue)
+    public function getByCaseTypeAndStatus(int $caseTypeId, string $statusValue): LengthAwarePaginator
     {
         return PatientDiagnose::select(
             'id',
@@ -106,16 +203,16 @@ class PatientRepository
             'created_at'
         )
             ->with([
-                'patient' => function ($query) {
+                'patient' => function ($query): void {
                     $query->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address');
                 },
-                'caseType' => function ($query) {
+                'caseType' => function ($query): void {
                     $query->select('id', 'name');
                 },
-                'department' => function ($query) {
+                'department' => function ($query): void {
                     $query->select('id', 'name');
                 },
-                'instructor' => function ($query) {
+                'instructor' => function ($query): void {
                     $query->select('id', 'first_name', 'last_name');
                 },
             ])
@@ -125,83 +222,49 @@ class PatientRepository
             ->paginate(15);
     }
 
-
     public function checkIfCaseBelongsToActiveCourse(int $caseTypeId, int $studentId): bool
     {
         return StudentCourseEnrollment::where('student_id', $studentId)
             ->where('status', EnrollmentStatus::ACTIVE)
-            ->whereHas('course.caseTypes', function ($query) use ($caseTypeId) {
+            ->whereHas('course.caseTypes', function ($query) use ($caseTypeId): void {
                 $query->where('id', $caseTypeId);
             })
             ->exists();
     }
 
-    public function getDiagnosisDetailsWithPatientMedia(int $id)
+    public function getDiagnosisDetailsWithPatientMedia(int $id): PatientDiagnose
     {
         return PatientDiagnose::with([
-            'patient' => fn($q) => $q->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address'),
+            'patient' => fn ($q) => $q->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address'),
             'patient.media',
             'patient.medicalHistory',
             // وسائط التشخيص نفسه: يقرأها PatientDiagnosisDetailsResource إلى جانب
             // وسائط المريض، وبدون تحميلها مسبقاً ينطلق استعلام إضافي عند بناء الرد
             'media',
-            'caseType' => fn($q) => $q->select('id', 'name'),
-            'department' => fn($q) => $q->select('id', 'name'),
-            'instructor' => fn($q) => $q->select('id', 'first_name', 'last_name'),
+            'caseType' => fn ($q) => $q->select('id', 'name'),
+            'department' => fn ($q) => $q->select('id', 'name'),
+            'instructor' => fn ($q) => $q->select('id', 'first_name', 'last_name'),
         ])
-            ->where(function ($query) use ($id) {
+            ->where(function ($query) use ($id): void {
                 $query->where('id', $id)
-                    ->where(function ($q) {
+                    ->where(function ($q): void {
                         $q->where('status', DiagnosisStatus::AVAILABLE->value)
-                            ->orWhereHas('appointments', function ($appointmentQuery) {
+                            ->orWhereHas('appointments', function ($appointmentQuery): void {
                                 $appointmentQuery->where('student_id', auth()->id());
                             });
                     });
             })
             ->findOrFail($id);
     }
-    // public function getDiagnosisDetailsWithPatientMedia(int $id)
-    // {
-    //     return PatientDiagnose::select(
-    //         'id',
-    //         'patient_id',
-    //         'case_type_id',
-    //         'department_id',
-    //         'instructor_id',
-    //         'status',
-    //         'estimated_cost',
-    //         'final_diagnosis',
-    //         'created_at'
-    //     )
-    //         ->with([
-    //             'patient' => function ($query) {
-    //                 $query->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address');
-    //             },
-    //             'patient.media',
-    //             'patient.medicalHistory',
 
-    //             'caseType' => function ($query) {
-    //                 $query->select('id', 'name');
-    //             },
-    //             'department' => function ($query) {
-    //                 $query->select('id', 'name');
-    //             },
-    //             'instructor' => function ($query) {
-    //                 $query->select('id', 'first_name', 'last_name');
-    //             },
-    //         ])
-    //         ->where('status', DiagnosisStatus::AVAILABLE->value)
-    //         ->findOrFail($id);
-    // }
-
-    public function getAvailableDiagnosesForPatient(int $patientId, int $studentId)
+    public function getAvailableDiagnosesForPatient(int $patientId, int $studentId): Collection
     {
         $activeCourseIds = StudentCourseEnrollment::where('student_id', $studentId)
             ->where('status', EnrollmentStatus::ACTIVE)
             ->pluck('course_id');
 
         return PatientDiagnose::where('patient_id', $patientId)
-            ->whereHas('caseType', function ($query) use ($activeCourseIds) {
+            ->whereHas('caseType', function ($query) use ($activeCourseIds): void {
                 $query->whereIn('course_id', $activeCourseIds);
             })
             ->with(['caseType', 'department', 'instructor'])
