@@ -775,10 +775,15 @@ class AppointmentController extends Controller
                 'The case has been successfully reserved and the appointment scheduled.'
             );
         } catch (ValidationException $e) {
+            // كانت الرسالة ثابتة "Academic validation requirements failed" لكل أنواع
+            // الفشل (تعارض موعد، تجاوز الفترات، امتلاء الكراسي...) فتُضلّل من يقرأ
+            // الرد. نعرض السبب الحقيقي الأول ونُبقي التفاصيل كاملة في data.
+            $firstMessage = collect($e->errors())->flatten()->first();
+
             return response_error(
                 $e->errors(),
                 422,
-                'Academic validation requirements failed.'
+                $firstMessage ?? 'Booking validation failed.'
             );
         } catch (\Exception $e) {
             return response_error(
@@ -1806,7 +1811,7 @@ class ReceptionistController extends Controller
     {
         try {
             $patient = $this->patientService->getPatientProfile($id);
-
+            // $patient->load('medicalHistory');
             return response_success(new PatientResource($patient), 200, 'Patient profile fetched.');
         } catch (ModelNotFoundException $e) {
             return response_error(null, 404, 'Patient not found.');
@@ -4016,6 +4021,8 @@ class StoreAppointmentRequest extends FormRequest
      */
     public function rules(): array
     {
+        $slotsPerDay = (int) config('clinic.working_slots_per_day');
+
         return [
             'diagnosis_id' => 'required|integer|exists:patient_diagnoses,id',
             'appointment_date' => 'required|date|date_format:Y-m-d|after_or_equal:2026-07-03',
@@ -4023,15 +4030,40 @@ class StoreAppointmentRequest extends FormRequest
                 'required',
                 'integer',
                 'min:1',
-                'max:4',
-                function ($attribute, $value, $fail) {
+                'max:'.$slotsPerDay,
+                function ($attribute, $value, $fail) use ($slotsPerDay) {
                     $diagnosis = PatientDiagnose::find($this->input('diagnosis_id'));
-                    if ($diagnosis) {
-                        $slotsNeeded = (int) $diagnosis->caseType->slots_needed;
-                        if (($value + $slotsNeeded - 1) > 4) {
-                            $fail('The selected starting slot, combined with the case requirements, exceeds university working hours.');
-                        }
+
+                    if (! $diagnosis) {
+                        return;
                     }
+
+                    $slotsNeeded = (int) $diagnosis->caseType->slots_needed;
+
+                    if (($value + $slotsNeeded - 1) <= $slotsPerDay) {
+                        return;
+                    }
+
+                    // الرسالة العامة السابقة كانت تخفي السبب: نذكر الأرقام الفعلية
+                    // حتى يعرف الطالب من أي فترة يستطيع البدء بدل التخمين
+                    $maxStartSlot = $slotsPerDay - $slotsNeeded + 1;
+
+                    if ($maxStartSlot < 1) {
+                        $fail(sprintf(
+                            'This case requires %d consecutive slots, which exceeds the %d slots available in a working day. It cannot be booked.',
+                            $slotsNeeded,
+                            $slotsPerDay
+                        ));
+
+                        return;
+                    }
+
+                    $fail(sprintf(
+                        'This case requires %d consecutive slots. With %d slots per working day, the starting slot must be %d or lower.',
+                        $slotsNeeded,
+                        $slotsPerDay,
+                        $maxStartSlot
+                    ));
                 },
             ],
         ];
@@ -4052,7 +4084,7 @@ class StoreAppointmentRequest extends FormRequest
 
             'slot_number.required' => 'You must select a specific clinic time slot.',
             'slot_number.min' => 'The slot must be at least 1.',
-            'slot_number.max' => 'The slot cannot be greater than 4.',
+            'slot_number.max' => 'The slot cannot be greater than '.config('clinic.working_slots_per_day').'.',
         ];
     }
 }
@@ -4773,21 +4805,40 @@ class PatientDiagnosisDetailsResource extends JsonResource
                 'patient_documents' => $this->patient->getMedia('id_cards')->map(fn($m) => [
                     'id' => $m->id,
                     'url' => $m->getUrl(),
-                ]),
+                ])->values(),
 
-                'clinical_images' => $this->getMedia('clinical_images')->map(fn($m) => [
-                    'id' => $m->id,
-                    'url' => $m->getUrl(),
-                ]),
+                'clinical_images' => $this->collectMedia('clinical_images'),
 
-                'x_ray_images' => $this->getMedia('x_ray_images')->map(fn($m) => [
-                    'id' => $m->id,
-                    'url' => $m->getUrl(),
-                ]),
+                'x_ray_images' => $this->collectMedia('x_ray_images'),
             ],
             'instructor_name' => trim(($this->instructor->first_name ?? 'N/A') . ' ' . ($this->instructor->last_name ?? '')),
             'created_at' => $this->created_at ? $this->created_at->format('Y-m-d H:i') : null,
         ];
+    }
+
+    /**
+     * يجمع صور المجموعة من مصدرَيها معاً بدل الاكتفاء بمصدر واحد:
+     *
+     * - صور المريض: يرفعها موظف الاستقبال وتُربط بسجل المريض نفسه.
+     * - صور التشخيص: يرفعها الطالب مع اقتراحه، أو ينسخها المعيد عبر media_ids
+     *   عند التشخيص المباشر.
+     *
+     * كان التابع يقرأ من التشخيص فقط، فتختفي صور الاستقبال كلياً عن الطالب
+     * إن لم ينسخها المعيد يدوياً.
+     *
+     * إزالة التكرار على file_name: نسخة الوسائط (Media::copy) تحتفظ باسم الملف
+     * نفسه وتغيّر الـ id فقط، فلولا ذلك لظهرت الصورة المنسوخة مرتين.
+     */
+    private function collectMedia(string $collection)
+    {
+        return $this->patient->getMedia($collection)
+            ->concat($this->getMedia($collection))
+            ->unique('file_name')
+            ->map(fn($m) => [
+                'id' => $m->id,
+                'url' => $m->getUrl(),
+            ])
+            ->values();
     }
 }
 
@@ -7205,6 +7256,29 @@ class User extends Authenticatable
             default => null,
         };
     }
+
+    /**
+     * مسار التحميل المسبق (Eager Loading) لعلاقة البروفايل مع علاقاتها المتداخلة.
+     *
+     * السبب: UserResource يصل إلى علاقات داخل البروفايل (group / groups / department)،
+     * فلو حمّلنا البروفايل وحده لانطلق استعلام إضافي لكل علاقة متداخلة عند بناء الرد
+     * (مشكلة N+1). تحميل المسار الكامل دفعةً واحدة يحلّها.
+     *
+     * ملاحظة: التحميل بالمسار المتداخل يُبقي relationLoaded() على العلاقة الأب
+     * صحيحاً، وهو ما يعتمد عليه UserResource لإظهار مفتاح profile.
+     *
+     * @return string|null المسار الجاهز لـ load()، أو null لدور بلا بروفايل (admin/receptionist)
+     */
+    public function getProfileEagerLoadPath($role)
+    {
+        return match ($role) {
+            'student' => 'studentProfile.group',
+            'instructor' => 'instructorProfile.groups',
+            'department_head' => 'departmentHeadProfile.department',
+            'store_owner' => 'storeProfile',
+            default => null,
+        };
+    }
 }
 
 
@@ -9069,6 +9143,9 @@ class PatientRepository
             'patient' => fn($q) => $q->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address'),
             'patient.media',
             'patient.medicalHistory',
+            // وسائط التشخيص نفسه: يقرأها PatientDiagnosisDetailsResource إلى جانب
+            // وسائط المريض، وبدون تحميلها مسبقاً ينطلق استعلام إضافي عند بناء الرد
+            'media',
             'caseType' => fn($q) => $q->select('id', 'name'),
             'department' => fn($q) => $q->select('id', 'name'),
             'instructor' => fn($q) => $q->select('id', 'first_name', 'last_name'),
@@ -9825,18 +9902,21 @@ class AppointmentService
 
                 $slotsNeeded = (int) $diagnosis->caseType->slots_needed;
 
+                $slotsPerDay = (int) config('clinic.working_slots_per_day');
+                $dailyLimit = (int) config('clinic.max_student_appointments_per_day');
+
                 $existingCount = $this->appointmentRepo->getActiveAppointmentsCountForStudent($student->id, $dateOnly);
 
-                if (($existingCount + $slotsNeeded) > 2) {
+                if (($existingCount + $slotsNeeded) > $dailyLimit) {
                     throw ValidationException::withMessages([
-                        'appointment_date' => ["Booking failed. This reservation requires {$slotsNeeded} slot(s), which will exceed your daily limit of 2 appointments. You currently have {$existingCount} appointment(s) on this day."],
+                        'appointment_date' => ["Booking failed. This reservation requires {$slotsNeeded} slot(s), which will exceed your daily limit of {$dailyLimit} appointments. You currently have {$existingCount} appointment(s) on this day."],
                     ]);
                 }
 
                 for ($i = 0; $i < $slotsNeeded; $i++) {
                     $currentSlot = $startSlot + $i;
 
-                    if ($currentSlot > 4) {
+                    if ($currentSlot > $slotsPerDay) {
                         throw ValidationException::withMessages([
                             'slot_number' => ['This complex case requires consecutive slots that exceed university working hours.'],
                         ]);
@@ -10000,7 +10080,10 @@ class AuthService
         }
 
         $role = $user->getRoleNames()->first();
-        $relation = $user->getProfileRelationName($role); 
+
+        // نحمّل البروفايل مع علاقاته المتداخلة دفعة واحدة، لأن UserResource يقرأ
+        // منها (group / groups / department) وكان ذلك يولّد استعلامات إضافية
+        $relation = $user->getProfileEagerLoadPath($role);
 
         if ($relation) {
             $user->load($relation);
@@ -10038,7 +10121,8 @@ class AuthService
             }
         });
 
-        return $user->refresh()->load('studentProfile');
+        // نحمّل group مع البروفايل لأن UserResource يعرض group_name في الرد
+        return $user->refresh()->load('studentProfile.group');
     }
 
     protected function createProfileByRole($user, $data)
@@ -10171,8 +10255,19 @@ class DiagnosisService
                     ->where('status', DiagnosisStatus::WAITING_APPROVAL->value)
                     ->exists();
 
+                // تشخيص المعيد المباشر له الأولوية المطلقة: أي اقتراح معلّق من طالب
+                // على هذا المريض يُرفض تلقائياً هنا بدل أن يمنع العملية. الهدف تحقيق
+                // العدالة بين الطلاب — فالحالة تصبح متاحة للجميع بدل أن يحجزها
+                // الطالب الذي سبق واقترحها. ولولا هذا الرفض لبقي اقتراحه معلّقاً
+                // إلى الأبد بينما المريض صار available.
                 if ($hasPendingStudentDiagnosis) {
-                    throw new Exception('This patient has a pending diagnosis from a student. Please approve or reject it from the pending requests list.', 422);
+                    PatientDiagnose::where('patient_id', $data['patient_id'])
+                        ->where('status', DiagnosisStatus::WAITING_APPROVAL->value)
+                        ->update([
+                            'status' => DiagnosisStatus::REJECTED->value,
+                            'instructor_id' => $instructorId,
+                            'rejection_reason' => 'تم التشخيص مباشرة من قبل المعيد.',
+                        ]);
                 }
 
                 if (! auth()->user()->instructorProfile?->id) {
@@ -12118,9 +12213,11 @@ class TreatmentService
             $slotNumber
         );
 
+        $dailyLimit = (int) config('clinic.max_student_appointments_per_day');
+
         $existingCount = $this->appointmentRepo->getActiveAppointmentsCountForStudent(auth()->id(), $dateOnly);
-        if (($existingCount + $slotsNeeded) > 2) {
-            throw new \Exception('You have reached the daily limit of 2 appointment slots.');
+        if (($existingCount + $slotsNeeded) > $dailyLimit) {
+            throw new \Exception("You have reached the daily limit of {$dailyLimit} appointment slots.");
         }
 
         return $this->appointmentRepo->create([
@@ -12927,6 +13024,14 @@ return new class extends Migration
 
             $table->nullableTimestamps();
         });
+    }
+
+    // بدون down() كان migrate:refresh يتخطى هذه الهجرة عند التراجع (لارافيل يستدعي
+    // down فقط إذا كانت معرّفة)، فيبقى جدول media موجوداً ثم يفشل up عند إعادة
+    // التنفيذ بخطأ "Table 'media' already exists".
+    public function down(): void
+    {
+        Schema::dropIfExists('media');
     }
 };
 
@@ -14239,40 +14344,58 @@ use App\Http\Controllers\Student\StudentSellerBrowseController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\TreatmentController;
 use App\Http\Middleware\VerifyDeploymentSecret;
+use App\Http\Resources\UserResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
 
-Route::middleware([VerifyDeploymentSecret::class, 'throttle:10,1'])->prefix('deploy')->group(function () {
-    Route::post('/cache', function () {
-        Artisan::call('optimize:clear');
-        return response()->json(['status' => 'success', 'message' => 'System cache cleared successfully.']);
-    });
+/*
+ * تشغيل أمر Artisan وإرجاع مخرجاته الحقيقية. بدون هذا الغلاف كان أي فشل يرتد
+ * كـ 500 "Server Error" فقط (لأن APP_DEBUG=false في الإنتاج) بلا أي دليل على السبب.
+ * set_time_limit(0) لأن الهجرات والـ Seeding قد تتجاوز مهلة PHP الافتراضية.
+ */
+$runArtisan = function (string $command, array $parameters, string $successMessage) {
+    set_time_limit(0);
 
-    Route::post('/migrate', function () {
-        Artisan::call('migrate', ['--force' => true]);
-        return response()->json(['status' => 'success', 'message' => 'Database migrations executed successfully.']);
-    });
+    try {
+        Artisan::call($command, $parameters);
 
-    Route::post('/refresh', function () {
-        Artisan::call('migrate:refresh', ['--force' => true]);
-        return response()->json(['status' => 'success', 'message' => 'Database refreshed successfully.']);
-    });
+        return response()->json([
+            'status' => 'success',
+            'message' => $successMessage,
+            'output' => trim(Artisan::output()),
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => $e->getMessage(),
+            'command' => $command,
+            'output' => trim(Artisan::output()),
+        ], 500);
+    }
+};
 
-    Route::post('/seed', function () {
-        Artisan::call('db:seed', ['--force' => true]);
-        return response()->json(['status' => 'success', 'message' => 'Database seeded successfully.']);
-    });
+Route::middleware([VerifyDeploymentSecret::class, 'throttle:10,1'])->prefix('deploy')->group(function () use ($runArtisan) {
+    Route::post('/cache', fn () => $runArtisan('optimize:clear', [], 'System cache cleared successfully.'));
 
-    Route::post('/queue', function () {
-        Artisan::call('queue:work', ['--stop-when-empty' => true]);
-        return response()->json(['status' => 'success', 'message' => 'Queue jobs processed successfully.']);
-    });
+    Route::post('/migrate', fn () => $runArtisan('migrate', ['--force' => true], 'Database migrations executed successfully.'));
 
-    Route::post('/storage', function () {
-        Artisan::call('storage:link');
-        return response()->json(['status' => 'success', 'message' => 'Storage symbolic link created successfully.']);
-    });
+    Route::post('/refresh', fn () => $runArtisan('migrate:refresh', ['--force' => true], 'Database refreshed successfully.'));
+
+    // migrate:fresh يُسقط كل الجداول مباشرةً بدل الاعتماد على دوال down()، فهو
+    // الخيار الموثوق لإعادة البناء من الصفر. أضف seed=1 لتشغيل الـ Seeders بنفس الطلب.
+    // ⚠️ يمسح كل بيانات قاعدة البيانات نهائياً.
+    Route::post('/fresh', fn (Request $request) => $runArtisan(
+        'migrate:fresh',
+        array_filter(['--force' => true, '--seed' => $request->boolean('seed')]),
+        'Database rebuilt from scratch successfully.'
+    ));
+
+    Route::post('/seed', fn () => $runArtisan('db:seed', ['--force' => true], 'Database seeded successfully.'));
+
+    Route::post('/queue', fn () => $runArtisan('queue:work', ['--stop-when-empty' => true], 'Queue jobs processed successfully.'));
+
+    Route::post('/storage', fn () => $runArtisan('storage:link', [], 'Storage symbolic link created successfully.'));
 });
 
 Route::post('/register', [AuthController::class, 'register']);
@@ -14283,8 +14406,22 @@ Route::get('/students/groups', [GroupController::class, 'getGroupsByYear']);
 
 Route::middleware('auth:sanctum')->group(function () {
 
+    /*
+     * نُرجع المستخدم عبر UserResource تماماً كما يفعل AuthService::login، حتى
+     * يحصل الفرونت على نفس البنية في الحالتين (role + profile) بدل بيانات
+     * الموديل الخام. علاقة البروفايل تُحمَّل ديناميكياً حسب دور المستخدم، لأن
+     * UserResource لا يُظهر مفتاح profile إلا إذا كانت العلاقة محمّلة فعلاً.
+     */
     Route::get('/user', function (Request $request) {
-        return $request->user();
+        $user = $request->user();
+        $role = $user->getRoleNames()->first();
+        $relation = $user->getProfileEagerLoadPath($role);
+
+        if ($relation) {
+            $user->load($relation);
+        }
+
+        return response_success(new UserResource($user), 200, 'User data retrieved successfully.');
     });
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:strict_auth');

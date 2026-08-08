@@ -20,22 +20,22 @@ class StudentCourseService
         $this->studentRepo = $studentRepo;
     }
 
-    public function getCaseTypesForDropdown(StudentProfile $student)
+    public function getCaseTypesForDropdown(StudentProfile $student): array
     {
-
+        // إنشاء مفتاح التخزين المؤقت بناءً على معرف الطالب
         $cacheKey = "case_types:student_{$student->id}";
 
-
-        return Cache::remember($cacheKey, now()->addDay(), function () use ($student) {
+        return Cache::remember($cacheKey, now()->addDay(), function () use ($student): array {
             return $this->studentRepo->getCategorizedCaseTypes($student->user_id);
         });
     }
 
-    public function getActiveCoursesForStudent(int $studentId)
+    public function getActiveCoursesForStudent(int $studentId): \Illuminate\Support\Collection
     {
+        // جلب المقررات الفعالة للطالب
         $enrollments = $this->studentRepo->getActiveEnrollmentsForStudent($studentId);
 
-        return $enrollments->map(function ($enrollment) {
+        return $enrollments->map(function (StudentCourseEnrollment $enrollment) {
             $course = $enrollment->course;
             if ($course) {
                 $course->attempts_count = $enrollment->attempts_count;
@@ -51,12 +51,18 @@ class StudentCourseService
         $year = is_object($student->academic_year) ? (int) $student->academic_year->value : (int) $student->academic_year;
         $semester = is_object($student->semester) ? (int) $student->semester->value : (int) $student->semester;
 
-        $historicalEnrollments = StudentCourseEnrollment::where('student_id', $student->id)
+        $historicalEnrollments = StudentCourseEnrollment::with('course:id,semester')
+            ->where('student_id', $student->id)
             ->select('id', 'student_id', 'course_id', 'status', 'attempts_count')
             ->get();
 
         $completedCourseIds = $historicalEnrollments->where('status', EnrollmentStatus::COMPLETED)->pluck('course_id')->toArray();
-        $failedCourseIds = $historicalEnrollments->where('status', EnrollmentStatus::FAILED)->pluck('course_id')->toArray();
+
+        $failedCourseIds = $historicalEnrollments->filter(function (StudentCourseEnrollment $enrollment) use ($semester): bool {
+            return $enrollment->status === EnrollmentStatus::FAILED
+                && $enrollment->course !== null
+                && (int) $enrollment->course->semester === $semester;
+        })->pluck('course_id')->toArray();
 
         $finalCourseIds = [];
 
@@ -70,7 +76,7 @@ class StudentCourseService
             $finalCourseIds = $this->handleSecondSemesterLogic($year, $completedCourseIds, $failedCourseIds);
         }
 
-        DB::transaction(function () use ($student, $finalCourseIds, $historicalEnrollments) {
+        DB::transaction(function () use ($student, $finalCourseIds, $historicalEnrollments): void {
             $this->executeDatabaseEnrollment($student->id, $finalCourseIds, $historicalEnrollments);
         });
 
@@ -83,7 +89,8 @@ class StudentCourseService
 
     public function manualEnrollCourses(StudentProfile $student, array $courseIds): array
     {
-        return DB::transaction(function () use ($student, $courseIds) {
+        return DB::transaction(function () use ($student, $courseIds): array {
+
             $historicalEnrollments = StudentCourseEnrollment::where('student_id', $student->id)->get();
 
             $enrolledCourseIds = [];
@@ -98,7 +105,7 @@ class StudentCourseService
                     }
 
                     if ($existing->status === EnrollmentStatus::ACTIVE) {
-                        $skippedCourseIds[] = $courseId;
+                        $skippedCourseIds[] = (int) $courseId;
                         continue;
                     }
 
@@ -107,7 +114,7 @@ class StudentCourseService
                         'attempts_count' => $existing->attempts_count + 1,
                     ]);
 
-                    $enrolledCourseIds[] = $courseId;
+                    $enrolledCourseIds[] = (int) $courseId;
                     continue;
                 }
 
@@ -118,7 +125,7 @@ class StudentCourseService
                     'attempts_count' => 1,
                 ]);
 
-                $enrolledCourseIds[] = $courseId;
+                $enrolledCourseIds[] = (int) $courseId;
             }
 
             return [
@@ -129,17 +136,13 @@ class StudentCourseService
         });
     }
 
-    /**
-     * Logic handling for the first semester.
-     */
     private function handleFirstSemesterLogic(int $year, array $completedCourseIds, array $failedCourseIds): array
     {
         $currentCourseIds = $this->studentRepo->getCourseIdsByLevel($year, 1);
 
         $newCourses = array_diff($currentCourseIds, $completedCourseIds, $failedCourseIds);
 
-        $coursesToEnroll = array_unique(array_merge($newCourses, $failedCourseIds));
-
+        $coursesToEnroll = array_values(array_unique(array_merge($newCourses, $failedCourseIds)));
 
         if (empty($coursesToEnroll)) {
             return [
@@ -148,8 +151,6 @@ class StudentCourseService
                 'course_ids' => [],
             ];
         }
-
-        //$coursesToEnroll = array_diff($currentCourseIds, $completedCourseIds);
 
         return [
             'status' => 'proceed',
@@ -160,12 +161,13 @@ class StudentCourseService
     private function handleSecondSemesterLogic(int $year, array $completedCourseIds, array $failedCourseIds): array
     {
         $currentCourseIds = $this->studentRepo->getCourseIdsByLevel($year, 2);
-        $coursesToEnroll = array_diff($currentCourseIds, $completedCourseIds);
 
-        return array_unique(array_merge($coursesToEnroll, $failedCourseIds));
+        $newCourses = array_diff($currentCourseIds, $completedCourseIds, $failedCourseIds);
+
+        return array_values(array_unique(array_merge($newCourses, $failedCourseIds)));
     }
 
-    private function executeDatabaseEnrollment(int $studentId, array $courseIds, $historicalEnrollments): void
+    private function executeDatabaseEnrollment(int $studentId, array $courseIds, \Illuminate\Database\Eloquent\Collection $historicalEnrollments): void
     {
         $now = Carbon::now();
         $inserts = [];
@@ -184,7 +186,7 @@ class StudentCourseService
                 $inserts[] = [
                     'student_id' => $studentId,
                     'course_id' => $courseId,
-                    'status' => EnrollmentStatus::ACTIVE,
+                    'status' => EnrollmentStatus::ACTIVE->value,
                     'attempts_count' => 1,
                     'created_at' => $now,
                     'updated_at' => $now,
