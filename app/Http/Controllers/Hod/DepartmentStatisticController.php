@@ -28,7 +28,10 @@ class DepartmentStatisticController extends Controller
             'course_id' => ['sometimes', 'nullable', 'integer', 'exists:courses,id'],
         ]);
 
-        $courseId = $validated['course_id'] ?? null;
+        // قاعدة integer في validate() تتحقق من الصيغة فقط ولا تحوّل النوع، وبما
+        // أن قيم الاستعلام (query string) تصل دائماً كنصوص، يجب تحويلها صراحةً
+        // إلى int قبل تمريرها لدالة الخدمة المصرَّحة بـ strict_types
+        $courseId = isset($validated['course_id']) ? (int) $validated['course_id'] : null;
 
         try {
             /** @var \App\Models\User $user */
