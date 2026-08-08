@@ -11,6 +11,7 @@ use App\Models\Course;
 use App\Repositories\Contracts\TreatmentRepositoryInterface;
 use App\Repositories\Contracts\CaseTypeRepositoryInterface;
 use App\Repositories\Contracts\InstructorRepositoryInterface;
+use App\Support\CacheVersion;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -29,8 +30,8 @@ class DepartmentHeadService
     {
         $cacheKey = "department_{$departmentId}_completed_treatments_page_{$page}_limit_{$perPage}";
 
-        return Cache::tags(["department_{$departmentId}", 'treatments'])->remember(
-            $cacheKey,
+        return Cache::remember(
+            CacheVersion::taggedKey(["department_{$departmentId}", 'treatments'], $cacheKey),
             now()->addMinutes(15),
             fn() => $this->treatmentRepo->getOptimizedCompletedTreatments($departmentId, $perPage)
         );
@@ -53,8 +54,8 @@ class DepartmentHeadService
 
     public function getCaseTypesForDepartment(int $departmentId): Collection
     {
-        return Cache::tags(["department_{$departmentId}", 'case_types'])->remember(
-            "department_{$departmentId}_case_types",
+        return Cache::remember(
+            CacheVersion::taggedKey(["department_{$departmentId}", 'case_types'], "department_{$departmentId}_case_types"),
             now()->addHours(2),
             fn() => $this->caseTypeRepo->getCaseTypesByDepartment($departmentId)
         );
@@ -86,7 +87,7 @@ class DepartmentHeadService
             'required_count' => $data['required_count'] ?? 1,
         ]);
 
-        Cache::tags(["department_{$hodDepartmentId}", 'case_types'])->flush();
+        CacheVersion::bump("department_{$hodDepartmentId}", 'case_types');
 
         return $caseType;
     }
@@ -110,7 +111,7 @@ class DepartmentHeadService
         }
 
         if ($isDeleted) {
-            Cache::tags(["department_{$hodDepartmentId}", 'case_types'])->flush();
+            CacheVersion::bump("department_{$hodDepartmentId}", 'case_types');
         }
 
         return $isDeleted;
@@ -131,7 +132,7 @@ class DepartmentHeadService
         $isUpdated = $this->caseTypeRepo->updateRequiredCount($caseType, $newCount);
 
         if ($isUpdated) {
-            Cache::tags(["department_{$hodDepartmentId}", 'case_types'])->flush();
+            CacheVersion::bump("department_{$hodDepartmentId}", 'case_types');
         }
 
         return $isUpdated;
@@ -141,8 +142,8 @@ class DepartmentHeadService
     {
         $cacheKey = "department_{$departmentId}_statistics";
 
-        return Cache::tags(["department_{$departmentId}", 'statistics'])->remember(
-            $cacheKey,
+        return Cache::remember(
+            CacheVersion::taggedKey(["department_{$departmentId}", 'statistics'], $cacheKey),
             now()->addMinutes(30),
             function () use ($departmentId) {
                 $rawStats = $this->treatmentRepo->getDepartmentTreatmentStatistics($departmentId);

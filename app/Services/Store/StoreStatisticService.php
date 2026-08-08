@@ -8,6 +8,7 @@ use App\Enums\OrderStatus;
 use App\Jobs\ExportStoreSalesReportJob;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\ProductRepositoryInterface;
+use App\Support\CacheVersion;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 
@@ -46,13 +47,13 @@ class StoreStatisticService
 
     public function invalidateLiveCache(int $storeId): void
     {
-        Cache::tags([$this->liveTag($storeId)])->flush();
+        CacheVersion::bump($this->liveTag($storeId));
     }
 
     private function getOrderMetrics(int $storeId): array
     {
-        $counts = Cache::tags([$this->liveTag($storeId)])->remember(
-            "store_{$storeId}_order_status_counts",
+        $counts = Cache::remember(
+            CacheVersion::key($this->liveTag($storeId), "store_{$storeId}_order_status_counts"),
             now()->addMinutes(self::LIVE_CACHE_MINUTES),
             fn () => $this->orderRepo->getOrderStatusCounts($storeId)
         );
@@ -69,8 +70,8 @@ class StoreStatisticService
 
     private function getFinancialMetrics(int $storeId): array
     {
-        return Cache::tags([$this->liveTag($storeId)])->remember(
-            "store_{$storeId}_revenue_summary",
+        return Cache::remember(
+            CacheVersion::key($this->liveTag($storeId), "store_{$storeId}_revenue_summary"),
             now()->addMinutes(self::LIVE_CACHE_MINUTES),
             fn () => $this->orderRepo->getRevenueSummary($storeId)
         );
@@ -78,8 +79,8 @@ class StoreStatisticService
 
     private function getInventoryMetrics(int $storeId): array
     {
-        $lowStockCount = Cache::tags([$this->liveTag($storeId)])->remember(
-            "store_{$storeId}_low_stock_count",
+        $lowStockCount = Cache::remember(
+            CacheVersion::key($this->liveTag($storeId), "store_{$storeId}_low_stock_count"),
             now()->addMinutes(self::LIVE_CACHE_MINUTES),
             fn () => $this->productRepo->countLowStockProducts($storeId, self::LOW_STOCK_THRESHOLD)
         );
@@ -89,8 +90,8 @@ class StoreStatisticService
 
     private function getTopSellers(int $storeId): array
     {
-        return Cache::tags([$this->liveTag($storeId)])->remember(
-            "store_{$storeId}_top_sellers",
+        return Cache::remember(
+            CacheVersion::key($this->liveTag($storeId), "store_{$storeId}_top_sellers"),
             now()->addMinutes(self::TOP_SELLERS_CACHE_MINUTES),
             function () use ($storeId) {
                 return $this->productRepo->getTopSellingProducts($storeId, 5)
@@ -120,13 +121,15 @@ class StoreStatisticService
             $cacheKey = "store_{$storeId}_weekly_revenue_{$weekStart->format('Y_m_d')}";
 
             if ($isCurrentWeek) {
-                $revenue = Cache::tags([$this->liveTag($storeId)])->remember(
-                    $cacheKey,
+                $revenue = Cache::remember(
+                    CacheVersion::key($this->liveTag($storeId), $cacheKey),
                     now()->addMinutes(self::CURRENT_WEEK_CACHE_MINUTES),
                     fn () => $this->orderRepo->getRevenueBetween($storeId, $weekStart, $weekEnd)
                 );
             } else {
-                $revenue = Cache::tags([$this->immutableTag($storeId)])->rememberForever(
+                // الأسابيع الماضية ثابتة ولا تُبطَل أبداً، لذا لا حاجة لربطها بنظام
+                // إصدارات الكاش (versioning) الخاص بالمجموعة الحية (liveTag)
+                $revenue = Cache::rememberForever(
                     $cacheKey,
                     fn () => $this->orderRepo->getRevenueBetween($storeId, $weekStart, $weekEnd)
                 );
@@ -146,10 +149,5 @@ class StoreStatisticService
     private function liveTag(int $storeId): string
     {
         return "store_{$storeId}_live_stats";
-    }
-
-    private function immutableTag(int $storeId): string
-    {
-        return "store_{$storeId}_weekly_immutable";
     }
 }
