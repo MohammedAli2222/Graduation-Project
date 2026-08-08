@@ -138,15 +138,31 @@ class DepartmentHeadService
         return $isUpdated;
     }
 
-    public function getDepartmentStatistics(int $departmentId): array
+    public function getDepartmentStatistics(int $departmentId, ?int $courseId = null): array
     {
-        $cacheKey = "department_{$departmentId}_statistics";
+        // إن تم تمرير معرف مقرر، نتحقق أنه موجود فعلاً وأنه تابع لنفس قسم رئيس
+        // القسم الحالي، لمنع الاطلاع على إحصائيات مقرر ينتمي لقسم آخر
+        if ($courseId !== null) {
+            $course = Course::find($courseId);
+
+            if (! $course) {
+                throw new Exception('المقرر الدراسي غير موجود.', 404);
+            }
+
+            if ($course->department_id !== $departmentId) {
+                throw new Exception('غير مصرح لك: هذا المقرر تابع لقسم آخر.', 403);
+            }
+        }
+
+        // مفتاح الكاش يتضمن معرف المقرر (أو 'all' في حال غيابه) حتى لا تُخلَط
+        // نتائج إحصائيات القسم كاملاً مع إحصائيات مقرر محدد ضمنه
+        $cacheKey = "department_{$departmentId}_statistics_course_" . ($courseId ?? 'all');
 
         return Cache::remember(
             CacheVersion::taggedKey(["department_{$departmentId}", 'statistics'], $cacheKey),
             now()->addMinutes(30),
-            function () use ($departmentId) {
-                $rawStats = $this->treatmentRepo->getDepartmentTreatmentStatistics($departmentId);
+            function () use ($departmentId, $courseId) {
+                $rawStats = $this->treatmentRepo->getDepartmentTreatmentStatistics($departmentId, $courseId);
                 $formattedStats = [];
                 $total = 0;
 

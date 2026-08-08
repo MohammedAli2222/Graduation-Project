@@ -55,7 +55,7 @@ class TreatmentRepository implements TreatmentRepositoryInterface
             ->find($treatmentId);
     }
 
-    public function getDepartmentTreatmentStatistics(int $departmentId): array
+    public function getDepartmentTreatmentStatistics(int $departmentId, ?int $courseId = null): array
     {
         return $this->model->newQuery()
 
@@ -66,6 +66,8 @@ class TreatmentRepository implements TreatmentRepositoryInterface
             ->join('courses', 'case_types.course_id', '=', 'courses.id')
 
             ->where('courses.department_id', $departmentId)
+            // تصفية اختيارية بمقرر محدد ضمن القسم نفسه؛ لا تُطبَّق إن لم يُمرَّر $courseId
+            ->when($courseId, fn ($q) => $q->where('courses.id', $courseId))
 
             ->groupBy('treatments.status')
 

@@ -1078,7 +1078,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Hod;
 
 use App\Http\Controllers\Controller;
-use App\Services\hod\DepartmentHeadService;
+use App\Services\Hod\DepartmentHeadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Log;
 use Exception;
@@ -1162,10 +1162,10 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Hod;
 
 use App\Http\Controllers\Controller;
-use App\Http\Requests\hod\StoreCaseTypeRequest;
-use App\Http\Requests\hod\UpdateCaseRequirementRequest;
-use App\Http\Resources\hod\CaseTypeResource;
-use App\Services\hod\DepartmentHeadService;
+use App\Http\Requests\Hod\StoreCaseTypeRequest;
+use App\Http\Requests\Hod\UpdateCaseRequirementRequest;
+use App\Http\Resources\Hod\CaseTypeResource;
+use App\Services\Hod\DepartmentHeadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -1330,7 +1330,7 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Hod;
 
 use App\Http\Controllers\Controller;
-use App\Services\hod\DepartmentHeadService;
+use App\Services\Hod\DepartmentHeadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -1381,8 +1381,8 @@ declare(strict_types=1);
 namespace App\Http\Controllers\Hod;
 
 use App\Http\Controllers\Controller;
-use App\Http\Resources\hod\TreatmentResource;
-use App\Services\hod\DepartmentHeadService;
+use App\Http\Resources\Hod\TreatmentResource;
+use App\Services\Hod\DepartmentHeadService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -3513,12 +3513,12 @@ class EnrollStudentCoursesRequest extends FormRequest
 
 
 =================================================
-File: app\Http\Requests\hod\StoreCaseTypeRequest.php
+File: app\Http\Requests\Hod\StoreCaseTypeRequest.php
 =================================================
 
 <?php
 
-namespace App\Http\Requests\hod;
+namespace App\Http\Requests\Hod;
 
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -3541,13 +3541,13 @@ class StoreCaseTypeRequest extends FormRequest
 
 
 =================================================
-File: app\Http\Requests\hod\UpdateCaseRequirementRequest.php
+File: app\Http\Requests\Hod\UpdateCaseRequirementRequest.php
 =================================================
 
 <?php
 
 
-namespace App\Http\Requests\hod;
+namespace App\Http\Requests\Hod;
 
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -4562,14 +4562,14 @@ class CourseResource extends JsonResource
 
 
 =================================================
-File: app\Http\Resources\hod\CaseTypeResource.php
+File: app\Http\Resources\Hod\CaseTypeResource.php
 =================================================
 
 <?php
 
 declare(strict_types=1);
 
-namespace App\Http\Resources\hod;
+namespace App\Http\Resources\Hod;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -4601,14 +4601,14 @@ class CaseTypeResource extends JsonResource
 
 
 =================================================
-File: app\Http\Resources\hod\TreatmentResource.php
+File: app\Http\Resources\Hod\TreatmentResource.php
 =================================================
 
 <?php
 
 declare(strict_types=1);
 
-namespace App\Http\Resources\hod;
+namespace App\Http\Resources\Hod;
 
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
@@ -7292,7 +7292,7 @@ declare(strict_types=1);
 namespace App\Observers;
 
 use App\Models\Category;
-use Illuminate\Support\Facades\Cache;
+use App\Support\CacheVersion;
 
 class CategoryObserver
 {
@@ -7313,15 +7313,7 @@ class CategoryObserver
 
     private function clearCache(): void
     {
-        // مخزن الكاش الحالي (CACHE_STORE=file) لا يدعم الوسوم (Tags)، وسيرمي
-        // BadMethodCallException عند استدعاء Cache::tags() مباشرة، مما كان يوقف
-        // أي عملية إنشاء/تعديل/حذف لفئة بأكملها. نتجاهل الاستثناء بأمان هنا لأن
-        // لا يوجد حالياً أي كود آخر يخزّن بيانات فعلية تحت الوسم 'categories'.
-        try {
-            Cache::tags(['categories'])->flush();
-        } catch (\BadMethodCallException) {
-            //
-        }
+        CacheVersion::bump('categories');
     }
 }
 
@@ -7574,9 +7566,9 @@ use App\Repositories\Contracts\TreatmentRepositoryInterface;
 use App\Repositories\Contracts\CaseTypeRepositoryInterface;
 use App\Repositories\Contracts\InstructorRepositoryInterface;
 use App\Repositories\Contracts\StudentMarketplaceRepositoryInterface;
-use App\Repositories\hod\TreatmentRepository;
-use App\Repositories\hod\CaseTypeRepository;
-use App\Repositories\hod\InstructorRepository;
+use App\Repositories\Hod\TreatmentRepository;
+use App\Repositories\Hod\CaseTypeRepository;
+use App\Repositories\Hod\InstructorRepository;
 use App\Repositories\StudentMarketplaceRepository;
 
 class RepositoryServiceProvider extends ServiceProvider
@@ -7941,7 +7933,7 @@ class BrowseStoreRepository implements BrowseStoreRepositoryInterface
         $page = Paginator::resolveCurrentPage();
         $cacheKey = "official_stores_per_page_{$perPage}_page_{$page}";
 
-        return Cache::tags(['stores', 'b2c'])->remember($cacheKey, 86400, function () use ($perPage) {
+        return Cache::remember($cacheKey, 86400, function () use ($perPage) {
             return $this->userModel->newQuery()
                 ->role('store_owner')
                 ->select(['id', 'first_name', 'last_name', 'email'])
@@ -7958,7 +7950,7 @@ class BrowseStoreRepository implements BrowseStoreRepositoryInterface
         $filterHash = md5(json_encode($filters));
         $cacheKey = "store_{$storeId}_products_per_page_{$perPage}_page_{$page}_filters_{$filterHash}";
 
-        return Cache::tags(['stores', 'b2c', "store_{$storeId}"])->remember($cacheKey, 86400, function () use ($storeId, $filters, $perPage) {
+        return Cache::remember($cacheKey, 86400, function () use ($storeId, $filters, $perPage) {
             return $this->productModel->newQuery()
                 ->where('store_id', $storeId)
                 ->where('availability_status', 'available')
@@ -8068,6 +8060,7 @@ declare(strict_types=1);
 namespace App\Repositories;
 
 use App\Models\Category;
+use App\Support\CacheVersion;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 
@@ -8081,8 +8074,8 @@ class CategoryRepository
 
     public function getDropdown(): Collection
     {
-        return Cache::tags([self::CACHE_TAG])->remember(
-            self::CACHE_KEY,
+        return Cache::remember(
+            CacheVersion::key(self::CACHE_TAG, self::CACHE_KEY),
             self::CACHE_TTL_SECONDS,
             fn () => Category::select('id', 'name')->get()
         );
@@ -8486,14 +8479,14 @@ class GroupRepository
 
 
 =================================================
-File: app\Repositories\hod\CaseTypeRepository.php
+File: app\Repositories\Hod\CaseTypeRepository.php
 =================================================
 
 <?php
 
 
 
-namespace App\Repositories\hod;
+namespace App\Repositories\Hod;
 
 use App\Enums\TreatmentStatus;
 use App\Models\CaseType;
@@ -8591,14 +8584,14 @@ class CaseTypeRepository implements CaseTypeRepositoryInterface
 
 
 =================================================
-File: app\Repositories\hod\InstructorRepository.php
+File: app\Repositories\Hod\InstructorRepository.php
 =================================================
 
 <?php
 
 declare(strict_types=1);
 
-namespace App\Repositories\hod;
+namespace App\Repositories\Hod;
 
 use App\Models\User;
 use App\Repositories\Contracts\InstructorRepositoryInterface;
@@ -8631,14 +8624,14 @@ class InstructorRepository implements InstructorRepositoryInterface
 
 
 =================================================
-File: app\Repositories\hod\TreatmentRepository.php
+File: app\Repositories\Hod\TreatmentRepository.php
 =================================================
 
 <?php
 
 declare(strict_types=1);
 
-namespace App\Repositories\hod;
+namespace App\Repositories\Hod;
 
 use App\Enums\TreatmentStatus;
 use App\Models\Treatment;
@@ -9277,7 +9270,7 @@ class StudentMarketplaceRepository implements StudentMarketplaceRepositoryInterf
         $filterHash = md5(json_encode($filters));
         $cacheKey = "student_products_per_page_{$perPage}_page_{$page}_filters_{$filterHash}";
 
-        return Cache::tags(['student_products', 'c2c'])->remember($cacheKey, 300, function () use ($filters, $perPage) {
+        return Cache::remember($cacheKey, 300, function () use ($filters, $perPage) {
             return $this->model->newQuery()
                 ->where('availability_status', 'available')
                 ->whereHas('seller', function ($query) {
@@ -9295,7 +9288,7 @@ class StudentMarketplaceRepository implements StudentMarketplaceRepositoryInterf
     {
         $cacheKey = "student_product_details_{$productId}";
 
-        return Cache::tags(['student_products', 'c2c', "student_product_{$productId}"])->remember($cacheKey, 300, function () use ($productId) {
+        return Cache::remember($cacheKey, 300, function () use ($productId) {
             return $this->model->newQuery()
                 ->where('availability_status', 'available')
                 ->with(['category', 'media', 'seller.studentProfile'])
@@ -9308,7 +9301,7 @@ class StudentMarketplaceRepository implements StudentMarketplaceRepositoryInterf
     {
         $cacheKey = "student_{$studentId}_other_products_exclude_{$excludeProductId}_limit_{$limit}";
 
-        return Cache::tags(['student_products', 'c2c', "student_product_{$excludeProductId}"])->remember($cacheKey, 300, function () use ($studentId, $excludeProductId, $limit) {
+        return Cache::remember($cacheKey, 300, function () use ($studentId, $excludeProductId, $limit) {
             return $this->model->newQuery()
                 ->where('store_id', $studentId)
                 ->where('availability_status', 'available')
@@ -10312,14 +10305,14 @@ class FirebaseNotificationService
 
 
 =================================================
-File: app\Services\hod\DepartmentHeadService.php
+File: app\Services\Hod\DepartmentHeadService.php
 =================================================
 
 <?php
 
 declare(strict_types=1);
 
-namespace App\Services\hod;
+namespace App\Services\Hod;
 
 use App\Enums\TreatmentStatus;
 use App\Events\InstructorDelegatedEvent;
@@ -10328,6 +10321,7 @@ use App\Models\Course;
 use App\Repositories\Contracts\TreatmentRepositoryInterface;
 use App\Repositories\Contracts\CaseTypeRepositoryInterface;
 use App\Repositories\Contracts\InstructorRepositoryInterface;
+use App\Support\CacheVersion;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -10346,8 +10340,8 @@ class DepartmentHeadService
     {
         $cacheKey = "department_{$departmentId}_completed_treatments_page_{$page}_limit_{$perPage}";
 
-        return Cache::tags(["department_{$departmentId}", 'treatments'])->remember(
-            $cacheKey,
+        return Cache::remember(
+            CacheVersion::taggedKey(["department_{$departmentId}", 'treatments'], $cacheKey),
             now()->addMinutes(15),
             fn() => $this->treatmentRepo->getOptimizedCompletedTreatments($departmentId, $perPage)
         );
@@ -10370,8 +10364,8 @@ class DepartmentHeadService
 
     public function getCaseTypesForDepartment(int $departmentId): Collection
     {
-        return Cache::tags(["department_{$departmentId}", 'case_types'])->remember(
-            "department_{$departmentId}_case_types",
+        return Cache::remember(
+            CacheVersion::taggedKey(["department_{$departmentId}", 'case_types'], "department_{$departmentId}_case_types"),
             now()->addHours(2),
             fn() => $this->caseTypeRepo->getCaseTypesByDepartment($departmentId)
         );
@@ -10403,7 +10397,7 @@ class DepartmentHeadService
             'required_count' => $data['required_count'] ?? 1,
         ]);
 
-        Cache::tags(["department_{$hodDepartmentId}", 'case_types'])->flush();
+        CacheVersion::bump("department_{$hodDepartmentId}", 'case_types');
 
         return $caseType;
     }
@@ -10427,7 +10421,7 @@ class DepartmentHeadService
         }
 
         if ($isDeleted) {
-            Cache::tags(["department_{$hodDepartmentId}", 'case_types'])->flush();
+            CacheVersion::bump("department_{$hodDepartmentId}", 'case_types');
         }
 
         return $isDeleted;
@@ -10448,7 +10442,7 @@ class DepartmentHeadService
         $isUpdated = $this->caseTypeRepo->updateRequiredCount($caseType, $newCount);
 
         if ($isUpdated) {
-            Cache::tags(["department_{$hodDepartmentId}", 'case_types'])->flush();
+            CacheVersion::bump("department_{$hodDepartmentId}", 'case_types');
         }
 
         return $isUpdated;
@@ -10458,8 +10452,8 @@ class DepartmentHeadService
     {
         $cacheKey = "department_{$departmentId}_statistics";
 
-        return Cache::tags(["department_{$departmentId}", 'statistics'])->remember(
-            $cacheKey,
+        return Cache::remember(
+            CacheVersion::taggedKey(["department_{$departmentId}", 'statistics'], $cacheKey),
             now()->addMinutes(30),
             function () use ($departmentId) {
                 $rawStats = $this->treatmentRepo->getDepartmentTreatmentStatistics($departmentId);
@@ -11105,6 +11099,7 @@ use App\Enums\OrderStatus;
 use App\Jobs\ExportStoreSalesReportJob;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\ProductRepositoryInterface;
+use App\Support\CacheVersion;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 
@@ -11143,13 +11138,13 @@ class StoreStatisticService
 
     public function invalidateLiveCache(int $storeId): void
     {
-        Cache::tags([$this->liveTag($storeId)])->flush();
+        CacheVersion::bump($this->liveTag($storeId));
     }
 
     private function getOrderMetrics(int $storeId): array
     {
-        $counts = Cache::tags([$this->liveTag($storeId)])->remember(
-            "store_{$storeId}_order_status_counts",
+        $counts = Cache::remember(
+            CacheVersion::key($this->liveTag($storeId), "store_{$storeId}_order_status_counts"),
             now()->addMinutes(self::LIVE_CACHE_MINUTES),
             fn () => $this->orderRepo->getOrderStatusCounts($storeId)
         );
@@ -11166,8 +11161,8 @@ class StoreStatisticService
 
     private function getFinancialMetrics(int $storeId): array
     {
-        return Cache::tags([$this->liveTag($storeId)])->remember(
-            "store_{$storeId}_revenue_summary",
+        return Cache::remember(
+            CacheVersion::key($this->liveTag($storeId), "store_{$storeId}_revenue_summary"),
             now()->addMinutes(self::LIVE_CACHE_MINUTES),
             fn () => $this->orderRepo->getRevenueSummary($storeId)
         );
@@ -11175,8 +11170,8 @@ class StoreStatisticService
 
     private function getInventoryMetrics(int $storeId): array
     {
-        $lowStockCount = Cache::tags([$this->liveTag($storeId)])->remember(
-            "store_{$storeId}_low_stock_count",
+        $lowStockCount = Cache::remember(
+            CacheVersion::key($this->liveTag($storeId), "store_{$storeId}_low_stock_count"),
             now()->addMinutes(self::LIVE_CACHE_MINUTES),
             fn () => $this->productRepo->countLowStockProducts($storeId, self::LOW_STOCK_THRESHOLD)
         );
@@ -11186,8 +11181,8 @@ class StoreStatisticService
 
     private function getTopSellers(int $storeId): array
     {
-        return Cache::tags([$this->liveTag($storeId)])->remember(
-            "store_{$storeId}_top_sellers",
+        return Cache::remember(
+            CacheVersion::key($this->liveTag($storeId), "store_{$storeId}_top_sellers"),
             now()->addMinutes(self::TOP_SELLERS_CACHE_MINUTES),
             function () use ($storeId) {
                 return $this->productRepo->getTopSellingProducts($storeId, 5)
@@ -11217,13 +11212,15 @@ class StoreStatisticService
             $cacheKey = "store_{$storeId}_weekly_revenue_{$weekStart->format('Y_m_d')}";
 
             if ($isCurrentWeek) {
-                $revenue = Cache::tags([$this->liveTag($storeId)])->remember(
-                    $cacheKey,
+                $revenue = Cache::remember(
+                    CacheVersion::key($this->liveTag($storeId), $cacheKey),
                     now()->addMinutes(self::CURRENT_WEEK_CACHE_MINUTES),
                     fn () => $this->orderRepo->getRevenueBetween($storeId, $weekStart, $weekEnd)
                 );
             } else {
-                $revenue = Cache::tags([$this->immutableTag($storeId)])->rememberForever(
+                // الأسابيع الماضية ثابتة ولا تُبطَل أبداً، لذا لا حاجة لربطها بنظام
+                // إصدارات الكاش (versioning) الخاص بالمجموعة الحية (liveTag)
+                $revenue = Cache::rememberForever(
                     $cacheKey,
                     fn () => $this->orderRepo->getRevenueBetween($storeId, $weekStart, $weekEnd)
                 );
@@ -11243,11 +11240,6 @@ class StoreStatisticService
     private function liveTag(int $storeId): string
     {
         return "store_{$storeId}_live_stats";
-    }
-
-    private function immutableTag(int $storeId): string
-    {
-        return "store_{$storeId}_weekly_immutable";
     }
 }
 
@@ -12374,6 +12366,60 @@ class SellerProductService
         }
     }
 }
+
+=================================================
+File: app\Support\CacheVersion.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Support;
+
+use Illuminate\Support\Facades\Cache;
+
+/**
+ * يحاكي إبطال الكاش بالوسوم (Cache::tags) على مخازن لا تدعمها مثل file/database
+ * (المستخدَمة حالياً في الاستضافة لعدم توفر Redis)، عبر رقم إصدار لكل مجموعة:
+ * كل مفتاح كاش يتضمن رقم الإصدار الحالي لمجموعاته، وإبطال مجموعة بأكملها يتم
+ * بزيادة رقم إصدارها بدلاً من حذف كل مفتاح على حدة كما تفعل Cache::tags()->flush().
+ */
+final class CacheVersion
+{
+    public static function key(string $group, string $cacheKey): string
+    {
+        return self::taggedKey([$group], $cacheKey);
+    }
+
+    /**
+     * @param  array<int, string>  $groups
+     */
+    public static function taggedKey(array $groups, string $cacheKey): string
+    {
+        $versions = array_map(static fn (string $group) => self::current($group), $groups);
+
+        return $cacheKey.':v'.implode('_', $versions);
+    }
+
+    public static function bump(string ...$groups): void
+    {
+        foreach ($groups as $group) {
+            Cache::forever(self::versionKey($group), self::current($group) + 1);
+        }
+    }
+
+    private static function current(string $group): int
+    {
+        return (int) Cache::get(self::versionKey($group), 1);
+    }
+
+    private static function versionKey(string $group): string
+    {
+        return "cache_version:{$group}";
+    }
+}
+
 
 =================================================
 File: database/migrations\0001_01_01_000000_create_users_table.php
