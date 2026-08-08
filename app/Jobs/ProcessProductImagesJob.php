@@ -18,10 +18,6 @@ class ProcessProductImagesJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /**
-     * @param int $productId معرف المنتج
-     * @param array $tempPaths مسارات الصور المؤقتة
-     */
     public function __construct(
         public int $productId,
         public array $tempPaths

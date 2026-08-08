@@ -46,7 +46,6 @@ class Appointment extends Model
 
     public function getSlotTimeRange(): string
     {
-        // تعريف الأوقات لكل سلوت
         $slotDefinitions = [
             1 => '08:00 AM - 10:00 AM',
             2 => '10:30 AM - 12:30 PM',

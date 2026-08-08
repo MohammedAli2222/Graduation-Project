@@ -18,17 +18,12 @@ class StudentSellerBrowseController extends Controller
         protected StudentMarketplaceService $marketplaceService
     ) {}
 
-    /**
-     * عرض جميع الأدوات المعروضة للبيع من قبل الطلاب فقط.
-     */
     public function index(Request $request): JsonResponse
     {
         try {
             $perPage = (int) $request->query('per_page', 15);
-            // 1. استقبال الفلاتر
             $filters = $request->only(['search', 'category_id', 'condition']);
 
-            // 2. تمرير الفلاتر للخدمة
             $products = $this->marketplaceService->getAllStudentProducts($filters, $perPage);
 
             $paginatedData = ProductResource::collection($products)->response()->getData(true);
@@ -40,16 +35,11 @@ class StudentSellerBrowseController extends Controller
         }
     }
 
-    /**
-     * عرض تفاصيل أداة محددة لطالب مع اقتراح أدوات أخرى تابعة لنفس الزميل.
-     */
     public function show(int $productId): JsonResponse
     {
         try {
-            // جلب المصفوفة التي تحتوي على المنتج الأساسي والمنتجات الأخرى عبر الخدمة
             $result = $this->marketplaceService->getProductWithSellerOthers($productId);
 
-            // تجهيز البيانات بالشكل المطلوب
             $responseData = [
                 'product'        => new ProductResource($result['product']),
                 'other_products' => ProductResource::collection($result['other_products']),

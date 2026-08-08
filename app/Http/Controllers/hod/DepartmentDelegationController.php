@@ -12,18 +12,10 @@ use Exception;
 
 class DepartmentDelegationController extends Controller
 {
-    /**
-     * حقن خدمة رئيس القسم.
-     */
     public function __construct(
         protected DepartmentHeadService $hodService
     ) {}
 
-    /**
-     * استعراض قائمة المعيدين ليتمكن رئيس القسم من تفويضهم.
-     *
-     * @return JsonResponse
-     */
     public function instructorsList(): JsonResponse
     {
         try {
@@ -40,12 +32,6 @@ class DepartmentDelegationController extends Controller
         }
     }
 
-    /**
-     * منح صلاحية استعراض الحالات لمعيد محدد.
-     *
-     * @param int $instructorId
-     * @return JsonResponse
-     */
     public function grantPermission(int $instructorId): JsonResponse
     {
         try {
@@ -68,12 +54,6 @@ class DepartmentDelegationController extends Controller
         }
     }
 
-    /**
-     * سحب صلاحية استعراض الحالات من معيد محدد.
-     *
-     * @param int $instructorId
-     * @return JsonResponse
-     */
     public function revokePermission(int $instructorId): JsonResponse
     {
         try {

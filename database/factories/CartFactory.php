@@ -18,7 +18,6 @@ class CartFactory extends Factory
     public function definition(): array
     {
         return [
-            // سيتم تمرير الـ student_id من الـ Seeder
             'student_id' => User::factory()->student(),
         ];
     }

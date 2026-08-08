@@ -11,29 +11,16 @@ use App\Repositories\Contracts\ProductRepositoryInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 
-/**
- * خدمة إحصائيات لوحة تحكم صاحب المتجر. تُطبِّق إستراتيجية تخزين مؤقت متقدمة
- * ومتمايزة حسب "مدى تقلّب" كل بيان: بيانات حيّة (تتغير مع كل طلب جديد) مقابل
- * بيانات أسابيع ماضية ثابتة (immutable) لا يمكن أن تتغير مستقبلاً إطلاقاً.
- */
 class StoreStatisticService
 {
-    // عدد الأسابيع المعروضة في مخطط الإيراد الأسبوعي (شاملاً الأسبوع الحالي)
     private const WEEKS_IN_CHART = 8;
 
-    // الحد الأدنى للكمية الذي يُعتبر تحته المنتج "منخفض المخزون"
     private const LOW_STOCK_THRESHOLD = 5;
 
-    // مدة تخزين مؤقت للبيانات "الحية" (عدد الطلبات، الإيرادات، المخزون)
-    // التي تتغير مع كل طلب جديد أو مكتمل
     private const LIVE_CACHE_MINUTES = 10;
 
-    // مدة أقصر خصيصاً لإيراد الأسبوع الحالي: هذا الأسبوع لا يزال "مفتوحاً"
-    // وقد تكتمل طلبات جديدة ضمنه في أي لحظة، على عكس الأسابيع المنتهية
     private const CURRENT_WEEK_CACHE_MINUTES = 5;
 
-    // استعلام أفضل المنتجات مبيعاً أثقل نسبياً (JOIN مزدوج + GROUP BY)
-    // فيستحق مدة تخزين مؤقت أطول من بقية البيانات الحية
     private const TOP_SELLERS_CACHE_MINUTES = 60;
 
     public function __construct(
@@ -41,10 +28,6 @@ class StoreStatisticService
         protected ProductRepositoryInterface $productRepo,
     ) {}
 
-    /**
-     * جلب لوحة إحصائيات المتجر الكاملة. كل قسم مُخزَّن مؤقتاً بشكل مستقل
-     * وبإستراتيجية TTL مختلفة حسب طبيعة بياناته (راجع تعليقات كل دالة أدناه).
-     */
     public function getDashboardStatistics(int $storeId): array
     {
         return [
@@ -56,32 +39,16 @@ class StoreStatisticService
         ];
     }
 
-    /**
-     * إطلاق مهمة تصدير تقرير المبيعات في الخلفية (Queue) والعودة فوراً —
-     * الـ Controller لا ينتظر انتهاء المهمة إطلاقاً (Non-blocking I/O).
-     */
     public function triggerSalesReportExport(int $storeId): void
     {
         ExportStoreSalesReportJob::dispatch($storeId);
     }
 
-    /**
-     * إبطال (Invalidate) كل التخزين المؤقت "الحي" لمتجر معيّن. يجب استدعاؤها
-     * فور أي عملية تُغيّر حالة طلب أو كمية منتج (مثال جاهز: تم ربطها في
-     * StoreOrderService::updateOrderStatus() بعد كل تحديث ناجح لحالة الطلب).
-     *
-     * لا تُبطل عمداً بيانات الأسابيع الماضية الثابتة (وسم منفصل تماماً)،
-     * لأن اكتمال طلب اليوم لا يُغيّر أبداً إيراد أسبوع مضى وانتهى فعلياً.
-     */
     public function invalidateLiveCache(int $storeId): void
     {
         Cache::tags([$this->liveTag($storeId)])->flush();
     }
 
-    /**
-     * عدد الطلبات لكل حالة + الإجمالي، عبر استعلام SQL مجمّع واحد (GROUP BY)
-     * مُخزَّن مؤقتاً لأنه يفحص جدول orders بالكامل لمتجر معيّن.
-     */
     private function getOrderMetrics(int $storeId): array
     {
         $counts = Cache::tags([$this->liveTag($storeId)])->remember(
@@ -100,10 +67,6 @@ class StoreStatisticService
         ];
     }
 
-    /**
-     * إجمالي الإيرادات ومتوسط قيمة الطلب (AOV)، من الطلبات المكتملة فقط،
-     * عبر استعلام SUM/AVG واحد مُخزَّن مؤقتاً.
-     */
     private function getFinancialMetrics(int $storeId): array
     {
         return Cache::tags([$this->liveTag($storeId)])->remember(
@@ -113,10 +76,6 @@ class StoreStatisticService
         );
     }
 
-    /**
-     * عدد المنتجات منخفضة المخزون (quantity < 5)، مُخزَّن مؤقتاً لتفادي
-     * إعادة فحص جدول المنتجات بالكامل مع كل تحميل للوحة التحكم.
-     */
     private function getInventoryMetrics(int $storeId): array
     {
         $lowStockCount = Cache::tags([$this->liveTag($storeId)])->remember(
@@ -128,12 +87,6 @@ class StoreStatisticService
         return ['low_stock_count' => $lowStockCount];
     }
 
-    /**
-     * أفضل 5 منتجات مبيعاً — استعلام JOIN مزدوج نسبياً "ثقيل"، لذا يُخزَّن
-     * مؤقتاً لمدة أطول (ساعة) من بقية البيانات الحية. القيمة المُعادة مصفوفة
-     * عادية (وليست Eloquent Collection) عمداً لتبقى بيانات التخزين المؤقت
-     * خفيفة وبسيطة التسلسل (Serialization) عبر Redis.
-     */
     private function getTopSellers(int $storeId): array
     {
         return Cache::tags([$this->liveTag($storeId)])->remember(
@@ -154,20 +107,6 @@ class StoreStatisticService
         );
     }
 
-    /**
-     * *** إستراتيجية التخزين المؤقت المتقدمة (النقطة الحرجة في المتطلبات) ***
-     *
-     * لكل أسبوع من الأسابيع الثمانية الماضية:
-     * - إن كان أسبوعاً "منتهياً" (وليس الأسبوع الحالي): إيراده رقم ثابت لن
-     *   يتغيّر أبداً في المستقبل (لا يمكن لأي طلب أن "يكتمل" بأثر رجعي ضمن
-     *   أسبوع انتهى فعلياً) → يُخزَّن مؤقتاً بشكل دائم (rememberForever)
-     *   بمفتاح فريد لكل أسبوع (يتضمن تاريخ بدايته)، تحت وسم Immutable منفصل
-     *   تماماً لا يمسّه invalidateLiveCache() أبداً. بعد أول حساب له لن يُعاد
-     *   الاستعلام من قاعدة البيانات مرة أخرى إطلاقاً.
-     * - أما الأسبوع الحالي (لا يزال مفتوحاً لاستقبال طلبات مكتملة جديدة في
-     *   أي لحظة) فيُخزَّن مؤقتاً لمدة قصيرة جداً (5 دقائق) فقط، تحت وسم
-     *   البيانات الحية القابل للإبطال.
-     */
     private function getWeeklyRevenueChart(int $storeId): array
     {
         $weeks = [];
@@ -204,21 +143,11 @@ class StoreStatisticService
         return $weeks;
     }
 
-    /**
-     * وسم (Tag) البيانات "الحية" المتقلبة لمتجر معيّن — يُستخدم كوحدة إبطال
-     * واحدة عبر invalidateLiveCache(). مُعرَّف بمعزل تام عن وسم البيانات
-     * الثابتة كي لا يتأثر أحدهما بإبطال الآخر.
-     */
     private function liveTag(int $storeId): string
     {
         return "store_{$storeId}_live_stats";
     }
 
-    /**
-     * وسم منفصل تماماً لإيراد الأسابيع المنتهية الثابتة — لا يُستدعى عليه
-     * flush() إطلاقاً من أي عملية تحديث عادية في التطبيق، فهذه البيانات
-     * لا "تنتهي صلاحيتها" منطقياً أبداً.
-     */
     private function immutableTag(int $storeId): string
     {
         return "store_{$storeId}_weekly_immutable";

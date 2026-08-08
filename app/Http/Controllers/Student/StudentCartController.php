@@ -19,9 +19,6 @@ class StudentCartController extends Controller
         protected StudentCartService $cartService
     ) {}
 
-    /**
-     * استعراض سلة المشتريات الخاصة بالطالب.
-     */
     
     public function show(): JsonResponse
     {
@@ -38,9 +35,6 @@ class StudentCartController extends Controller
         }
     }
 
-    /**
-     * إضافة منتج إلى السلة.
-     */
     public function add(AddToCartRequest $request): JsonResponse
     {
         try {
@@ -54,20 +48,15 @@ class StudentCartController extends Controller
                 (int) $validated['quantity']
             );
 
-            // جلب السلة المحدثة لعرضها في الرد
             $cart = $this->cartService->getMyCart($user->id);
 
             return response_success(new CartResource($cart), 200, 'تمت إضافة المنتج للسلة بنجاح.');
         } catch (Exception $e) {
-            // التعامل مع الخطأ 409 (اختلاف المتجر) الذي هندسناه مسبقاً
             $statusCode = in_array($e->getCode(), [404, 409]) ? $e->getCode() : 500;
             return response_error(null, $statusCode, $e->getMessage());
         }
     }
 
-    /**
-     * إزالة منتج من السلة.
-     */
     public function remove(int $cartItemId): JsonResponse
     {
         try {
@@ -82,9 +71,6 @@ class StudentCartController extends Controller
         }
     }
 
-    /**
-     * تحديث كمية عنصر في السلة.
-     */
     public function updateQuantity(\App\Http\Requests\Student\UpdateCartItemRequest $request, int $cartItemId): JsonResponse
     {
         try {
@@ -107,9 +93,6 @@ class StudentCartController extends Controller
         }
     }
 
-    /**
-     * إفراغ السلة بالكامل.
-     */
     public function clear(): JsonResponse
     {
         try {

@@ -19,9 +19,6 @@ use Exception;
 
 class StoreProductController extends Controller
 {
-    /**
-     * حقن الخدمة الموحدة ومستودع الفئات.
-     */
     public function __construct(
         protected SellerProductService $productService,
         protected CategoryRepository $categoryRepo
@@ -35,14 +32,10 @@ class StoreProductController extends Controller
 
             $perPage = (int) $request->query('per_page', 15);
 
-            // بناء مصفوفة الفلاتر من الـ Query Parameters فقط عند إرسالها فعلياً
-            // (وليس مجرد فحص وجود المفتاح)، حتى لا يُطبَّق فلتر بقيمة فارغة
             $filters = [];
             $availabilityStatus = $request->query('availability_status');
 
             if ($availabilityStatus !== null) {
-                // تحقق صارم من أن القيمة المرسلة إحدى قيم Enum الفعلية
-                // (available/limited/out_of_stock) قبل تمريرها للطبقات الأعمق
                 if (ProductAvailability::tryFrom($availabilityStatus) === null) {
                     return response_error(null, 422, 'قيمة availability_status غير صالحة.');
                 }
@@ -149,7 +142,6 @@ class StoreProductController extends Controller
 
     public function getCategoriesDropdown(): JsonResponse
     {
-        // القراءة تمر عبر المستودع الذي يتكفّل بالكاش داخلياً (24 ساعة) بدل ضرب القاعدة مباشرة
         $categories = $this->categoryRepo->getDropdown();
         return response_success($categories, 200, 'تم جلب الفئات بنجاح.');
     }

@@ -24,23 +24,8 @@ use Illuminate\Support\Collection;
 use RuntimeException;
 use Spatie\Permission\Models\Role;
 
-/**
- * يُنشئ بيانات تجريبية غنية لاختبار لوحة تحكم "رئيس القسم" (department_head):
- * رئيس قسم واحد مرتبط فعلياً بقسم حقيقي (غير المُتأثر بخطأ عدم تطابق أسماء
- * الأقسام في UserSeeder)، معيدون، طلاب مسجّلون بمقررات القسم، أنواع حالات
- * سريرية، ومرضى/تشخيصات/معالجات/مواعيد بحالات متنوعة تكفي لاختبار الترقيم
- * (Pagination)، الفلاتر، والإحصائيات على مسارات /api/hod/* الفعلية.
- *
- * الاعتماديات: RoleSeeder و DepartmentAndCourseSeeder (أو تشغيل php artisan db:seed
- * الكامل) يجب أن يكونا قد نُفِّذا قبل هذا الـ Seeder.
- *
- * التشغيل: php artisan db:seed --class="Database\Seeders\HeadOfDepartmentSeeder"
- */
 class HeadOfDepartmentSeeder extends Seeder
 {
-    // "قسم المداواة" هو القسم الأغنى بالمقررات (6 مقررات)، وهو غير مُسنَد لأي
-    // رئيس قسم حالياً بسبب خطأ تطابق الأسماء في UserSeeder ('قسم المداواة والترميم'
-    // لا يطابق الاسم الحقيقي 'قسم المداواة') — لذا هو هدف آمن لا يصطدم بالقيد الفريد.
     private const TARGET_DEPARTMENT_NAME = 'قسم المداواة';
 
     private const HEAD_EMAIL = 'head.demo@dentsyria.edu.sy';
@@ -48,8 +33,6 @@ class HeadOfDepartmentSeeder extends Seeder
     private const STUDENT_COUNT = 25;
     private const PATIENT_COUNT = 50;
 
-    // الحد الأدنى المضمون من المعالجات "المكتملة" لضمان تجاوز صفحة الـ 15 عنصر
-    // الافتراضية في /hod/completed-treatments (اختبار حقيقي للـ Pagination).
     private const GUARANTEED_COMPLETED_TREATMENTS = 20;
 
     private const CASE_TYPE_NAMES = [
@@ -290,8 +273,6 @@ class HeadOfDepartmentSeeder extends Seeder
             default => AppointmentStatus::SCHEDULED->value,
         };
 
-        // إعادة محاولة عند الاصطدام بالقيد الفريد student_daily_slot_unique
-        // (student_id + appointment_date + slot_number) بسبب التاريخ/السلوت العشوائيين.
         for ($attempt = 0; $attempt < 5; $attempt++) {
             try {
                 Appointment::factory()->create([
@@ -324,13 +305,6 @@ class HeadOfDepartmentSeeder extends Seeder
         };
     }
 
-    /**
-     * توزيع ثابت (وليس عشوائياً بالكامل) لحالات التشخيص عبر مرضى القسم، لضمان
-     * وجود عدد كافٍ من التشخيصات المؤهلة لإنشاء معالجات (converted/finished)
-     * بغض النظر عن نتيجة العشوائية — راجع GUARANTEED_COMPLETED_TREATMENTS أعلاه.
-     *
-     * @return array<int, string>
-     */
     private function buildDiagnosisStatusPool(int $count): array
     {
         $pool = [

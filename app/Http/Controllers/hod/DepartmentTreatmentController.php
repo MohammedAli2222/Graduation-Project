@@ -15,19 +15,10 @@ use Exception;
 
 class DepartmentTreatmentController extends Controller
 {
-    /**
-     * حقن خدمة رئيس القسم.
-     */
     public function __construct(
         protected DepartmentHeadService $hodService
     ) {}
 
-    /**
-     * استعراض المعالجات المنجزة بأقصى أداء (متاح لـ HOD وللمعيد المفوض).
-     *
-     * @param Request $request
-     * @return JsonResponse
-     */
     public function completedTreatments(Request $request): JsonResponse
     {
         try {
@@ -64,9 +55,6 @@ class DepartmentTreatmentController extends Controller
         }
     }
 
-    /**
-     * تفاصيل معالجة واحدة كاملة (رئيس القسم فقط): الطالب، المعيد المشرف، نوع الحالة، إلخ.
-     */
     public function show(int $treatmentId): JsonResponse
     {
         try {

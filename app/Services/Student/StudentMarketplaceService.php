@@ -13,9 +13,6 @@ class StudentMarketplaceService
         protected StudentMarketplaceRepositoryInterface $repository
     ) {}
 
-    /**
-     * جلب جميع الأدوات المعروضة في سوق الطلاب.
-     */
   public function getAllStudentProducts(array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
         return $this->repository->getAllStudentProducts($filters, $perPage);

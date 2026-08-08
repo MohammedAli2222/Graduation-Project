@@ -8,15 +8,11 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * تشغيل التهجير وإنشاء الجداول مع الفهارس المحسنة.
-     */
     public function up(): void
     {
         Schema::create('products', function (Blueprint $table) {
             $table->id();
 
-            // المفاتيح الأجنبية (تقوم Laravel بإنشاء فهارس لها تلقائياً بسبب استخدام constrained)
             $table->foreignId('store_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('category_id')->constrained('categories')->restrictOnDelete();
 
@@ -27,7 +23,6 @@ return new class extends Migration
 
             $table->string('brand')->nullable();
 
-            // حالات المنتج باستخدام الـ Enums
             $table->enum('availability_status', array_column(ProductAvailability::cases(), 'value'))
                 ->default(ProductAvailability::AVAILABLE->value);
 
@@ -46,9 +41,6 @@ return new class extends Migration
         });
     }
 
-    /**
-     * التراجع عن التهجير.
-     */
     public function down(): void
     {
         Schema::dropIfExists('products');

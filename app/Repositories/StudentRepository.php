@@ -10,22 +10,14 @@ use App\Models\StudentProfile;
 
 class StudentRepository
 {
-    /**
-     * 1️⃣ جلب المواد المخصصة لفصل محدد وسنة محددة بالظبط
-     * (لأننا صرنا بحاجتها بفصل مواد الـ Semester 1 عن الـ Semester 2)
-     */
     public function getCourseIdsByLevel(int $year, int $semester): array
     {
         return Course::where('year', $year)
             ->where('semester', $semester)
             ->pluck('id')
-            ->toArray(); // ⚡ جلب مصفوفة الأرقام فقط، خفيف جداً على الذاكرة وسريع
+            ->toArray();
     }
 
-    /**
-     * 2️⃣ جلب كل المواد المتاحة بناءً على شرط السنة والفصل الأكاديمي (القديمة)
-     * تركناها في حال احتجتها بأماكن تانية بالسيستم
-     */
     public function getAvailableCoursesByLevel(int $year, int $semester)
     {
         return Course::with('department')
@@ -38,9 +30,6 @@ class StudentRepository
             })->get();
     }
 
-    /**
-     * 3️⃣ البحث عن تسجيل مادة محددة لطالب محدد
-     */
     public function findExistingEnrollment(int $studentId, int $courseId)
     {
         return StudentCourseEnrollment::where('student_id', $studentId)
@@ -48,9 +37,6 @@ class StudentRepository
             ->first();
     }
 
-    /**
-     * 4️⃣ إنشاء سطر تسجيل جديد لأول مرة
-     */
     public function createEnrollment(array $data)
     {
         return StudentCourseEnrollment::create($data);
@@ -83,7 +69,6 @@ class StudentRepository
             })
             ->get();
 
-        // التقسيم
         return [
             'current' => $allEligible->filter(function ($ct) use ($studentYear, $studentSemester) {
                 return $ct->year == $studentYear && $ct->semester == $studentSemester;

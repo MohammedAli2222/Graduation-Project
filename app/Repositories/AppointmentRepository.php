@@ -16,15 +16,8 @@ use Illuminate\Support\Facades\Cache;
 
 class AppointmentRepository
 {
-    /**
-     * مدة كاش الإعدادات الثابتة للقسم (كعدد الكراسي)، لأنها بيانات نادرة التغيير.
-     */
-    private const DEPARTMENT_CONFIG_CACHE_TTL_SECONDS = 86400; // 24 ساعة
+    private const DEPARTMENT_CONFIG_CACHE_TTL_SECONDS = 86400;
 
-    /**
-     * جلب بيانات القسم (خاصة total_chairs) من الكاش بدل قاعدة البيانات في كل عملية حجز،
-     * لأن هذا الاستعلام يُنفَّذ على كل محاولة حجز موعد (hasConflict) وبيانات القسم شبه ثابتة.
-     */
     private function getCachedDepartment(int $departmentId): ?Department
     {
         return Cache::remember(
@@ -110,19 +103,17 @@ class AppointmentRepository
                 'diagnosis.patient:id,full_name,phone',
                 'diagnosis.department:id,name'
             ])
-            ->orderBy('appointment_date', 'asc') // ترتيب حسب التاريخ
-            ->orderBy('slot_number', 'asc')      // ترتيب حسب السلوت
+            ->orderBy('appointment_date', 'asc')
+            ->orderBy('slot_number', 'asc')
             ->paginate(10);
     }
 
     public function getStudentAppointmentHistory(int $studentId)
     {
-        // نحدد التاريخ الحالي بتوقيت دمشق
         $today = Carbon::now('Asia/Damascus')->format('Y-m-d');
 
         return Appointment::where('student_id', $studentId)
             ->where(function ($query) use ($studentId, $today) {
-                // الحالة 1: المواعيد التي انتهت فعلياً (حضور أو إلغاء)
                 $query->whereNotIn('status', [AppointmentStatus::SCHEDULED->value])
                     ->orWhere(function ($q) use ($studentId, $today) {
                         $q->where('student_id', $studentId)

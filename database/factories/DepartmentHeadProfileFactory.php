@@ -22,10 +22,6 @@ class DepartmentHeadProfileFactory extends Factory
         return [
             'user_id' => User::factory(),
 
-            // department_id فريد (رئيس واحد لكل قسم)، لذا نختار قسماً لم يُسنَد له
-            // رئيس بعد بدلاً من إنشاء قسم جديد في كل مرة أو الاصطدام بالقيد الفريد.
-            // لا نستخدم علاقة Department::departmentHeadProfile() لأنها معرّفة بمفتاح
-            // أجنبي خاطئ (user_id بدل department_id) في app/Models/Department.php.
             'department_id' => Department::query()
                 ->whereNotIn('id', DepartmentHeadProfile::query()->pluck('department_id'))
                 ->inRandomOrder()

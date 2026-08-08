@@ -33,7 +33,6 @@ class StartTreatmentAction
 
     public function execute(array $data): mixed
     {
-        // جلب الموعد مع قفل للبيانات لضمان عدم حدوث تضارب
         $appointment = Appointment::where('id', $data['appointment_id'])->lockForUpdate()->first();
 
         if (! $appointment) {
@@ -94,7 +93,6 @@ class StartTreatmentAction
             'status' => AppointmentStatus::ATTENDED->value,
         ]);
 
-        // تحديث حالة التشخيص
         $appointment->diagnosis()->update([
             'status' => DiagnosisStatus::CONVERTED_TO_TREATMENT->value,
         ]);
@@ -122,7 +120,6 @@ class StartTreatmentAction
             throw new Exception('Treatment can only be started on the scheduled date: ' . $appointmentDate->format('Y-m-d'));
         }
 
-        // أوقات السلوتس الثابتة
         $slotTimes = [
             1 => ['start' => '08:00', 'end' => '10:00'],
             2 => ['start' => '10:30', 'end' => '12:30'],
@@ -137,7 +134,6 @@ class StartTreatmentAction
         $startTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->slot_number]['start'], 'Asia/Damascus');
         $endTime = Carbon::createFromFormat('H:i', $slotTimes[$appointment->slot_number]['end'], 'Asia/Damascus');
 
-        // // السماح بالبدء من بداية السلوت وحتى نهايته
         // if ($now->lessThan($startTime) || $now->greaterThan($endTime)) {
         //     throw new Exception("Treatment can only be started between {$slotTimes[$appointment->slot_number]['start']} and {$slotTimes[$appointment->slot_number]['end']}.");
         // }

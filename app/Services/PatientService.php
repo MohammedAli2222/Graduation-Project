@@ -26,7 +26,6 @@ class PatientService
     {
         return DB::transaction(function () use ($data, $files, $diagnosisData) {
 
-            // 1. إنشاء المريض الأساسي
             $patientData = [
                 'full_name'    => $data['full_name'],
                 'gender'       => $data['gender'],
@@ -40,7 +39,6 @@ class PatientService
 
             $patient = $this->repository->create($patientData);
 
-            // 2. إنشاء التاريخ الطبي المرتبط بالمريض
             $patient->medicalHistory()->create([
                 'has_general_diseases'     => $data['has_general_diseases'],
                 'general_diseases_details' => $data['general_diseases_details'] ?? null,
@@ -53,16 +51,13 @@ class PatientService
                 'is_pregnant'              => $data['gender'] === 'female' ? filter_var($data['is_pregnant'] ?? false, FILTER_VALIDATE_BOOLEAN) : null,
             ]);
 
-            // 3. رفع صورة الهوية (مشتركة للجميع)
             if (isset($files['id_card'])) {
                 $this->mediaService->upload($patient, $files['id_card'], 'id_cards');
             }
 
-            // 4. منطق معالجة الصور حسب الدور
             $user = auth()->user();
 
             if ($user->hasRole('receptionist')) {
-                // استقبال: الصور ترفع مباشرة على المريض
                 if (isset($files['clinical_images'])) {
                     foreach ($files['clinical_images'] as $image) {
                         $this->mediaService->upload($patient, $image, 'clinical_images');
@@ -74,14 +69,12 @@ class PatientService
                     }
                 }
             } elseif ($user->hasRole('student') && !empty($diagnosisData['case_type_ids'])) {
-                // طالب: الصور ترفع لكل تشخيص على حدة
                 $student = $user->studentProfile;
 
                 foreach ($diagnosisData['case_type_ids'] as $index => $caseTypeId) {
                     $caseType = CaseType::with('course')->findOrFail($caseTypeId);
                     $course = $caseType->course;
 
-                    // التحقق من الصلاحية الأكاديمية
                     $studentYear = (int) $student->academic_year;
                     $studentSemester = (int) $student->semester;
                     $isAllowed = ($course->year < $studentYear) || ($course->year == $studentYear && $course->semester <= $studentSemester);
@@ -98,7 +91,6 @@ class PatientService
                         'estimated_cost' => $diagnosisData['estimated_costs'][$index] ?? 0,
                     ]);
 
-                    // رفع الصور للتشخيص الخاص بالطالب
                     if (isset($files['clinical_images'][$index])) {
                         $this->mediaService->upload($diagnosis, $files['clinical_images'][$index], 'clinical_images');
                     }
@@ -116,10 +108,8 @@ class PatientService
     {
         return DB::transaction(function () use ($patientId, $data, $files) {
 
-            // 1. جلب المريض الحالي، مع رمي استثناء إن لم يكن موجوداً
             $patient = $this->repository->FindOrFail($patientId);
 
-            // 2. جلب الملف الأكاديمي للطالب المصادق عليه للتحقق من صلاحيته
             $user = auth()->user();
             $student = $user->studentProfile;
 
@@ -132,12 +122,10 @@ class PatientService
 
             $createdDiagnoses = [];
 
-            // 3. المرور على كل تشخيص مطلوب لإنشائه بشكل منفصل
             foreach ($data['case_type_ids'] as $index => $caseTypeId) {
                 $caseType = CaseType::with('course')->findOrFail($caseTypeId);
                 $course = $caseType->course;
 
-                // التحقق من الصلاحية الأكاديمية (نفس منطق registerPatient تماماً)
                 $isAllowed = ($course->year < $studentYear) || ($course->year == $studentYear && $course->semester <= $studentSemester);
 
                 if (! $isAllowed) {
@@ -152,7 +140,6 @@ class PatientService
                     'estimated_cost' => $data['estimated_costs'][$index] ?? 0,
                 ]);
 
-                // 4. رفع الصور الخاصة بهذا التشخيص
                 if (isset($files['clinical_images'][$index])) {
                     $this->mediaService->upload($diagnosis, $files['clinical_images'][$index], 'clinical_images');
                 }
@@ -163,7 +150,6 @@ class PatientService
                 $createdDiagnoses[] = $diagnosis;
             }
 
-            // 5. تحديث حالة إتاحة المريض إن كانت "مكتملة" أو "محجوزة بالكامل"
             if (in_array($patient->availability_status, [PatientStatus::COMPLETED->value, PatientStatus::FULLY_RESERVED->value], true)) {
                 $patient->update(['availability_status' => PatientStatus::WAITING_DIAGNOSIS->value]);
             }

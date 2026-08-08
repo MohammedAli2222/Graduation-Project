@@ -27,16 +27,15 @@ class PromotionFactory extends Factory
 
     public function definition(): array
     {
-        $isActive = $this->faker->boolean(80); // 80% من العروض نشطة
+        $isActive = $this->faker->boolean(80);
         $startDate = $this->faker->dateTimeBetween('-1 month', '+1 week');
         $endDate = Carbon::instance($startDate)->addDays($this->faker->numberBetween(5, 30));
 
         return [
-            // سيتم استبدال الـ store_id لاحقاً في الـ Seeder
             'store_id' => User::factory()->asStoreOwner(),
             'title' => $this->faker->randomElement(self::PROMO_TITLES),
             'description' => $this->faker->realText(50),
-            'discount_percentage' => $this->faker->randomFloat(2, 5, 50), // خصم من 5% إلى 50%
+            'discount_percentage' => $this->faker->randomFloat(2, 5, 50),
             'start_date' => $startDate,
             'end_date' => $endDate,
             'is_active' => $isActive,

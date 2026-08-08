@@ -8,7 +8,7 @@ class StoreCaseTypeRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true; // المصادقة ستتم في طبقة الخدمة بناءً على قسم الـ HOD
+        return true;
     }
 
     public function rules(): array

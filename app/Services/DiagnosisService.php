@@ -50,9 +50,6 @@ class DiagnosisService
             'supervised_groups_total' => $groupIds->count(),
         ];
     }
-    /**
-     * تشخيص المرضى القادمين من موظف الاستقبال
-     */
     public function storeMultiple(array $data, int $instructorId)
     {
         $lock = Cache::lock('lock:diagnose_patient:' . $data['patient_id'], 10);
@@ -62,7 +59,6 @@ class DiagnosisService
             $lock->block(3);
 
             return DB::transaction(function () use ($data, $instructorId) {
-                // تحقق فوري وحديث من حالة المريض بعد الحصول على القفل لمنع التشخيص المزدوج
                 $patient = $this->patientRepo->FindOrFail($data['patient_id']);
 
                 if ($patient->availability_status !== PatientStatus::WAITING_DIAGNOSIS->value) {
@@ -95,7 +91,6 @@ class DiagnosisService
                         'status' => DiagnosisStatus::AVAILABLE->value,
                     ]);
 
-                    // نسخ الصور المختارة من المريض إلى التشخيص الجديد
                     if (!empty($item['media_ids'])) {
                         foreach ($item['media_ids'] as $mediaId) {
                             $media = Media::where('id', $mediaId)
@@ -131,7 +126,6 @@ class DiagnosisService
             $lock->block(3);
 
             return DB::transaction(function () use ($id, $data, $instructorId, $instructorProfileId) {
-                // جلب التشخيص والتحقق من حالته الفعلية داخل القفل لضمان عدم مراجعته من مدرّس آخر بالتوازي
                 $diagnosis = $this->diagnosisRepo->FindOrFail($id);
 
                 $this->validatePendingStatus($diagnosis);
@@ -154,9 +148,6 @@ class DiagnosisService
         }
     }
 
-    /**
-     * رفض تشخيص طالب
-     */
     public function rejectCase(int $id, array $data, int $instructorId, int $instructorProfileId)
     {
         $lock = Cache::lock('lock:review_diagnosis:' . $id, 10);
@@ -166,7 +157,6 @@ class DiagnosisService
             $lock->block(3);
 
             return DB::transaction(function () use ($id, $data, $instructorId, $instructorProfileId) {
-                // جلب التشخيص والتحقق من حالته الفعلية داخل القفل لضمان عدم مراجعته من مدرّس آخر بالتوازي
                 $diagnosis = $this->diagnosisRepo->FindOrFail($id);
 
                 $this->validatePendingStatus($diagnosis);

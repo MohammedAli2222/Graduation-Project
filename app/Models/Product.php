@@ -45,17 +45,14 @@ class Product extends Model implements HasMedia
     {
         static::saving(function (Product $product) {
 
-            // 1. حماية المخزون: منع الكمية من أن تكون أقل من الصفر أبداً
             if ($product->quantity <= 0) {
                 $product->quantity = 0;
                 $product->availability_status = ProductAvailability::OUT_OF_STOCK->value;
             } elseif ($product->quantity > 0) {
-                // استخراج القيمة النصية للحالة سواء كانت Enum Object أو String
                 $currentStatus = $product->availability_status instanceof ProductAvailability
                     ? $product->availability_status->value
                     : $product->availability_status;
 
-                // إذا كانت الحالة الحالية "نفد من المخزون"، نقوم بإعادتها فوراً إلى "متوفر"
                 if ($currentStatus === ProductAvailability::OUT_OF_STOCK->value) {
                     $product->availability_status = ProductAvailability::AVAILABLE->value;
                 }
@@ -80,41 +77,26 @@ class Product extends Model implements HasMedia
             });
     }
 
-    /**
-     * علاقة المنتج بصاحب المتجر الرسمي.
-     */
     public function store(): BelongsTo
     {
         return $this->belongsTo(User::class, 'store_id');
     }
 
-    /**
-     * علاقة المنتج بالبائع (الطالب أو المتجر) - تستخدم في سياق الـ Marketplace.
-     */
     public function seller(): BelongsTo
     {
         return $this->belongsTo(User::class, 'store_id');
     }
 
-    /**
-     * علاقة المنتج بالفئة.
-     */
     public function category(): BelongsTo
     {
         return $this->belongsTo(Category::class);
     }
 
-    /**
-     * علاقة المنتج بالعروض الترويجية.
-     */
     public function promotions(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
     {
         return $this->belongsToMany(Promotion::class, 'promotion_product');
     }
 
-    /**
-     * تسجيل تحويلات الصور المصغرة والمحسنة.
-     */
     public function registerMediaConversions(Media $media = null): void
     {
         $this->addMediaConversion('thumb')

@@ -16,9 +16,6 @@ class BrowseStoreController extends Controller
         protected BrowseStoreService $browseStoreService
     ) {}
 
-    /**
-     * عرض جميع المتاجر الرسمية للطلاب.
-     */
     public function index(Request $request): JsonResponse
     {
         $perPage = (int) $request->query('per_page', 15);
@@ -41,13 +38,10 @@ class BrowseStoreController extends Controller
         ]);
     }
 
-    /**
-     * عرض جميع المنتجات التابعة لمتجر محدد.
-     */
     public function showStoreProducts(Request $request, int $id): JsonResponse
     {
         $perPage = (int) $request->query('per_page', 15);
-        $filters = $request->only(['search', 'category_id', 'condition']); // استقبال الفلاتر
+        $filters = $request->only(['search', 'category_id', 'condition']);
 
         $products = $this->browseStoreService->getStoreProducts($id, $filters, $perPage);
 

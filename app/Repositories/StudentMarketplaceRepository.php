@@ -21,7 +21,6 @@ class StudentMarketplaceRepository implements StudentMarketplaceRepositoryInterf
     {
         $page = Paginator::resolveCurrentPage();
 
-        // هندسة مفتاح الكاش: نقوم بتوليد Hash من الفلاتر لضمان عدم اختلاط النتائج
         $filterHash = md5(json_encode($filters));
         $cacheKey = "student_products_per_page_{$perPage}_page_{$page}_filters_{$filterHash}";
 
@@ -31,7 +30,7 @@ class StudentMarketplaceRepository implements StudentMarketplaceRepositoryInterf
                 ->whereHas('seller', function ($query) {
                     $query->role('student');
                 })
-                ->filter($filters) // استدعاء السكوب السحري هنا!
+                ->filter($filters)
                 ->with(['category', 'media', 'seller.studentProfile'])
                 ->latest()
                 ->paginate($perPage);

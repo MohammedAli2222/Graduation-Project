@@ -37,14 +37,8 @@ return new class extends Migration
             $table->text('rejection_reason')->nullable();
             $table->timestamps();
 
-            // فهرس مركب يسرّع فحص "هل يوجد لدى هذا الطالب طلب معلّق حالياً؟" الذي يُنفَّذ
-            // في كل مرة يحاول فيها أي طالب إرسال مريض جديد أو تشخيص جديد (StudentStorePatientRequest
-            // و StoreExistingPatientDiagnosisRequest)، لمنع إغراق النظام بالطلبات
             $table->index(['suggested_by_student_id', 'status'], 'diagnoses_student_status_idx');
 
-            // فهرس مركب يسرّع البحث عن تشخيصات مريض معيّن بحالة محددة، ويُستخدم في: قائمة
-            // طلبات الطلاب المعلّقة التي يراجعها المعيد (getStudentPendingRequests)، وفي فحص
-            // عدم وجود تشخيص طالب معلّق لنفس المريض قبل أن يشخّصه المعيد (DiagnosisService::storeMultiple)
             $table->index(['patient_id', 'status'], 'diagnoses_patient_status_idx');
         });
     }

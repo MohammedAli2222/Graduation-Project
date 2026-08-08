@@ -17,12 +17,6 @@ class StoreStatisticController extends Controller
         protected StoreStatisticService $statisticService
     ) {}
 
-    /**
-     * جلب لوحة إحصائيات المتجر الكاملة: عدد الطلبات لكل حالة، الإيرادات
-     * ومتوسط قيمة الطلب، عدد المنتجات منخفضة المخزون، أفضل 5 منتجات مبيعاً،
-     * ومخطط الإيراد الأسبوعي لآخر 8 أسابيع (مُخزَّن مؤقتاً بإستراتيجية متقدمة
-     * — راجع StoreStatisticService).
-     */
     public function index(): JsonResponse
     {
         try {
@@ -38,11 +32,6 @@ class StoreStatisticController extends Controller
         }
     }
 
-    /**
-     * إطلاق مهمة تصدير تقرير المبيعات في الخلفية (Queue) والعودة فوراً دون
-     * انتظار انتهاء إنشاء ملف الـ CSV (Non-blocking I/O). الحالة 202
-     * (Accepted) تعكس بدقة أن الطلب قُبل للمعالجة ولم يكتمل بعد.
-     */
     public function exportReport(): JsonResponse
     {
         try {

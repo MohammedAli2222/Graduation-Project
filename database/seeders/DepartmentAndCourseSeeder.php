@@ -10,9 +10,6 @@ class DepartmentAndCourseSeeder extends Seeder
 {
     public function run(): void
     {
-        // الأقسام الرسمية العشرة لكلية طب الأسنان - جامعة دمشق
-        // (بعض الأقسام كعلم النسج والتشريح المرضي وعلوم الحياة أقسام أساسية/تشخيصية
-        // ولا تملك مقررات سريرية ضمن منهاج السنتين 4 و5، لذا تُنشأ بدون مقررات)
         $departments = [
             'OralMedicine'      => ['name' => 'قسم طب الفم', 'total_chairs' => 6, 'description' => 'مختص بالتشخيص وأمراض الفم والطوارئ السنية'],
             'OralSurgery'       => ['name' => 'قسم جراحة الفم والفكين', 'total_chairs' => 8, 'description' => 'يعنى بالتخدير والقلع والجراحة الفموية وزراعة الأسنان والجراحة الفكية الوجهية'],
@@ -26,13 +23,11 @@ class DepartmentAndCourseSeeder extends Seeder
             'LifeSciences'      => ['name' => 'قسم علوم الحياة', 'total_chairs' => 4, 'description' => 'قسم أساسي يدرّس العلوم الطبية التمهيدية'],
         ];
 
-        // firstOrCreate بالاعتماد على اسم القسم (فريد في الجدول) لمنع التكرار عند إعادة تشغيل الـ Seeder
         $dept = [];
         foreach ($departments as $key => $data) {
             $dept[$key] = Department::firstOrCreate(['name' => $data['name']], $data);
         }
 
-        // المقررات الرسمية لطلاب السنتين 4 و5 موزّعة حسب القسم، ثم [الاسم، السنة، الفصل]
         $courses = [
             'OralMedicine' => [
                 ['أمراض الفم (1)', 4, 1],
@@ -80,7 +75,6 @@ class DepartmentAndCourseSeeder extends Seeder
             ],
         ];
 
-        // firstOrCreate بالاعتماد على اسم المقرر لمنع إنشاء نفس المادة أكثر من مرة
         foreach ($courses as $deptKey => $list) {
             foreach ($list as [$name, $year, $semester]) {
                 Course::firstOrCreate(

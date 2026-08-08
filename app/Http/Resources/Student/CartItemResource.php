@@ -25,7 +25,6 @@ class CartItemResource extends JsonResource
                 ];
             }),
 
-            // حساب المجموع الفرعي لهذا العنصر (الكمية * السعر)
             'subtotal'   => $this->relationLoaded('product')
                             ? (float) ($this->quantity * $this->product->price)
                             : 0,

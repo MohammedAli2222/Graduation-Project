@@ -11,7 +11,6 @@ class CartResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        // حساب إجمالي السلة برمجياً
         $totalPrice = 0;
         if ($this->relationLoaded('items')) {
             foreach ($this->items as $item) {
@@ -24,7 +23,7 @@ class CartResource extends JsonResource
         return [
             'id'          => $this->id,
             'student_id'  => $this->student_id,
-            'total_price' => (float) $totalPrice, // إجمالي تكلفة السلة
+            'total_price' => (float) $totalPrice,
             'items'       => CartItemResource::collection($this->whenLoaded('items')),
         ];
     }

@@ -13,21 +13,11 @@ use Exception;
 
 class SellerProductService
 {
-    /**
-     * حقن مستودع المنتجات.
-     */
     public function __construct(
         protected ProductRepositoryInterface $productRepo
     ) {}
 
   
-    /**
-     * جلب منتجات البائع (متجر رسمي أو طالب) مع تمرير فلاتر التصفية
-     * (مثال: availability_status) مباشرة إلى المستودع دون أي منطق إضافي هنا —
-     * الخدمة تبقى طبقة تنسيق رقيقة، والمستودع هو المسؤول عن بناء الاستعلام.
-     *
-     * @param array{availability_status?: string} $filters
-     */
     public function listProducts(int $sellerId, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
         return $this->productRepo->getStoreProductsOptimized($sellerId, $filters, $perPage);
@@ -67,9 +57,6 @@ class SellerProductService
         return $product->refresh();
     }
 
-    /**
-     * حذف المنتج.
-     */
     public function deleteProduct(int $sellerId, int $productId): bool
     {
         $product = $this->productRepo->findStoreProduct($sellerId, $productId);
@@ -81,9 +68,6 @@ class SellerProductService
         return $this->productRepo->delete($product);
     }
 
-    /**
-     * تفاصيل المنتج.
-     */
     public function getProductDetails(int $sellerId, int $productId): Product
     {
         $product = $this->productRepo->findStoreProduct($sellerId, $productId);

@@ -81,36 +81,27 @@ class StudentCourseService
         ];
     }
 
-    /**
-     * تسجيل يدوي لمقررات محددة (كالمواد الراسب بها الطالب أو مواد إضافية)
-     * يتعايش هذا التسجيل مع منطق التسجيل التلقائي autoEnrollStudentCourses دون التأثير عليه
-     */
     public function manualEnrollCourses(StudentProfile $student, array $courseIds): array
     {
         return DB::transaction(function () use ($student, $courseIds) {
-            // 1️⃣ جلب كل السجلات التاريخية للطالب دفعة واحدة لتفادي استعلامات متكررة داخل الحلقة
             $historicalEnrollments = StudentCourseEnrollment::where('student_id', $student->id)->get();
 
             $enrolledCourseIds = [];
             $skippedCourseIds = [];
 
-            // 2️⃣ المرور على كل مقرر مطلوب تسجيله
             foreach ($courseIds as $courseId) {
                 $existing = $historicalEnrollments->firstWhere('course_id', $courseId);
 
                 if ($existing) {
-                    // 3️⃣ منع إعادة التسجيل بمادة ناجح بها الطالب مسبقاً
                     if ($existing->status === EnrollmentStatus::COMPLETED) {
                         throw new Exception("Cannot re-enroll in course #{$courseId}: you have already passed this course.", 422);
                     }
 
-                    // 4️⃣ تجاهل المادة إذا كانت مسجلة بالفعل وبحالة نشطة
                     if ($existing->status === EnrollmentStatus::ACTIVE) {
                         $skippedCourseIds[] = $courseId;
                         continue;
                     }
 
-                    // 5️⃣ إعادة تفعيل المادة الراسب بها الطالب مع زيادة عدد المحاولات
                     $existing->update([
                         'status' => EnrollmentStatus::ACTIVE,
                         'attempts_count' => $existing->attempts_count + 1,
@@ -120,7 +111,6 @@ class StudentCourseService
                     continue;
                 }
 
-                // 6️⃣ لا يوجد سجل سابق: إنشاء تسجيل جديد بمحاولة أولى
                 StudentCourseEnrollment::create([
                     'student_id' => $student->id,
                     'course_id' => $courseId,
@@ -144,7 +134,6 @@ class StudentCourseService
      */
     private function handleFirstSemesterLogic(int $year, array $completedCourseIds, array $failedCourseIds): array
     {
-        // ⚡ جلب الـ IDs فقط مباشرة من الـ Repo
         $currentCourseIds = $this->studentRepo->getCourseIdsByLevel($year, 1);
 
         $newCourses = array_diff($currentCourseIds, $completedCourseIds, $failedCourseIds);
@@ -160,7 +149,6 @@ class StudentCourseService
             ];
         }
 
-        // تحسين الـ Clean Code: استبدال Loop التقليدي بـ array_diff لمعالجة أسرع في الذاكرة
         //$coursesToEnroll = array_diff($currentCourseIds, $completedCourseIds);
 
         return [

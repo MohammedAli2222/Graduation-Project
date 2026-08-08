@@ -16,18 +16,14 @@ return new class extends Migration
 
             $table->foreignId('store_id')->constrained('users')->cascadeOnDelete();
 
-            // تفاصيل العرض
             $table->string('title');
             $table->text('description')->nullable();
 
-            // نسبة الخصم (من 0.00 إلى 100.00)
             $table->decimal('discount_percentage', 5, 2);
 
-            // الجدولة الزمنية للعرض
             $table->dateTime('start_date');
             $table->dateTime('end_date');
 
-            // التفعيل والإيقاف اليدوي
             $table->boolean('is_active')->default(true);
 
             $table->timestamps();

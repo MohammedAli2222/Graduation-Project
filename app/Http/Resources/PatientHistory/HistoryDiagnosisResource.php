@@ -28,7 +28,6 @@ class HistoryDiagnosisResource extends JsonResource
                 'final_diagnosis' => $this->final_diagnosis,
             ],
 
-            // سبب الرفض يظهر فقط عندما تكون حالة التشخيص "مرفوضة"
             'rejection_reason' => $this->when(
                 $this->status === DiagnosisStatus::REJECTED,
                 $this->rejection_reason

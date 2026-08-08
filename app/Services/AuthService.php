@@ -48,7 +48,6 @@ class AuthService
 
             $token = $user->createToken('verification_token', ['verify-otp'])->plainTextToken;
 
-            // إرسال مهمة خلفية مؤجلة لمدة 1 ساعة لحذف المستخدم وتوكنه إذا لم يقم بتأكيد الـ OTP
             \App\Jobs\DeleteUnverifiedUserJob::dispatch($user->id)->delay(now()->addHour());
 
             return [

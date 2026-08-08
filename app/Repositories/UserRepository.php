@@ -27,11 +27,6 @@ class UserRepository
         return User::where('email', $email)->first();
     }
 
-    /**
-     * جلب بيانات المستخدم مع البروفايل الخاص به بناءً على العلاقة.
-     *
-     * @param  string  $relation  اسم العلاقة (مثل studentProfile)
-     */
     public function loadProfile(User $user, string $relation): User
     {
         return $user->load($relation);

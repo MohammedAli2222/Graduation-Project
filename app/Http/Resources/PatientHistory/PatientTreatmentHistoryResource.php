@@ -19,8 +19,6 @@ class PatientTreatmentHistoryResource extends JsonResource
             'id' => $this->id,
             'status' => $this->status,
 
-            // سبب الرفض: يُقرأ من instructor_notes لأن هذا هو الحقل الفعلي الذي
-            // يُخزَّن فيه سبب رفض المشرف حالياً (عمود rejection_reason غير مستخدم في الكتابة)
             'rejection_reason' => $this->when(
                 $this->status === TreatmentStatus::REJECTED,
                 $this->instructor_notes

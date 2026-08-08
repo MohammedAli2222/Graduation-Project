@@ -15,16 +15,16 @@ return new class extends Migration
             $table->id();
             $table->foreignId('patient_id')->constrained()->onDelete('cascade');
 
-            $table->boolean('has_general_diseases')->default(false); // هل يعاني من أمراض عامة
-            $table->text('general_diseases_details')->nullable();    // تفاصيل الأمراض
+            $table->boolean('has_general_diseases')->default(false);
+            $table->text('general_diseases_details')->nullable();
 
-            $table->boolean('is_special_needs')->default(false);    // هل المريض من ذوي الاحتياجات الخاصة
+            $table->boolean('is_special_needs')->default(false);
             $table->text('special_needs_details')->nullable();
 
-            $table->boolean('takes_medications')->default(false);   // هل يتناول أدوية حالياً
+            $table->boolean('takes_medications')->default(false);
             $table->text('medications_details')->nullable();
 
-            $table->boolean('has_allergies')->default(false);       // هل يعاني من حساسية أدوية
+            $table->boolean('has_allergies')->default(false);
             $table->text('allergies_details')->nullable();
             $table->timestamps();
         });

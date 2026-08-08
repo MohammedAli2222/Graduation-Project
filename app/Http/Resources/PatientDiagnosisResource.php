@@ -30,7 +30,6 @@ class PatientDiagnosisResource extends JsonResource
                 'final_diagnosis' => $this->final_diagnosis,
                 'status' => $this->status,
                 'estimated_cost' => $this->estimated_cost,
-                // إضافة الصور المرتبطة بهذا التشخيص
                 'clinical_images' => $this->getMedia('clinical_images')->map(fn($m) => [
                     'id' => $m->id,
                     'url' => $m->getFullUrl(),

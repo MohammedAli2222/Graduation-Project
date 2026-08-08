@@ -26,7 +26,7 @@ class PatientMedicalHistoryFactory extends Factory
             'has_general_diseases' => $hasGeneralDiseases,
             'general_diseases_details' => $hasGeneralDiseases ? $this->faker->randomElement(['السكري النمط الثاني', 'ارتفاع ضغط الدم', 'ربو تحسسي', 'اضطرابات في الغدة الدرقية']) : null,
             'is_special_needs' => $this->faker->boolean(2),
-            'special_needs_details' => null, // نادراً ما يكون متوفراً
+            'special_needs_details' => null,
             'takes_medications' => $takesMedications,
             'medications_details' => $takesMedications ? $this->faker->randomElement(['ميتفورمين', 'أسبرين (مميع دم)', 'أدوية ضغط', 'بخاخ فينتولين']) : null,
             'has_allergies' => $hasAllergies,

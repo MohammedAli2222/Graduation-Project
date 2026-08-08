@@ -8,9 +8,6 @@ use Symfony\Component\HttpFoundation\Response;
 
 class VerifyDeploymentSecret
 {
-    /**
-     * معالجة الطلب القادم والتحقق من مفتاح الأمان
-     */
     public function handle(Request $request, Closure $next): Response
     {
         $providedSecret = (string) $request->input('secret', '');

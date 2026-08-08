@@ -10,7 +10,7 @@ class UpdateCaseRequirementRequest extends FormRequest
 
     public function authorize(): bool
     {
-        return true; // المصادقة ستتم في طبقة الخدمة بناءً على قسم الـ HOD
+        return true;
     }
 
 

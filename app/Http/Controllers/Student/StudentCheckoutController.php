@@ -18,9 +18,6 @@ class StudentCheckoutController extends Controller
         protected StudentOrderService $orderService
     ) {}
 
-    /**
-     * تنفيذ عملية الدفع وتحويل السلة إلى طلب نهائي.
-     */
     public function checkout(): JsonResponse
     {
         try {

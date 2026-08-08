@@ -38,7 +38,6 @@ class BrowseStoreRepository implements BrowseStoreRepositoryInterface
     {
         $page = Paginator::resolveCurrentPage();
 
-        // استخدام نفس استراتيجية الهاش للفلاتر
         $filterHash = md5(json_encode($filters));
         $cacheKey = "store_{$storeId}_products_per_page_{$perPage}_page_{$page}_filters_{$filterHash}";
 
@@ -46,7 +45,7 @@ class BrowseStoreRepository implements BrowseStoreRepositoryInterface
             return $this->productModel->newQuery()
                 ->where('store_id', $storeId)
                 ->where('availability_status', 'available')
-                ->filter($filters) // السكوب السحري يعمل هنا أيضاً
+                ->filter($filters)
                 ->with(['category', 'media', 'seller.storeProfile'])
                 ->latest()
                 ->paginate($perPage);

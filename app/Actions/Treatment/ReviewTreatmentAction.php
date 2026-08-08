@@ -18,9 +18,6 @@ class ReviewTreatmentAction
         $this->treatmentRepo = $treatmentRepo;
     }
 
-    /**
-     * تنفيذ مراجعة المشرف الطبي للجلسة.
-     */
     public function execute(array $data, $user): Treatment
     {
         $treatment = $this->treatmentRepo->find($data['treatment_id']);
@@ -44,9 +41,6 @@ class ReviewTreatmentAction
         });
     }
 
-    /**
-     * التحقق من شروط المراجعة والصلاحيات.
-     */
     private function validateReview(?Treatment $treatment, $user): void
     {
         if (! $treatment) {
@@ -62,9 +56,6 @@ class ReviewTreatmentAction
         }
     }
 
-    /**
-     * منطق الموافقة على الجلسة وإغلاق التشخيص.
-     */
     private function approveTreatment(Treatment $treatment, array $data): void
     {
         $treatment->update([
@@ -81,9 +72,6 @@ class ReviewTreatmentAction
         }
     }
 
-    /**
-     * منطق رفض الجلسة وإعادتها للتعديل مع الملاحظات.
-     */
     private function rejectTreatment(
         Treatment $treatment,
         array $data,

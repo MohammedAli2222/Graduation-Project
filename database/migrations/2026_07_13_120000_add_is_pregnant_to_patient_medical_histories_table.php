@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('patient_medical_histories', function (Blueprint $table) {
-            $table->boolean('is_pregnant')->nullable()->after('allergies_details'); // هل المريضة حامل (يُستخدم فقط للإناث)
+            $table->boolean('is_pregnant')->nullable()->after('allergies_details');
         });
     }
 

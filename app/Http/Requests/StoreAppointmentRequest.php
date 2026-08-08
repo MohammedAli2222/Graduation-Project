@@ -29,7 +29,6 @@ class StoreAppointmentRequest extends FormRequest
                 'integer',
                 'min:1',
                 'max:4',
-                // فحص ذكي: هل اختيار هذا السلوت سيجعل الموعد يخرج عن نطاق الدوام؟
                 function ($attribute, $value, $fail) {
                     $diagnosis = PatientDiagnose::find($this->input('diagnosis_id'));
                     if ($diagnosis) {

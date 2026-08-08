@@ -14,9 +14,6 @@ class DepartmentFactory extends Factory
 {
     protected $model = Department::class;
 
-    /**
-     * الأقسام الأكاديمية والسريرية الفعلية في كليات طب الأسنان.
-     */
     private const CLINICAL_DEPARTMENTS = [
         'المداواة اللبية (Endodontics)',
         'جراحة الفم والفكين (Oral Surgery)',
@@ -30,9 +27,7 @@ class DepartmentFactory extends Factory
     public function definition(): array
     {
         return [
-            // استخدام unique لضمان عدم تكرار اسم القسم
             'name' => $this->faker->unique()->randomElement(self::CLINICAL_DEPARTMENTS),
-            // تخصيص عدد كراسي منطقي لكل قسم عيادي
             'total_chairs' => $this->faker->numberBetween(10, 30),
             'description' => $this->faker->realText(100),
         ];

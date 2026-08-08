@@ -22,7 +22,6 @@ class CourseFactory extends Factory
 
         return [
             'name' => $this->faker->words(3, true) . ' ' . $year,
-            // سيتم تمرير القسم من الـ Seeder لضمان الترابط المنطقي
             'department_id' => Department::factory(),
             'year' => $year,
             'semester' => $semester,

@@ -16,9 +16,6 @@ use Exception;
 
 class DepartmentRequirementController extends Controller
 {
-    /**
-     * حقن خدمة رئيس القسم.
-     */
     public function __construct(
         protected DepartmentHeadService $hodService
     ) {}

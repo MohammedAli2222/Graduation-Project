@@ -233,10 +233,8 @@ class StudentController extends Controller
                 'Patient diagnoses retrieved successfully.'
             );
         } catch (\Exception $e) {
-            // تأكد أن الكود رقم (Integer)
             $statusCode = (int)$e->getCode();
 
-            // تصحيح: إذا كان الكود غير صالح (أقل من 100 أو أكبر من 599)، اجعله 500
             if ($statusCode < 100 || $statusCode > 599) {
                 $statusCode = 500;
             }

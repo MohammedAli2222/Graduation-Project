@@ -18,18 +18,12 @@ use Exception;
 
 class DepartmentHeadService
 {
-    /**
-     * حقن واجهات المستودعات المطلوبة للخدمة.
-     */
     public function __construct(
         protected TreatmentRepositoryInterface $treatmentRepo,
         protected CaseTypeRepositoryInterface $caseTypeRepo,
         protected InstructorRepositoryInterface $instructorRepo
     ) {}
 
-    /**
-     * جلب المعالجات المكتملة لقسم معين.
-     */
     public function getCompletedTreatmentsForDepartment(int $departmentId, int $page, int $perPage = 15): LengthAwarePaginator
     {
         $cacheKey = "department_{$departmentId}_completed_treatments_page_{$page}_limit_{$perPage}";
@@ -41,10 +35,6 @@ class DepartmentHeadService
         );
     }
 
-    /**
-     * جلب تفاصيل معالجة واحدة كاملة (الطالب، المعيد المشرف، نوع الحالة، إلخ)
-     * بعد التحقق من أنها تابعة لقسم رئيس القسم الحالي.
-     */
     public function getTreatmentDetailForDepartment(int $hodDepartmentId, int $treatmentId): \App\Models\Treatment
     {
         $treatment = $this->treatmentRepo->findDetailedForDepartment($treatmentId);
@@ -60,9 +50,6 @@ class DepartmentHeadService
         return $treatment;
     }
 
-    /**
-     * جلب قائمة أنواع الحالات التابعة للقسم.
-     */
     public function getCaseTypesForDepartment(int $departmentId): Collection
     {
         return Cache::tags(["department_{$departmentId}", 'case_types'])->remember(
@@ -72,9 +59,6 @@ class DepartmentHeadService
         );
     }
 
-    /**
-     * جلب مقررات القسم (لاستخدامها عند إنشاء نوع حالة جديد).
-     */
     public function getCoursesForDepartment(int $departmentId): Collection
     {
         return Course::query()
@@ -83,9 +67,6 @@ class DepartmentHeadService
             ->get(['id', 'name']);
     }
 
-    /**
-     * إنشاء نوع حالة سريرية جديد ضمن قسم رئيس القسم.
-     */
     public function createCaseType(int $hodDepartmentId, array $data): CaseType
     {
         $course = Course::find($data['course_id']);
@@ -109,9 +90,6 @@ class DepartmentHeadService
         return $caseType;
     }
 
-    /**
-     * حذف نوع حالة سريرية تابع لقسم رئيس القسم.
-     */
     public function deleteCaseType(int $hodDepartmentId, int $caseTypeId): bool
     {
         $caseType = $this->caseTypeRepo->findByIdWithCourse($caseTypeId);
@@ -137,9 +115,6 @@ class DepartmentHeadService
         return $isDeleted;
     }
 
-    /**
-     * تحديث عدد الحالات المطلوبة.
-     */
     public function updateCaseRequirement(int $hodDepartmentId, int $caseTypeId, int $newCount): bool
     {
         $caseType = $this->caseTypeRepo->findByIdWithCourse($caseTypeId);
@@ -161,9 +136,6 @@ class DepartmentHeadService
         return $isUpdated;
     }
 
-    /**
-     * جلب الإحصائيات الشاملة للقسم.
-     */
     public function getDepartmentStatistics(int $departmentId): array
     {
         $cacheKey = "department_{$departmentId}_statistics";
@@ -188,17 +160,11 @@ class DepartmentHeadService
         );
     }
 
-    /**
-     * جلب قائمة المعيدين لكي يختار منهم رئيس القسم من يريد تفويضه.
-     */
     public function getInstructorsList(): Collection
     {
         return $this->instructorRepo->getAllInstructors();
     }
 
-    /**
-     * تفويض صلاحية استعراض حالات القسم لمعيد معين ديناميكياً.
-     */
     public function delegateViewTreatmentsToInstructor(int $instructorId): bool
     {
         $instructor = $this->instructorRepo->findInstructorById($instructorId);
@@ -212,7 +178,6 @@ class DepartmentHeadService
             'guard_name' => 'web'
         ]);
 
-        // منح الصلاحية للمعيد
         if (! $instructor->hasPermissionTo($permission)) {
             $instructor->givePermissionTo($permission);
         }
@@ -220,9 +185,6 @@ class DepartmentHeadService
         return true;
     }
 
-    /**
-     * سحب صلاحية استعراض حالات القسم من معيد معين.
-     */
     public function revokeViewTreatmentsFromInstructor(int $instructorId): bool
     {
         $instructor = $this->instructorRepo->findInstructorById($instructorId);

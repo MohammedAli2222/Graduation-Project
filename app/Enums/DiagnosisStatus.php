@@ -14,11 +14,6 @@ enum DiagnosisStatus: string
     // public function label(): string
     // {
     //     return match($this) {
-    //         self::WAITING_APPROVAL => 'بانتظار الموافقة',
-    //         self::AVAILABLE => 'متاحة للحجز',
-    //         self::RESERVED => 'محجوزة',
-    //         self::REJECTED => 'مرفوضة',
-    //         self::CONVERTED_TO_TREATMENT => 'قيد المعالجة',
     //     };
     // }
 }

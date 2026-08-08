@@ -7,9 +7,6 @@ use Illuminate\Support\Facades\Cache;
 
 class GroupRepository
 {
-    /**
-     * جلب كل الفئات مع كاشينج باستخدام ريديس
-     */
     public function getAllCached()
     {
         return Cache::remember('all_groups', 86400, function () {

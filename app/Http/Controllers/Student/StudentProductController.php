@@ -9,7 +9,7 @@ use App\Http\Requests\Store\StoreProductRequest;
 use App\Http\Requests\Store\UpdateStoreProductRequest;
 use App\Http\Resources\Store\ProductResource;
 use App\Models\Product;
-use App\Services\Unified\SellerProductService; // استدعاء الخدمة الموحدة
+use App\Services\Unified\SellerProductService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
@@ -51,7 +51,7 @@ class StudentProductController extends Controller
             }
 
             $validated = $request->validated();
-            $images = $request->file('images'); // استخراج الصور
+            $images = $request->file('images');
 
             $product = $this->productService->createProduct($user->id, $validated, $images);
 
@@ -76,7 +76,6 @@ class StudentProductController extends Controller
             $validated = $request->validated();
             $images = $request->file('images');
 
-            // تحديث البيانات ومعالجة أي صور جديدة عبر الطابور
             $updatedProduct = $this->productService->updateProduct($user->id, $product->id, $validated, $images);
 
             return response_success(

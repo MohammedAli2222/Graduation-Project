@@ -17,19 +17,13 @@ class MarketplaceBrowseController extends Controller
         protected ProductRepositoryInterface $productRepo
     ) {}
 
-    /**
-     * استعراض السوق العام مع الفلترة والبحث.
-     */
     public function index(Request $request): JsonResponse
     {
         try {
-            // استقبال الفلاتر المسموح بها فقط من الرابط (Query Parameters)
             $filters = $request->only(['search', 'category_id', 'condition']);
 
-            // جلب البيانات من المستودع بشكل مقسم (Paginated)
             $products = $this->productRepo->getMarketplaceProducts($filters);
 
-            // استخراج البيانات مع الـ Meta (معلومات الصفحات) لتتوافق مع الـ Flutter
             $paginatedData = ProductResource::collection($products)->response()->getData(true);
 
             return response_success(
@@ -43,9 +37,6 @@ class MarketplaceBrowseController extends Controller
         }
     }
 
-    /**
-     * عرض تفاصيل منتج واحد محدد في السوق.
-     */
     public function show(int $productId): JsonResponse
     {
         try {
@@ -55,7 +46,6 @@ class MarketplaceBrowseController extends Controller
                 return response_error(null, 404, 'المنتج المطلوب غير موجود.');
             }
 
-            // تحميل العلاقات اللازمة للعرض
             $product->load(['seller', 'category']);
 
             return response_success(

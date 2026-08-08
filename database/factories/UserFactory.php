@@ -105,11 +105,6 @@ class UserFactory extends Factory
         });
     }
 
-    /**
-     * ينشئ مستخدماً برتبة "رئيس قسم" (department_head) ويربطه بقسم أكاديمي حقيقي.
-     * إن لم يُمرَّر قسم محدد، يُختار أول قسم غير مُسنَد له رئيس بعد (department_id
-     * فريد في department_head_profiles: رئيس واحد فقط لكل قسم).
-     */
     public function departmentHead(?Department $department = null): static
     {
         return $this->afterCreating(function (\App\Models\User $user) use ($department) {

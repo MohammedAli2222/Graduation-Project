@@ -29,10 +29,6 @@ class Department extends Model
         return $this->hasMany(Course::class);
     }
 
-    /**
-     * علاقة متقدمة: جلب كافة أنواع الحالات التابعة لهذا القسم
-     * (عبر جدول المواد)
-     */
     public function caseTypes()
     {
         return $this->hasManyThrough(CaseType::class, Course::class);

@@ -15,17 +15,11 @@ class StudentPurchaseService
         protected OrderRepositoryInterface $orderRepo
     ) {}
 
-    /**
-     * جلب سجل مشتريات الطالب.
-     */
     public function listStudentPurchases(int $studentId, int $perPage = 15): LengthAwarePaginator
     {
         return $this->orderRepo->getStudentPurchasesOptimized($studentId, $perPage);
     }
 
-    /**
-     * جلب تفاصيل فاتورة/طلب محدد ضمن مشتريات الطالب.
-     */
     public function getPurchaseDetails(int $studentId, int $orderId): Order
     {
         $order = $this->orderRepo->findStudentPurchase($studentId, $orderId);

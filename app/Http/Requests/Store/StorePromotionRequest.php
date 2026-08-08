@@ -8,9 +8,6 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class StorePromotionRequest extends FormRequest
 {
-    /**
-     * التحقق من الصلاحيات.
-     */
     public function authorize(): bool
     {
         return true;
@@ -30,9 +27,6 @@ class StorePromotionRequest extends FormRequest
         ];
     }
 
-    /**
-     * رسائل الخطأ المخصصة.
-     */
     public function messages(): array
     {
         return [

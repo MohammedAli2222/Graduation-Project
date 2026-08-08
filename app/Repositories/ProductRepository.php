@@ -28,13 +28,9 @@ class ProductRepository implements ProductRepositoryInterface
     {
         return $this->model->newQuery()
             ->where('store_id', $storeId)
-            // تصفية اختيارية حسب حالة التوفر (available/limited/out_of_stock)؛
-            // when() لا يُضيف شرط WHERE إطلاقاً إن لم يُرسَل الفلتر، فيبقى
-            // الاستعلام الافتراضي (بدون فلتر) بنفس أداء الكود الأصلي تماماً
             ->when(isset($filters['availability_status']), function ($query) use ($filters) {
                 $query->where('availability_status', $filters['availability_status']);
             })
-            // الحفاظ على التحميل المسبق (Eager Loading) الأصلي لمنع مشكلة N+1
             ->with(['category:id,name', 'media'])
             ->latest()
             ->paginate($perPage);
@@ -60,9 +56,6 @@ class ProductRepository implements ProductRepositoryInterface
         return $product->delete() ?? false;
     }
 
-    /**
-     * جلب عدد المنتجات المطابقة للتحقق من أن المتجر يملكها جميعاً.
-     */
     public function countStoreProductsByIds(int $storeId, array $productIds): int
     {
         return $this->model->newQuery()
@@ -106,10 +99,6 @@ class ProductRepository implements ProductRepositoryInterface
         return $this->model->with('media')->find($productId);
     }
 
-    /**
-     * عدد المنتجات منخفضة المخزون عبر استعلام count() واحد مفهرس
-     * (store_id مفهرس عبر constrained()، وquantity < threshold مقارنة مباشرة).
-     */
     public function countLowStockProducts(int $storeId, int $threshold = 5): int
     {
         return $this->model->newQuery()
@@ -118,11 +107,6 @@ class ProductRepository implements ProductRepositoryInterface
             ->count();
     }
 
-    /**
-     * أفضل N منتجات مبيعاً: JOIN واحد بين products وorder_items وorders،
-     * مُصفّى على حالة completed فقط، مع GROUP BY وORDER BY وLIMIT منفَّذة
-     * بالكامل داخل قاعدة البيانات (لا يوجد أي تجميع يدوي في PHP).
-     */
     public function getTopSellingProducts(int $storeId, int $limit = 5): Collection
     {
         return $this->model->newQuery()

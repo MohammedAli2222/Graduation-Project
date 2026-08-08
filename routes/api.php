@@ -27,7 +27,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
 
-// تطبيق وسيط الحماية على مسارات النشر
 Route::middleware([VerifyDeploymentSecret::class, 'throttle:10,1'])->prefix('deploy')->group(function () {
     Route::post('/cache', function () {
         Artisan::call('optimize:clear');

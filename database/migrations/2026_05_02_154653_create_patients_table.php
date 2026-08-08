@@ -26,9 +26,6 @@ return new class extends Migration
             $table->foreignId('added_by')->constrained('users');
             $table->timestamps();
 
-            // فهرس مركب لتسريع استعلام قائمة انتظار موظف الاستقبال (getReceptionistWaitingList)
-            // الذي يُصفّي حسب availability_status ويُرتَّب حسب created_at في نفس الوقت، وهو
-            // الاستعلام الأساسي المعروض على الشاشة الرئيسية لموظف الاستقبال
             $table->index(['availability_status', 'created_at'], 'patients_availability_created_idx');
         });
     }

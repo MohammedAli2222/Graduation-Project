@@ -139,7 +139,6 @@ class PatientRepository
     public function getDiagnosisDetailsWithPatientMedia(int $id)
     {
         return PatientDiagnose::with([
-            // ... نفس علاقاتك الحالية
             'patient' => fn($q) => $q->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address'),
             'patient.media',
             'patient.medicalHistory',
@@ -150,9 +149,7 @@ class PatientRepository
             ->where(function ($query) use ($id) {
                 $query->where('id', $id)
                     ->where(function ($q) {
-                        // الحالة الأولى: التشخيص ما زال متاحاً للجميع
                         $q->where('status', DiagnosisStatus::AVAILABLE->value)
-                            // الحالة الثانية: التشخيص محجوز من قبل المستخدم الحالي
                             ->orWhereHas('appointments', function ($appointmentQuery) {
                                 $appointmentQuery->where('student_id', auth()->id());
                             });

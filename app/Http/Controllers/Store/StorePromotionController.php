@@ -59,7 +59,6 @@ class StorePromotionController extends Controller
             $user = Auth::user();
             $validated = $request->validated();
 
-            // فصل أرقام المنتجات عن تفاصيل العرض
             $productIds = $validated['product_ids'];
             unset($validated['product_ids']);
 

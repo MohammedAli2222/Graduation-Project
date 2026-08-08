@@ -28,7 +28,7 @@ class TreatmentFactory extends Factory
 
         return [
             'diagnosis_id' => PatientDiagnose::factory(),
-            'instructor_id' => null, // سيتم تعيينه في الـ Seeder
+            'instructor_id' => null,
             'status' => $status,
             'rejection_reason' => null,
             'start_date' => $startDate,

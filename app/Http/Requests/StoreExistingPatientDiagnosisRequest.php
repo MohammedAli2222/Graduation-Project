@@ -11,19 +11,11 @@ use Illuminate\Validation\Validator;
 
 class StoreExistingPatientDiagnosisRequest extends FormRequest
 {
-    /**
-     * تحديد ما إذا كان المستخدم مصرحاً له بتنفيذ هذا الطلب
-     */
     public function authorize(): bool
     {
         return true;
     }
 
-    /**
-     * قواعد التحقق الخاصة ببيانات التشخيص فقط (بدون بيانات المريض الشخصية)
-     *
-     * @return array<string, ValidationRule|array<mixed>|string>
-     */
     public function rules(): array
     {
         return [
@@ -43,10 +35,6 @@ class StoreExistingPatientDiagnosisRequest extends FormRequest
         ];
     }
 
-    /**
-     * نفس منطق الحماية الموجود في StudentStorePatientRequest تماماً:
-     * منع الطالب من إرسال طلب جديد إذا كان لديه طلب معلّق بانتظار المراجعة
-     */
     public function withValidator(Validator $validator)
     {
         $validator->after(function ($validator) {

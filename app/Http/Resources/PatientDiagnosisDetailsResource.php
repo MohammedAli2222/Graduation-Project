@@ -47,13 +47,11 @@ class PatientDiagnosisDetailsResource extends JsonResource
 
             ],
             'attachments' => [
-                // صور المريض (الهوية مثلاً)
                 'patient_documents' => $this->patient->getMedia('id_cards')->map(fn($m) => [
                     'id' => $m->id,
                     'url' => $m->getUrl(),
                 ]),
 
-                // صور التشخيص (السريرية والشعاعية) - هنا التعديل الأساسي
                 'clinical_images' => $this->getMedia('clinical_images')->map(fn($m) => [
                     'id' => $m->id,
                     'url' => $m->getUrl(),

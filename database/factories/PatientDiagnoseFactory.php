@@ -36,7 +36,6 @@ class PatientDiagnoseFactory extends Factory
             'patient_id' => Patient::factory(),
             'instructor_id' => null,
 
-            // سحب حالة وقسم حقيقيين تم إنشاؤهما مسبقاً في الـ Seeders بدلاً من محاولة تصنيعهما
             'case_type_id' => CaseType::query()->inRandomOrder()->value('id')
                 ?? throw new RuntimeException('يرجى عمل Seed للحالات (CaseTypes) أولاً.'),
 

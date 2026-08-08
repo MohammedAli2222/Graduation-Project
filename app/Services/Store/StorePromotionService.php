@@ -19,17 +19,11 @@ class StorePromotionService
         protected ProductRepositoryInterface $productRepo
     ) {}
 
-    /**
-     * جلب قائمة العروض الترويجية الخاصة بالمتجر.
-     */
     public function listPromotions(int $storeId, int $perPage = 15): LengthAwarePaginator
     {
         return $this->promotionRepo->getStorePromotions($storeId, $perPage);
     }
 
-    /**
-     * جلب تفاصيل عرض ترويجي محدد.
-     */
     public function getPromotionDetails(int $storeId, int $promotionId): Promotion
     {
         $promotion = $this->promotionRepo->findStorePromotion($storeId, $promotionId);
@@ -41,9 +35,6 @@ class StorePromotionService
         return $promotion;
     }
 
-    /**
-     * إنشاء عرض ترويجي جديد وربطه بالمنتجات بشكل آمن.
-     */
     public function createPromotion(int $storeId, array $promotionData, array $productIds): Promotion
     {
         $this->verifyProductsOwnership($storeId, $productIds);
@@ -59,9 +50,6 @@ class StorePromotionService
         });
     }
 
-    /**
-     * تحديث بيانات العرض الترويجي وتعديل المنتجات المشمولة.
-     */
     public function updatePromotion(int $storeId, int $promotionId, array $promotionData, ?array $productIds = null): Promotion
     {
         $promotion = $this->getPromotionDetails($storeId, $promotionId);
@@ -79,9 +67,6 @@ class StorePromotionService
         });
     }
 
-    /**
-     * حذف العرض الترويجي.
-     */
     public function deletePromotion(int $storeId, int $promotionId): bool
     {
         $promotion = $this->getPromotionDetails($storeId, $promotionId);
@@ -89,18 +74,12 @@ class StorePromotionService
         return $this->promotionRepo->delete($promotion);
     }
 
-    /**
-     * دالة مساعدة (Helper) للتحقق الأمني من ملكية المنتجات للمتجر.
-     *
-     * @throws Exception
-     */
     private function verifyProductsOwnership(int $storeId, array $productIds): void
     {
         if (empty($productIds)) {
             return;
         }
 
-        // جلب عدد المنتجات التي تطابق أرقامها أرقام المنتجات المرسلة، وتعود لنفس المتجر
         $validCount = $this->productRepo->countStoreProductsByIds($storeId, $productIds);
 
         if ($validCount !== count($productIds)) {

@@ -31,10 +31,6 @@ return new class extends Migration
 
             $table->unique(['student_id', 'appointment_date', 'slot_number'], 'student_daily_slot_unique');
 
-            // فهرس مركب لتسريع فحص سعة عيادة القسم (عدد الكراسي المحجوزة) في تاريخ وسلوت معيّنين
-            // عبر جميع الطلاب دفعة واحدة؛ فهرس الـ unique أعلاه لا يخدم هذا الاستعلام لأنه يبدأ
-            // بعمود student_id، بينما فحص السعة (hasConflict -> reservedChairsCount) لا يُصفّي
-            // حسب طالب معيّن إطلاقاً
             $table->index(['appointment_date', 'slot_number', 'status'], 'appointments_date_slot_status_idx');
         });
     }

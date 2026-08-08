@@ -11,9 +11,6 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 class TreatmentRepository implements TreatmentRepositoryInterface
 {
-    /**
-     * حقن نموذج المعالجة.
-     */
     public function __construct(
         protected Treatment $model
     ) {}
@@ -23,10 +20,8 @@ class TreatmentRepository implements TreatmentRepositoryInterface
         return $this->model->newQuery()
             ->select('treatments.*')
 
-            // 💡 التعديل هنا: استخدام اسم الجدول الصحيح patient_diagnoses
             ->join('patient_diagnoses', 'treatments.diagnosis_id', '=', 'patient_diagnoses.id')
 
-            // 💡 التعديل هنا: ربط case_types مع patient_diagnoses
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
             ->join('courses', 'case_types.course_id', '=', 'courses.id')
 

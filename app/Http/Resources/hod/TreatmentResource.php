@@ -9,11 +9,6 @@ use Illuminate\Http\Resources\Json\JsonResource;
 
 class TreatmentResource extends JsonResource
 {
-    /**
-     * تحويل مورد المعالجة إلى مصفوفة لتهيئة الاستجابة لتطبيق الموبايل.
-     *
-     * @return array<string, mixed>
-     */
     public function toArray(Request $request): array
     {
         return [

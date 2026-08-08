@@ -10,9 +10,6 @@ use Illuminate\Database\Eloquent\Collection;
 
 class InstructorRepository implements InstructorRepositoryInterface
 {
-    /**
-     * حقن نموذج المستخدم.
-     */
     public function __construct(
         protected User $model
     ) {}

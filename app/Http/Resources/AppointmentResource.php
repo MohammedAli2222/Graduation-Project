@@ -40,8 +40,6 @@ class AppointmentResource extends JsonResource
                     'id'     => $this->treatment_id,
                     'status' => $this->treatment->status->value ?? $this->treatment->status ?? 'in_progress',
 
-                    // سبب الرفض يظهر فقط عندما تكون حالة الجلسة العلاجية "مرفوضة"
-                    // (يُقرأ من instructor_notes لأنه الحقل الفعلي المستخدم لتخزين ملاحظة الرفض)
                     'rejection_reason' => $this->when(
                         optional($this->treatment)->status === TreatmentStatus::REJECTED,
                         optional($this->treatment)->instructor_notes
@@ -53,7 +51,6 @@ class AppointmentResource extends JsonResource
                 'name' => $this->diagnosis->caseType->name ?? 'غير محدد',
                 'final_diagnosis' => $this->diagnosis->final_diagnosis ?? 'لا يوجد تشخيص نهائي',
 
-                // سبب الرفض يظهر فقط عندما تكون حالة التشخيص "مرفوضة"
                 'rejection_reason' => $this->when(
                     optional($this->diagnosis)->status === DiagnosisStatus::REJECTED,
                     optional($this->diagnosis)->rejection_reason

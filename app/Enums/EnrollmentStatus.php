@@ -12,10 +12,6 @@ enum EnrollmentStatus: string
     // public function label(): string
     // {
     //     return match($this) {
-    //         self::ACTIVE => 'مستمر / قيد الدراسة',
-    //         self::COMPLETED => 'منتهي / ناجح',
-    //         self::FAILED    => 'راسب / محملة',
-    //         self::DROPPED => 'منسحب / ملغي',
     //     };
     // }
 }

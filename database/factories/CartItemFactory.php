@@ -21,7 +21,7 @@ class CartItemFactory extends Factory
         return [
             'cart_id' => Cart::factory(),
             'product_id' => Product::factory(),
-            'quantity' => $this->faker->numberBetween(1, 4), // كمية واقعية للأداة
+            'quantity' => $this->faker->numberBetween(1, 4),
         ];
     }
 }

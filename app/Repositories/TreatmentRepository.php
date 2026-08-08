@@ -57,7 +57,7 @@ class TreatmentRepository
                 });
             })
             ->with([
-                'diagnosis.appointments.student:id,first_name,last_name', // فقط الأسماء
+                'diagnosis.appointments.student:id,first_name,last_name',
                 'diagnosis.appointments.patient:id,full_name',
                 'diagnosis.caseType:id,name',
             ])
@@ -86,15 +86,11 @@ class TreatmentRepository
 
     public function getStudentProgressStats(int $userId)
     {
-        // Cache لمدة 5 دقائق لتقليل الضغط على قاعدة البيانات — key مرتبط بـ userId
         return Cache::remember("student_progress_stats_{$userId}", 300, function () use ($userId) {
             return $this->fetchStudentProgressStats($userId);
         });
     }
 
-    /**
-     * تسمح بمسح الـ Cache بعد أي تغيير على بيانات الطالب.
-     */
     public function clearStudentProgressCache(int $userId): void
     {
         Cache::forget("student_progress_stats_{$userId}");
@@ -102,7 +98,6 @@ class TreatmentRepository
 
     private function fetchStudentProgressStats(int $userId)
     {
-        // 0. جلب الـ student_profile_id الخاص بالمستخدم الحالي أولاً
         $studentProfile = \DB::table('student_profiles')->where('user_id', $userId)->first();
 
         if (! $studentProfile) {
@@ -111,17 +106,16 @@ class TreatmentRepository
 
         $profileId = $studentProfile->id;
 
-        // 1. الإحصائيات العامة للمعالجات (مفلترة فقط للمواد المسجل عليها الطالب حالياً)
         $treatmentsCount = DB::table('treatments')
             ->join('patient_diagnoses', 'treatments.diagnosis_id', '=', 'patient_diagnoses.id')
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
             ->join('student_course_enrollments', function ($join) use ($profileId) {
                 $join->on('case_types.course_id', '=', 'student_course_enrollments.course_id')
                     ->where('student_course_enrollments.student_id', $profileId)
-                    ->where('student_course_enrollments.status', 'active'); // فقط المواد الفعالة بالترم الحالي
+                    ->where('student_course_enrollments.status', 'active');
             })
             ->join('appointments', 'patient_diagnoses.id', '=', 'appointments.diagnosis_id')
-            ->where('appointments.student_id', $userId) // الـ appointments مربوط بالـ user_id
+            ->where('appointments.student_id', $userId)
             ->selectRaw("
             COUNT(DISTINCT treatments.id) as total,
             COUNT(DISTINCT CASE WHEN treatments.status = 'completed' THEN treatments.id END) as completed,
@@ -130,11 +124,9 @@ class TreatmentRepository
         ")
             ->first();
 
-        // 2. جلب الـ case_types الخاصة بالمواد المسجل عليها الطالب حالياً (حتى لو كانت مواد قديمة محملة)
         $casesByType = DB::table('student_course_enrollments')
             ->join('case_types', 'student_course_enrollments.course_id', '=', 'case_types.course_id')
             ->join('courses', 'case_types.course_id', '=', 'courses.id')
-            // Left Join مع التشخيصات والمعالجات المربوطة بالطالب
             ->leftJoin('patient_diagnoses', 'case_types.id', '=', 'patient_diagnoses.case_type_id')
             ->leftJoin('treatments', 'patient_diagnoses.id', '=', 'treatments.diagnosis_id')
             ->leftJoin('appointments', function ($join) use ($userId) {
@@ -154,7 +146,6 @@ class TreatmentRepository
         ")
             ->get();
 
-        // 3. نسبة الالتزام بالمواعيد مفلترة للمواد المسجلة حالياً
         $appointmentsCount = DB::table('appointments')
             ->join('patient_diagnoses', 'appointments.diagnosis_id', '=', 'patient_diagnoses.id')
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
@@ -180,26 +171,21 @@ class TreatmentRepository
 
     public function getStudentTreatmentsList(int $userId, string $statusType, int $perPage = 10)
     {
-        // البدء من الـ Model الرئيسي
         $query = Treatment::query()
-            // 1. جلب العلاقات المربوطة تلقائياً بدون ما نكتب شروط الـ Join بإيدنا
             ->with([
                 'diagnosis.patient:id,full_name',
                 'diagnosis.caseType.course:id,name',
             ])
-            // 2. الفلترة بناءً على جدول الـ appointments (عبر الـ diagnosis)
             ->whereHas('diagnosis.appointments', function ($q) use ($userId) {
                 $q->where('student_id', $userId);
             });
 
-        // 3. تطبيق فلترة الحالة
         if ($statusType === 'completed') {
             $query->where('status', 'completed');
         } else {
             $query->whereIn('status', ['in_progress', 'waiting_instructor_approval', 'rejected']);
         }
 
-        // الترتيب والـ Pagination بأسلوب Eloquent
         return $query->orderBy('updated_at', 'desc')->paginate($perPage);
     }
 }

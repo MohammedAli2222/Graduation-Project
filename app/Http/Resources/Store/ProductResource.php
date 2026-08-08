@@ -14,7 +14,6 @@ class ProductResource extends JsonResource
         return [
             'id'                  => $this->id,
 
-            // إضافة رقم الشخص/المتجر الذي أضاف المنتج
             'seller_id'           => $this->store_id,
 
             'name'                => $this->name,
@@ -31,7 +30,6 @@ class ProductResource extends JsonResource
                     'name' => $this->category->name,
                 ];
             }),
-            // الجدار الأمني/البيانات: إرجاع بيانات البائع مع رقم الهاتف الصحيح
             'seller'              => $this->whenLoaded('seller', function () {
 
                 $phone = 'رقم الهاتف غير متوفر';
@@ -39,7 +37,6 @@ class ProductResource extends JsonResource
                 if ($this->seller->relationLoaded('storeProfile') && $this->seller->storeProfile) {
                     $phone = $this->seller->storeProfile->store_phone ?? $phone;
                 }
-                // إذا لم يكن متجراً، نتحقق بشكل صريح من بروفايل الطالب
                 elseif ($this->seller->relationLoaded('studentProfile') && $this->seller->studentProfile) {
                     $phone = $this->seller->studentProfile->phone ?? $phone;
                 }
@@ -51,7 +48,6 @@ class ProductResource extends JsonResource
                 ];
             }),
 
-            // يفترض أنك تستخدم مورد للصور، أو ترجعها كمصفوفة حسب طريقتك
             'images'              => $this->whenLoaded('media', function () {
                 return $this->media->map(fn($media) => $media->getUrl());
             }, []),

@@ -26,7 +26,7 @@ class PromotionRepository implements PromotionRepositoryInterface
     {
         return $this->model->newQuery()
             ->where('store_id', $storeId)
-            ->withCount('products') // جلب عدد المنتجات فقط بدلاً من تحميل كامل الكائنات
+            ->withCount('products')
             ->latest()
             ->paginate($perPage);
     }
@@ -37,7 +37,7 @@ class PromotionRepository implements PromotionRepositoryInterface
         return $this->model->newQuery()
             ->where('store_id', $storeId)
             ->where('id', $promotionId)
-            ->with('products:id,name,price') // تحميل المنتجات المربوطة
+            ->with('products:id,name,price')
             ->first();
     }
 
@@ -52,9 +52,6 @@ class PromotionRepository implements PromotionRepositoryInterface
         return $promotion->delete() ?? false;
     }
 
-    /**
-     * مزامنة المنتجات المربوطة بالعرض (إضافة الجديد وحذف ما تم استبعاده).
-     */
     public function syncProducts(Promotion $promotion, array $productIds): array
     {
         return $promotion->products()->sync($productIds);

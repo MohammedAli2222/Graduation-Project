@@ -19,9 +19,6 @@ class Category extends Model
         'description',
     ];
 
-    /**
-     * علاقة الفئة بالمنتجات التابعة لها.
-     */
     public function products(): HasMany
     {
         return $this->hasMany(Product::class);

@@ -30,10 +30,6 @@ return new class extends Migration
             $table->text('instructor_notes')->nullable();
             $table->timestamps();
 
-            // فهرس على عمود status لأنه شرط التصفية الأساسي في عدة استعلامات متكررة لا تملك
-            // أي فهرس عليه حالياً: قائمة المعالجات بانتظار موافقة المعيد
-            // (getPendingApprovalsListForInstructor)، قائمة المعالجات المكتملة لرئيس القسم
-            // (getOptimizedCompletedTreatments)، وإحصائيات القسم (getDepartmentTreatmentStatistics)
             $table->index('status');
         });
     }

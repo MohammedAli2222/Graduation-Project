@@ -11,9 +11,6 @@ use Illuminate\Validation\Rule;
 
 class UpdateStoreProductRequest extends FormRequest
 {
-    /**
-     * التحقق من الصلاحيات.
-     */
     public function authorize(): bool
     {
         return true;

@@ -19,9 +19,6 @@ class StudentPurchaseController extends Controller
         protected StudentPurchaseService $purchaseService
     ) {}
 
-    /**
-     * عرض سجل مشتريات الطالب بالكامل.
-     */
     public function index(Request $request): JsonResponse
     {
         try {
@@ -44,9 +41,6 @@ class StudentPurchaseController extends Controller
         }
     }
 
-    /**
-     * عرض تفاصيل طلب محدد من سجل المشتريات.
-     */
     public function show(int $orderId): JsonResponse
     {
         try {

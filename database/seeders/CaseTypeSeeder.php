@@ -10,7 +10,6 @@ class CaseTypeSeeder extends Seeder
 {
     public function run(): void
     {
-        // الحالات السريرية الواقعية لكل مقرر: [الاسم، required_count، slots_needed]
         $casesData = [
             'المداواة السنية التحفظية (3)' => [
                 ['حشوة كومبوزيت (سطح واحد)', 5, 1],

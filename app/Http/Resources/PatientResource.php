@@ -20,7 +20,6 @@ class PatientResource extends JsonResource
             'preliminary_diagnosis' => $this->preliminary_diagnosis,
             'status' => $this->availability_status,
 
-            // حل مشكلة id_card: نستخدم whenLoaded للتأكد من جلب الميديا مسبقاً
             'id_card' => $this->whenLoaded('media', function () {
                 return $this->getMedia('id_cards')->map(fn($media) => [
                     'id' => $media->id,
@@ -28,7 +27,6 @@ class PatientResource extends JsonResource
                 ])->first();
             }),
 
-            // منع التكرار: الصور العامة تظهر فقط إذا لم يكن للمريض تشخيصات (سياق موظف الاستقبال)
             'clinical_images' => $this->when(!($this->relationLoaded('diagnoses') && $this->diagnoses->isNotEmpty()), function () {
                 return $this->getMedia('clinical_images')->map(fn($media) => [
                     'id' => $media->id,
