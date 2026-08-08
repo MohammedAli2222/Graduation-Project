@@ -3,10 +3,12 @@
 
 namespace App\Repositories;
 
+use App\Enums\OrderStatus;
 use App\Enums\ProductAvailability;
 use App\Models\Product;
 use App\Repositories\Contracts\ProductRepositoryInterface;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Support\Collection;
 
 class ProductRepository implements ProductRepositoryInterface
 {
@@ -22,10 +24,17 @@ class ProductRepository implements ProductRepositoryInterface
     }
 
 
-    public function getStoreProductsOptimized(int $storeId, int $perPage = 15): LengthAwarePaginator
+    public function getStoreProductsOptimized(int $storeId, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
         return $this->model->newQuery()
             ->where('store_id', $storeId)
+            // تصفية اختيارية حسب حالة التوفر (available/limited/out_of_stock)؛
+            // when() لا يُضيف شرط WHERE إطلاقاً إن لم يُرسَل الفلتر، فيبقى
+            // الاستعلام الافتراضي (بدون فلتر) بنفس أداء الكود الأصلي تماماً
+            ->when(isset($filters['availability_status']), function ($query) use ($filters) {
+                $query->where('availability_status', $filters['availability_status']);
+            })
+            // الحفاظ على التحميل المسبق (Eager Loading) الأصلي لمنع مشكلة N+1
             ->with(['category:id,name', 'media'])
             ->latest()
             ->paginate($perPage);
@@ -95,6 +104,43 @@ class ProductRepository implements ProductRepositoryInterface
     public function findById(int $productId): ?Product
     {
         return $this->model->with('media')->find($productId);
+    }
+
+    /**
+     * عدد المنتجات منخفضة المخزون عبر استعلام count() واحد مفهرس
+     * (store_id مفهرس عبر constrained()، وquantity < threshold مقارنة مباشرة).
+     */
+    public function countLowStockProducts(int $storeId, int $threshold = 5): int
+    {
+        return $this->model->newQuery()
+            ->where('store_id', $storeId)
+            ->where('quantity', '<', $threshold)
+            ->count();
+    }
+
+    /**
+     * أفضل N منتجات مبيعاً: JOIN واحد بين products وorder_items وorders،
+     * مُصفّى على حالة completed فقط، مع GROUP BY وORDER BY وLIMIT منفَّذة
+     * بالكامل داخل قاعدة البيانات (لا يوجد أي تجميع يدوي في PHP).
+     */
+    public function getTopSellingProducts(int $storeId, int $limit = 5): Collection
+    {
+        return $this->model->newQuery()
+            ->select([
+                'products.id',
+                'products.name',
+                'products.price',
+                'products.quantity as stock_quantity',
+            ])
+            ->selectRaw('COALESCE(SUM(order_items.quantity), 0) as total_sold')
+            ->join('order_items', 'order_items.product_id', '=', 'products.id')
+            ->join('orders', 'orders.id', '=', 'order_items.order_id')
+            ->where('products.store_id', $storeId)
+            ->where('orders.status', OrderStatus::COMPLETED->value)
+            ->groupBy('products.id', 'products.name', 'products.price', 'products.quantity')
+            ->orderByDesc('total_sold')
+            ->limit($limit)
+            ->get();
     }
 }
 

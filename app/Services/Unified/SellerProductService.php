@@ -21,9 +21,16 @@ class SellerProductService
     ) {}
 
   
-    public function listProducts(int $sellerId, int $perPage = 15): LengthAwarePaginator
+    /**
+     * جلب منتجات البائع (متجر رسمي أو طالب) مع تمرير فلاتر التصفية
+     * (مثال: availability_status) مباشرة إلى المستودع دون أي منطق إضافي هنا —
+     * الخدمة تبقى طبقة تنسيق رقيقة، والمستودع هو المسؤول عن بناء الاستعلام.
+     *
+     * @param array{availability_status?: string} $filters
+     */
+    public function listProducts(int $sellerId, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        return $this->productRepo->getStoreProductsOptimized($sellerId, $perPage);
+        return $this->productRepo->getStoreProductsOptimized($sellerId, $filters, $perPage);
     }
 
 

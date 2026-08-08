@@ -29,7 +29,7 @@ class StudentProductController extends Controller
             /** @var \App\Models\User $user */
             $user = Auth::user();
 
-            $products = $this->productService->listProducts($user->id, 50);
+            $products = $this->productService->listProducts($user->id, [], 50);
 
             $resourceData = ProductResource::collection($products)->response()->getData(true);
 

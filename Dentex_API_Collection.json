@@ -1885,7 +1885,23 @@
                                 "value": "application/json"
                             }
                         ],
-                        "url": "{{base_url}}/store/products?per_page=15"
+                        "url": "{{base_url}}/store/products?per_page=15",
+                        "description": "Optional `availability_status` query param filters the paginated result server-side (no in-memory grouping) — accepts exactly one of: available, limited, out_of_stock. Invalid values return 422. Omit it entirely to get all statuses, unfiltered, as before."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "List Store Products - Filtered (Low Stock tab)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/products?per_page=15&availability_status=limited",
+                        "description": "Example for a Flutter tabbed UI: each tab just swaps the availability_status value (available | limited | out_of_stock) and re-requests this same paginated endpoint — no client-side filtering of one big payload."
                     },
                     "response": []
                 },
@@ -2139,7 +2155,22 @@
                             }
                         ],
                         "url": "{{base_url}}/store/orders?per_page=15",
-                        "description": "Shared route: reachable by both store_owner (their own store orders) and student (their own purchase orders)."
+                        "description": "Shared route: reachable by both store_owner (their own store orders) and student (their own purchase orders). Optional `status` query param filters the paginated result server-side — accepts exactly one of: pending, processing, ready, completed, rejected. Invalid values return 422. Omit it entirely to get all statuses, unfiltered, as before."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "List Orders - Filtered (Pending tab)",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/orders?per_page=15&status=pending",
+                        "description": "Example for a Flutter tabbed UI: each tab (Pending/Processing/Ready/Completed) just swaps the status value and re-requests this same paginated endpoint — no client-side filtering of one big payload."
                     },
                     "response": []
                 },
@@ -2209,6 +2240,36 @@
                             }
                         },
                         "description": "status accepts: pending, processing, ready, completed, rejected. rejection_reason is required only when status = rejected."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Get Dashboard Statistics",
+                    "request": {
+                        "method": "GET",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/statistics",
+                        "description": "Returns the full store-owner dashboard: order counts by status (pending/processing/ready/completed/rejected + total), financials (total_revenue, average_order_value from completed orders), inventory (low_stock_count, quantity < 5), top_sellers (top 5 best-selling products), and weekly_revenue_chart (last 8 weeks, oldest first). Heavily cached server-side (Redis, tagged per store) — past weeks' revenue is cached indefinitely since it's immutable, only the current week and the other live metrics use short TTLs and are invalidated automatically whenever an order's status changes."
+                    },
+                    "response": []
+                },
+                {
+                    "name": "Export Sales Report (CSV)",
+                    "request": {
+                        "method": "POST",
+                        "header": [
+                            {
+                                "key": "Accept",
+                                "value": "application/json"
+                            }
+                        ],
+                        "url": "{{base_url}}/store/statistics/export",
+                        "description": "Dispatches ExportStoreSalesReportJob onto the queue and returns immediately with HTTP 202 (non-blocking) — it does NOT wait for the CSV to be generated. The job queries all completed orders for this store (with items/products/customer eager-loaded) and writes a CSV to storage/app/private/exports/store_{id}/sales_report_{timestamp}.csv. Requires a queue worker to actually be running (php artisan queue:work) since QUEUE_CONNECTION=database in this project — the job will just sit in the jobs table otherwise. No body required."
                     },
                     "response": []
                 },

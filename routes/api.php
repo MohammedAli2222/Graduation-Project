@@ -12,6 +12,7 @@ use App\Http\Controllers\ReceptionistController;
 use App\Http\Controllers\Store\StoreOrderController;
 use App\Http\Controllers\Store\StoreProductController;
 use App\Http\Controllers\Store\StorePromotionController;
+use App\Http\Controllers\Store\StoreStatisticController;
 use App\Http\Controllers\Student\BrowseStoreController;
 use App\Http\Controllers\Student\MarketplaceBrowseController;
 use App\Http\Controllers\Student\StudentCartController;
@@ -21,10 +22,10 @@ use App\Http\Controllers\Student\StudentPurchaseController;
 use App\Http\Controllers\Student\StudentSellerBrowseController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\TreatmentController;
+use App\Http\Middleware\VerifyDeploymentSecret;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
-use App\Http\Middleware\VerifyDeploymentSecret;
 
 // تطبيق وسيط الحماية على مسارات النشر
 Route::middleware([VerifyDeploymentSecret::class, 'throttle:10,1'])->prefix('deploy')->group(function () {
@@ -193,6 +194,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/promotions', [StorePromotionController::class, 'store']);
         Route::put('/promotions/{promotion}', [StorePromotionController::class, 'update']);
         Route::delete('/promotions/{promotion}', [StorePromotionController::class, 'destroy']);
+
+        Route::get('/statistics', [StoreStatisticController::class, 'index']);
+        Route::post('/statistics/export', [StoreStatisticController::class, 'exportReport']);
     });
 
     Route::middleware(['role:store_owner|student'])->prefix('store')->group(function () {

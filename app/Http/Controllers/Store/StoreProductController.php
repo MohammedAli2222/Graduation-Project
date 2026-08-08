@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Store;
 
+use App\Enums\ProductAvailability;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\StoreProductRequest;
 use App\Http\Requests\Store\UpdateStoreProductRequest;
@@ -34,7 +35,22 @@ class StoreProductController extends Controller
 
             $perPage = (int) $request->query('per_page', 15);
 
-            $products = $this->productService->listProducts($user->id, $perPage);
+            // بناء مصفوفة الفلاتر من الـ Query Parameters فقط عند إرسالها فعلياً
+            // (وليس مجرد فحص وجود المفتاح)، حتى لا يُطبَّق فلتر بقيمة فارغة
+            $filters = [];
+            $availabilityStatus = $request->query('availability_status');
+
+            if ($availabilityStatus !== null) {
+                // تحقق صارم من أن القيمة المرسلة إحدى قيم Enum الفعلية
+                // (available/limited/out_of_stock) قبل تمريرها للطبقات الأعمق
+                if (ProductAvailability::tryFrom($availabilityStatus) === null) {
+                    return response_error(null, 422, 'قيمة availability_status غير صالحة.');
+                }
+
+                $filters['availability_status'] = $availabilityStatus;
+            }
+
+            $products = $this->productService->listProducts($user->id, $filters, $perPage);
 
             $resourceData = ProductResource::collection($products)->response()->getData(true);
 

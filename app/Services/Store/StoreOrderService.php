@@ -8,6 +8,7 @@ use App\Enums\OrderStatus;
 use App\Enums\ProductAvailability;
 use App\Models\Order;
 use App\Repositories\Contracts\OrderRepositoryInterface;
+use App\Services\Store\StoreStatisticService;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\DB;
 use Exception;
@@ -15,12 +16,20 @@ use Exception;
 class StoreOrderService
 {
     public function __construct(
-        protected OrderRepositoryInterface $orderRepo
+        protected OrderRepositoryInterface $orderRepo,
+        protected StoreStatisticService $statisticService
     ) {}
 
-    public function listStoreOrders(int $storeId, int $perPage = 15): LengthAwarePaginator
+    /**
+     * جلب طلبات المتجر مع تمرير فلاتر التصفية (مثال: status) مباشرة إلى
+     * المستودع — الخدمة تبقى طبقة تنسيق رقيقة، والمستودع هو المسؤول عن بناء
+     * الاستعلام الفعلي.
+     *
+     * @param array{status?: string} $filters
+     */
+    public function listStoreOrders(int $storeId, array $filters = [], int $perPage = 15): LengthAwarePaginator
     {
-        return $this->orderRepo->getStoreOrdersOptimized($storeId, $perPage);
+        return $this->orderRepo->getStoreOrdersOptimized($storeId, $filters, $perPage);
     }
 
     /**
@@ -66,6 +75,13 @@ class StoreOrderService
             }
 
             DB::commit();
+
+            // إبطال التخزين المؤقت "الحي" لإحصائيات المتجر: عدد الطلبات لكل
+            // حالة، الإيرادات، والأسبوع الحالي جميعها تغيّرت بتغيّر حالة هذا
+            // الطلب. لا يمسّ هذا أبداً بيانات الأسابيع الماضية الثابتة
+            // (وسم منفصل تماماً داخل StoreStatisticService).
+            $this->statisticService->invalidateLiveCache($storeId);
+
             return $order->refresh();
         } catch (Exception $e) {
             DB::rollBack();

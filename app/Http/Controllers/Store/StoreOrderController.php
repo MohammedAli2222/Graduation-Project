@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Http\Controllers\Store;
 
+use App\Enums\OrderStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\Store\UpdateOrderStatusRequest;
 use App\Http\Resources\Store\OrderResource;
@@ -28,7 +29,21 @@ class StoreOrderController extends Controller
             $user = Auth::user();
             $perPage = (int) $request->query('per_page', 15);
 
-            $orders = $this->orderService->listStoreOrders($user->id, $perPage);
+            // بناء مصفوفة الفلاتر من الـ Query Parameters فقط عند إرسالها فعلياً
+            $filters = [];
+            $status = $request->query('status');
+
+            if ($status !== null) {
+                // تحقق صارم من أن القيمة المرسلة إحدى قيم Enum الفعلية
+                // (pending/processing/ready/completed/rejected) قبل تمريرها للطبقات الأعمق
+                if (OrderStatus::tryFrom($status) === null) {
+                    return response_error(null, 422, 'قيمة status غير صالحة.');
+                }
+
+                $filters['status'] = $status;
+            }
+
+            $orders = $this->orderService->listStoreOrders($user->id, $filters, $perPage);
             $resourceData = OrderResource::collection($orders)->response()->getData(true);
 
             return response_success($resourceData, 200, 'تم جلب الطلبات بنجاح.');
