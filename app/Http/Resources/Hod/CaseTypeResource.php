@@ -21,6 +21,8 @@ class CaseTypeResource extends JsonResource
             'students_met_requirement' => (int) ($this->students_met_requirement ?? 0),
             'total_students'           => (int) ($this->total_students ?? 0),
             'progress_percentage'      => (int) ($this->progress_percentage ?? 0),
+            // توزيع نسبة الطلاب حسب عدد الحالات المكتملة فعلياً (0، 1، ...، completed_all)
+            'students_distribution'    => $this->students_distribution ?? [],
 
             'course'         => $this->whenLoaded('course', function () {
                 return [

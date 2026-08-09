@@ -40,3 +40,4 @@ Route::get('/run-deployment', function (Request $request): Response {
         ], Response::HTTP_INTERNAL_SERVER_ERROR);
     }
 });
+

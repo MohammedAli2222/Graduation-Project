@@ -1,6 +1,6 @@
 <?php
 
-
+declare(strict_types=1);
 
 namespace App\Repositories\Hod;
 
@@ -62,8 +62,52 @@ class CaseTypeRepository implements CaseTypeRepositoryInterface
                 ? (int) round(min($studentsMetRequirement / $totalStudents, 1) * 100)
                 : 0;
 
+            $caseType->students_distribution = $this->buildStudentsDistribution(
+                $studentCounts,
+                $totalStudents,
+                $caseType->required_count,
+                $studentsMetRequirement
+            );
+
             return $caseType;
         });
+    }
+
+    /**
+     * يبني توزيعاً تكرارياً (Frequency Distribution) لعدد الطلاب حسب عدد
+     * الحالات التي أكملوها فعلياً من هذا النوع، كنسب مئوية من إجمالي الطلاب
+     * المسجَّلين بالمقرر: من "0" (لم يكمل أي حالة) وحتى الحد المطلوب مجتمعاً
+     * في "completed_all" (استوفى المتطلب بالكامل أو تجاوزه).
+     *
+     * @return array<string, int>
+     */
+    private function buildStudentsDistribution(
+        BaseCollection $studentCounts,
+        int $totalStudents,
+        int $requiredCount,
+        int $studentsMetRequirement
+    ): array {
+        $distribution = [];
+
+        // الطلاب الذين لم يُكملوا أي حالة إطلاقاً لا يظهرون في $studentCounts أصلاً
+        $studentsWithZeroCompletions = $totalStudents - $studentCounts->count();
+        $distribution['0_completed'] = $this->toPercentageOfTotal($studentsWithZeroCompletions, $totalStudents);
+
+        // من 1 وحتى (required_count - 1): عدد الطلاب الذين أكملوا هذا العدد بالضبط
+        for ($count = 1; $count < $requiredCount; $count++) {
+            $studentsWithExactCount = $studentCounts->filter(fn (int $c) => $c === $count)->count();
+            $distribution["{$count}_completed"] = $this->toPercentageOfTotal($studentsWithExactCount, $totalStudents);
+        }
+
+        // الطلاب الذين استوفوا العدد المطلوب بالكامل أو تجاوزوه
+        $distribution['completed_all'] = $this->toPercentageOfTotal($studentsMetRequirement, $totalStudents);
+
+        return $distribution;
+    }
+
+    private function toPercentageOfTotal(int $count, int $totalStudents): int
+    {
+        return $totalStudents > 0 ? (int) round($count / $totalStudents * 100) : 0;
     }
 
     private function getPerStudentCompletionCounts(array $caseTypeIds): BaseCollection

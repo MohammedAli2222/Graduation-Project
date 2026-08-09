@@ -8,7 +8,6 @@ use App\Models\Appointment;
 use App\Services\AppointmentService;
 use App\Services\TreatmentService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class AppointmentController extends Controller
