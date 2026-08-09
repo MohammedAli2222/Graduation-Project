@@ -219,7 +219,7 @@ class DepartmentHeadService
         }
 
         // إطلاق الحدث لإشعار المعيد بحصوله على صلاحية جديدة دون تأخير استجابة الـ API الرئيسية
-        InstructorDelegatedEvent::dispatch($instructor);
+       // InstructorDelegatedEvent::dispatch($instructor);
 
         return true;
     }
