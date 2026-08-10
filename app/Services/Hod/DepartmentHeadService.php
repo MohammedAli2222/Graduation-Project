@@ -12,7 +12,7 @@ use App\Repositories\Contracts\TreatmentRepositoryInterface;
 use App\Repositories\Contracts\CaseTypeRepositoryInterface;
 use App\Repositories\Contracts\InstructorRepositoryInterface;
 use App\Support\CacheVersion;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 use Spatie\Permission\Models\Permission;
@@ -26,7 +26,7 @@ class DepartmentHeadService
         protected InstructorRepositoryInterface $instructorRepo
     ) {}
 
-    public function getCompletedTreatmentsForDepartment(int $departmentId, int $page, int $perPage = 15): LengthAwarePaginator
+    public function getCompletedTreatmentsForDepartment(int $departmentId, int $page, int $perPage = 15): Paginator
     {
         $cacheKey = "department_{$departmentId}_completed_treatments_page_{$page}_limit_{$perPage}";
 

@@ -7,7 +7,7 @@ namespace App\Repositories\Hod;
 use App\Enums\TreatmentStatus;
 use App\Models\Treatment;
 use App\Repositories\Contracts\TreatmentRepositoryInterface;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Contracts\Pagination\Paginator;
 
 class TreatmentRepository implements TreatmentRepositoryInterface
 {
@@ -15,7 +15,7 @@ class TreatmentRepository implements TreatmentRepositoryInterface
         protected Treatment $model
     ) {}
 
-    public function getOptimizedCompletedTreatments(int $departmentId, int $perPage = 15): LengthAwarePaginator
+    public function getOptimizedCompletedTreatments(int $departmentId, int $perPage = 15): Paginator
     {
         return $this->model->newQuery()
             ->select('treatments.*')
@@ -37,7 +37,9 @@ class TreatmentRepository implements TreatmentRepositoryInterface
             ])
 
             ->latest('treatments.updated_at')
-            ->paginate($perPage);
+            // استخدام simplePaginate بدل paginate لإلغاء استعلام COUNT(*) الإضافي
+            // على الجداول المرتبطة بعدة JOIN، والذي يُعدّ العبء الأكبر في هذا الاستعلام
+            ->simplePaginate($perPage);
     }
 
     public function findDetailedForDepartment(int $treatmentId): ?Treatment
