@@ -29,7 +29,7 @@ class TreatmentRepository implements TreatmentRepositoryInterface
             ->where('courses.department_id', $departmentId)
 
             ->with([
-                'diagnosis:id,patient_id,student_id,case_type_id',
+                'diagnosis:id,patient_id,suggested_by_student_id,case_type_id',
                 'diagnosis.student:id,first_name,last_name',
                 'diagnosis.patient:id,first_name,last_name',
                 'diagnosis.caseType:id,name',
@@ -61,7 +61,7 @@ class TreatmentRepository implements TreatmentRepositoryInterface
     {
         return $this->model->newQuery()
 
-        ->selectRaw('treatments.status, COUNT(treatments.id) as total_count')
+            ->selectRaw('treatments.status, COUNT(treatments.id) as total_count')
 
             ->join('patient_diagnoses', 'treatments.diagnosis_id', '=', 'patient_diagnoses.id')
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
@@ -69,7 +69,7 @@ class TreatmentRepository implements TreatmentRepositoryInterface
 
             ->where('courses.department_id', $departmentId)
             // تصفية اختيارية بمقرر محدد ضمن القسم نفسه؛ لا تُطبَّق إن لم يُمرَّر $courseId
-            ->when($courseId, fn ($q) => $q->where('courses.id', $courseId))
+            ->when($courseId, fn($q) => $q->where('courses.id', $courseId))
 
             ->groupBy('treatments.status')
 
