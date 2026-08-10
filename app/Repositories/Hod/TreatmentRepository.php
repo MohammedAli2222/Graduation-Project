@@ -31,7 +31,8 @@ class TreatmentRepository implements TreatmentRepositoryInterface
             ->with([
                 'diagnosis:id,patient_id,suggested_by_student_id,case_type_id',
                 'diagnosis.student:id,first_name,last_name',
-                'diagnosis.patient:id,first_name,last_name',
+                // عمود اسم المريض الفعلي في جدول patients هو full_name وليس first_name/last_name
+                'diagnosis.patient:id,full_name',
                 'diagnosis.caseType:id,name',
                 'instructor:id,first_name,last_name'
             ])
