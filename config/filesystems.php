@@ -33,7 +33,9 @@ return [
         'local' => [
             'driver' => 'local',
             'root' => storage_path('app/private'),
-            'serve' => true,
+            // أُوقفت هنا لأن قرص public أدناه بحاجة لحجز مسار /storage لنفسه (انظر التعليق هناك)،
+            // ولا يوجد أي استخدام حالي في المشروع لخاصية serve/temporaryUrl على قرص local
+            'serve' => false,
             'throw' => false,
             'report' => false,
         ],
@@ -43,6 +45,10 @@ return [
             'root' => storage_path('app/public'),
             'url' => rtrim(env('APP_URL', 'http://localhost'), '/').'/storage',
             'visibility' => 'public',
+            // هذه الاستضافة تمنع خادم الويب من تتبع الرابط الرمزي (symlink) الناتج عن
+            // storage:link رغم إنشائه بنجاح. تفعيل serve هنا يجعل Laravel نفسه يخدم
+            // الملفات مباشرة عبر مسار GET /storage/{path} دون الاعتماد على أي رابط رمزي إطلاقاً
+            'serve' => true,
             'throw' => false,
             'report' => false,
         ],

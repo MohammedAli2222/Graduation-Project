@@ -123,4 +123,8 @@ return [
         'store' => env('APP_MAINTENANCE_STORE', 'database'),
     ],
 
+    // بدون قيمة افتراضية عمداً: إن لم يُضبط DEPLOYMENT_SECRET صراحة في .env
+    // فيجب أن يُرفض أي طلب لمسار /run-deployment وليس أن يُقبل بمفتاح افتراضي معروف
+    'deployment_secret' => env('DEPLOYMENT_SECRET'),
+
 ];

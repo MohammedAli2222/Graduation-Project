@@ -6,7 +6,11 @@ use Illuminate\Http\Request;
 use Symfony\Component\HttpFoundation\Response;
 
 Route::get('/run-deployment', function (Request $request): Response {
-    if ($request->input('secret') !== config('app.deployment_secret', 'secure-token-here')) {
+    $expectedSecret = config('app.deployment_secret');
+
+    // نرفض الطلب صراحة إن لم يُضبط DEPLOYMENT_SECRET في .env على الخادم،
+    // بدل الاعتماد على قيمة افتراضية ثابتة يمكن لأي شخص معرفتها من الكود المصدري
+    if (empty($expectedSecret) || ! hash_equals($expectedSecret, (string) $request->input('secret'))) {
         return response()->json([
             'status' => 'error',
             'message' => 'تصريح مرفوض: مفتاح الأمان غير صحيح.'
