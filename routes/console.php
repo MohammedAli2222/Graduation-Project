@@ -11,3 +11,13 @@ Artisan::command('inspire', function () {
 
 Schedule::command('auth:clean-unverified-users')->hourly();
 
+Schedule::command('queue:work', [
+    '--queue' => 'default',
+    '--tries' => 3,
+    '--max-time' => 50,
+])
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground()
+    ->appendOutputTo(storage_path('logs/queue-worker.log'));
+
