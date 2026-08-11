@@ -9,6 +9,7 @@ use App\Services\Store\StoreStatisticService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Exception;
 
 class StoreStatisticController extends Controller
@@ -32,18 +33,32 @@ class StoreStatisticController extends Controller
         }
     }
 
-    public function exportReport(): JsonResponse
+    public function exportReport(): JsonResponse|BinaryFileResponse
     {
         try {
             /** @var \App\Models\User $user */
             $user = Auth::user();
 
-            $this->statisticService->triggerSalesReportExport($user->id);
+            // إنشاء ملف التقرير مباشرة ضمن هذا الطلب (Synchronous) بدل تفويضه
+            // لمهمة Job تعمل في الخلفية عبر طابور الأعمال (Queue)
+            $filePath = $this->statisticService->generateSalesReportCsv($user->id);
 
-            return response_success(null, 202, 'تم بدء إنشاء تقرير المبيعات، سيتم إعداده في الخلفية.');
+            // لا داعي لمحاولة إرسال ملف فارغ؛ نتحقق من وجود بيانات أولاً
+            // ونعيد خطأ JSON واضحاً قبل أي محاولة لإنشاء أو إرسال الملف
+            if ($filePath === null) {
+                return response_error(null, 404, 'لا توجد بيانات مبيعات لإنشاء التقرير.');
+            }
+
+            $fileName = 'sales_report_' . now()->format('Y_m_d_His') . '.csv';
+
+            // إرسال الملف كاستجابة تحميل مباشرة (Stream) ضمن نفس دورة الطلب،
+            // ثم حذفه فور اكتمال الإرسال لتفادي تراكم الملفات المؤقتة على الخادم
+            return response()
+                ->download($filePath, $fileName, ['Content-Type' => 'text/csv'])
+                ->deleteFileAfterSend(true);
         } catch (Exception $e) {
-            Log::error('خطأ أثناء إطلاق مهمة تصدير تقرير المبيعات: ' . $e->getMessage());
-            return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة الطلب.');
+            Log::error('خطأ أثناء إنشاء تقرير المبيعات: ' . $e->getMessage());
+            return response_error(null, 500, 'حدث خطأ داخلي أثناء إنشاء التقرير.');
         }
     }
 }

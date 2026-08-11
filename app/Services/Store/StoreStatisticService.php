@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace App\Services\Store;
 
 use App\Enums\OrderStatus;
-use App\Jobs\ExportStoreSalesReportJob;
+use App\Models\Order;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\ProductRepositoryInterface;
 use App\Support\CacheVersion;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 
 class StoreStatisticService
 {
@@ -40,9 +42,73 @@ class StoreStatisticService
         ];
     }
 
-    public function triggerSalesReportExport(int $storeId): void
+    /**
+     * ينشئ تقرير المبيعات بصيغة CSV بشكل متزامن (Synchronous) أثناء الطلب نفسه،
+     * ويعيد المسار المطلق للملف المؤقت الناتج، أو null إن لم توجد بيانات لتصديرها.
+     */
+    public function generateSalesReportCsv(int $storeId): ?string
     {
-        ExportStoreSalesReportJob::dispatch($storeId);
+        $orders = $this->orderRepo->getCompletedOrdersForExport($storeId);
+
+        if ($orders->isEmpty()) {
+            return null;
+        }
+
+        $csvContent = $this->buildSalesReportCsvContent($orders);
+
+        $relativePath = sprintf(
+            'exports/store_%d/sales_report_%s.csv',
+            $storeId,
+            now()->format('Y_m_d_His')
+        );
+
+        Storage::disk('local')->put($relativePath, $csvContent);
+
+        return Storage::disk('local')->path($relativePath);
+    }
+
+    private function buildSalesReportCsvContent(Collection $orders): string
+    {
+        $handle = fopen('php://temp', 'r+');
+
+        // BOM لضمان عرض صحيح للحروف العربية عند فتح الملف في Excel
+        fwrite($handle, "\xEF\xBB\xBF");
+
+        fputcsv($handle, [
+            'رقم الطلب',
+            'تاريخ الطلب',
+            'اسم العميل',
+            'اسم المنتج',
+            'الكمية',
+            'سعر الوحدة',
+            'الإجمالي الفرعي',
+            'إجمالي الطلب',
+        ]);
+
+        /** @var Order $order */
+        foreach ($orders as $order) {
+            $customerName = trim(($order->student->first_name ?? '') . ' ' . ($order->student->last_name ?? ''));
+            $customerName = $customerName !== '' ? $customerName : 'غير معروف';
+
+            foreach ($order->orderItems as $item) {
+                fputcsv($handle, [
+                    $order->id,
+                    $order->created_at->format('Y-m-d H:i'),
+                    $customerName,
+                    $item->product->name ?? 'منتج محذوف',
+                    $item->quantity,
+                    number_format((float) $item->unit_price, 2, '.', ''),
+                    number_format((float) $item->subtotal, 2, '.', ''),
+                    number_format((float) $order->total_amount, 2, '.', ''),
+                ]);
+            }
+        }
+
+        rewind($handle);
+        $csv = stream_get_contents($handle);
+        fclose($handle);
+
+        return $csv;
     }
 
     public function invalidateLiveCache(int $storeId): void
