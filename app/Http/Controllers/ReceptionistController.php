@@ -36,9 +36,11 @@ class ReceptionistController extends Controller
                 $files
             );
 
+            // media ستكون فارغة هنا غالباً لأن ProcessPatientImagesJob لم يُنفَّذ بعد؛
+            // هذا متوقع ومقصود، فالهدف هو استجابة فورية لموظف الاستقبال
             $patient->load(['medicalHistory', 'media']);
 
-            return response_success(new PatientResource($patient), 201, 'Created patient successfully.');
+            return response_success(new PatientResource($patient), 201, 'تم تسجيل المريض بنجاح، جاري معالجة الصور في الخلفية.');
         } catch (\Exception $e) {
             return response_error(
                 null,

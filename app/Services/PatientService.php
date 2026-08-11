@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\DiagnosisStatus;
 use App\Enums\PatientStatus;
+use App\Jobs\ProcessPatientImagesJob;
 use App\Models\CaseType;
 use App\Models\Patient;
 use App\Repositories\PatientRepository;
@@ -51,21 +52,37 @@ class PatientService
                 'is_pregnant'              => $data['gender'] === 'female' ? filter_var($data['is_pregnant'] ?? false, FILTER_VALIDATE_BOOLEAN) : null,
             ]);
 
-            if (isset($files['id_card'])) {
-                $this->mediaService->upload($patient, $files['id_card'], 'id_cards');
-            }
-
             $user = auth()->user();
 
+            // تخزين سريع فقط للملفات الخام على قرص local المؤقت (نقل بلا معالجة)،
+            // بدل رفعها فوراً لمكتبة الوسائط داخل نفس الطلب. المعالجة الفعلية
+            // (النقل لقرص public + توليد التحويلات + الربط بسجل المريض) تُنقل
+            // بالكامل إلى ProcessPatientImagesJob لتستجيب شاشة الاستقبال فوراً
+            $tempImages = [];
+
+            if (! empty($files['id_card'])) {
+                $tempImages['id_cards'] = $files['id_card']->store('temp/patients', 'local');
+            }
+
             if ($user->hasRole('receptionist')) {
-                if (isset($files['clinical_images'])) {
-                    foreach ($files['clinical_images'] as $image) {
-                        $this->mediaService->upload($patient, $image, 'clinical_images');
+                foreach (['clinical_images', 'x_ray_images'] as $collection) {
+                    if (empty($files[$collection])) {
+                        continue;
                     }
-                }
-                if (isset($files['x_ray_images'])) {
-                    foreach ($files['x_ray_images'] as $image) {
-                        $this->mediaService->upload($patient, $image, 'x_ray_images');
+
+                    foreach ($files[$collection] as $imageOrGroup) {
+                        if (! $imageOrGroup) {
+                            continue;
+                        }
+
+                        // نفس تسطيح المصفوفات المتداخلة الذي كانت MediaService::upload
+                        // تقوم به ضمنياً، لأن clinical_images/x_ray_images قد تصل
+                        // كمصفوفة صور لكل عنصر وليس صورة واحدة فقط
+                        foreach ((is_array($imageOrGroup) ? $imageOrGroup : [$imageOrGroup]) as $image) {
+                            if ($image) {
+                                $tempImages[$collection][] = $image->store('temp/patients', 'local');
+                            }
+                        }
                     }
                 }
             } elseif ($user->hasRole('student') && !empty($diagnosisData['case_type_ids'])) {
@@ -98,6 +115,12 @@ class PatientService
                         $this->mediaService->upload($diagnosis, $files['x_ray_images'][$index], 'x_ray_images');
                     }
                 }
+            }
+
+            if (! empty($tempImages)) {
+                // afterCommit(): نضمن أن الـ Job لا يبدأ قبل تأكيد حفظ سجل المريض
+                // فعلياً في قاعدة البيانات (commit)، حتى لا يبحث عن مريض غير موجود بعد
+                ProcessPatientImagesJob::dispatch($patient->id, $tempImages)->afterCommit();
             }
 
             return $patient->load(['medicalHistory', 'diagnoses.media', 'media']);
