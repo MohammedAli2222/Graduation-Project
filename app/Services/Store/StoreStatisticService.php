@@ -93,7 +93,9 @@ class StoreStatisticService
             foreach ($order->orderItems as $item) {
                 fputcsv($handle, [
                     $order->id,
-                    $order->created_at->format('Y-m-d H:i'),
+                    // عرض التاريخ فقط بدون الوقت لتفادي ظهور "########" في Excel
+                    // بسبب ضيق عرض العمود، وبناءً على طلب العميل لتقرير أوضح
+                    $order->created_at->format('Y-m-d'),
                     $customerName,
                     $item->product->name ?? 'منتج محذوف',
                     $item->quantity,
