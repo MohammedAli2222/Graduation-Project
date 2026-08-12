@@ -63,7 +63,7 @@ class DiagnosisService
             $createdDiagnoses = DB::transaction(function () use ($data, $instructorId) {
                 $patient = $this->patientRepo->FindOrFail($data['patient_id']);
 
-                if ($patient->availability_status !== PatientStatus::WAITING_DIAGNOSIS->value) {
+                if ($patient->availability_status !== PatientStatus::WAITING_DIAGNOSIS) {
                     throw new Exception('This patient is no longer waiting for diagnosis.', 409);
                 }
 

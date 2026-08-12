@@ -173,7 +173,7 @@ class PatientService
                 $createdDiagnoses[] = $diagnosis;
             }
 
-            if (in_array($patient->availability_status, [PatientStatus::COMPLETED->value, PatientStatus::FULLY_RESERVED->value], true)) {
+            if (in_array($patient->availability_status, [PatientStatus::COMPLETED, PatientStatus::FULLY_RESERVED], true)) {
                 $patient->update(['availability_status' => PatientStatus::WAITING_DIAGNOSIS->value]);
             }
 
