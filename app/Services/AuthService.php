@@ -80,7 +80,10 @@ class AuthService
         }
 
         $role = $user->getRoleNames()->first();
-        $relation = $user->getProfileRelationName($role); 
+
+        // نحمّل البروفايل مع علاقاته المتداخلة دفعة واحدة، لأن UserResource يقرأ
+        // منها (group / groups / department) وكان ذلك يولّد استعلامات إضافية
+        $relation = $user->getProfileEagerLoadPath($role);
 
         if ($relation) {
             $user->load($relation);
@@ -118,7 +121,8 @@ class AuthService
             }
         });
 
-        return $user->refresh()->load('studentProfile');
+        // نحمّل group مع البروفايل لأن UserResource يعرض group_name في الرد
+        return $user->refresh()->load('studentProfile.group');
     }
 
     protected function createProfileByRole($user, $data)

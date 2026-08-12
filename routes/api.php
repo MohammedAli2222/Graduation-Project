@@ -24,6 +24,7 @@ use App\Http\Controllers\Student\StudentSellerBrowseController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\TreatmentController;
 use App\Http\Middleware\VerifyDeploymentSecret;
+use App\Http\Resources\UserResource;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
@@ -85,8 +86,22 @@ Route::get('/students/groups', [GroupController::class, 'getGroupsByYear']);
 
 Route::middleware('auth:sanctum')->group(function () {
 
+    /*
+     * نُرجع المستخدم عبر UserResource تماماً كما يفعل AuthService::login، حتى
+     * يحصل الفرونت على نفس البنية في الحالتين (role + profile) بدل بيانات
+     * الموديل الخام. علاقة البروفايل تُحمَّل ديناميكياً حسب دور المستخدم، لأن
+     * UserResource لا يُظهر مفتاح profile إلا إذا كانت العلاقة محمّلة فعلاً.
+     */
     Route::get('/user', function (Request $request) {
-        return $request->user();
+        $user = $request->user();
+        $role = $user->getRoleNames()->first();
+        $relation = $user->getProfileEagerLoadPath($role);
+
+        if ($relation) {
+            $user->load($relation);
+        }
+
+        return response_success(new UserResource($user), 200, 'User data retrieved successfully.');
     });
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:strict_auth');

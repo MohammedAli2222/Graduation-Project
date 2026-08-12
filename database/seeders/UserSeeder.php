@@ -108,9 +108,18 @@ class UserSeeder extends Seeder
     }
 
     /**
-     * الطالب: نضعه في السنة الخامسة/الفصل الثاني (أعلى سنة سريرية) عن قصد، لأن
-     * التحقق في StudentService يسمح للطالب بمقررات سنته والسنوات الأدنى فقط —
-     * فبهذا الشكل تكون كل المقررات والحالات المُنشأة متاحة له أثناء الاختبار.
+     * الطالب: السنة الخامسة / الفصل الأول.
+     *
+     * السنة والفصل هنا ليسا اعتباطيين، بل مقيّدان بشرطين متعاكسين:
+     *
+     * 1) ميدل وير EnsureCoursesAreSetup يشترط وجود مقرر مسجَّل يطابق سنة الطالب
+     *    وفصله بالضبط (= وليس <=)، وإلا رفض كل مسارات الطالب بـ 403. لذلك يجب
+     *    أن يوافق (year, semester) مقرراً موجوداً فعلاً في AcademicSeeder.
+     * 2) بقية التحققات (PatientService/StudentRepository) تسمح بمقررات السنوات
+     *    الأدنى والفصول الأدنى (<=)، فاختيار أعلى سنة يجعل كل المقررات متاحة.
+     *
+     * السنة 5 / الفصل 1 تحقق الشرطين معاً: تطابق مقرري السنة الخامسة الموجودين،
+     * وتتيح في الوقت نفسه الوصول لمقرري السنة الرابعة.
      */
     private function seedStudent(): void
     {
@@ -127,7 +136,7 @@ class UserSeeder extends Seeder
                 'exam_number' => '500001',
                 'university' => 'جامعة دمشق',
                 'academic_year' => 5,
-                'semester' => 2,
+                'semester' => 1,
             ]
         );
 
@@ -141,11 +150,28 @@ class UserSeeder extends Seeder
      */
     private function enrollStudentInAllCourses(StudentProfile $profile): void
     {
-        foreach (Course::all() as $course) {
+        $courses = Course::all();
+
+        foreach ($courses as $course) {
             StudentCourseEnrollment::firstOrCreate(
                 ['student_id' => $profile->id, 'course_id' => $course->id],
                 ['status' => EnrollmentStatus::ACTIVE->value, 'attempts_count' => 1]
             );
+        }
+
+        // حارس ضد خطأ صامت: لو لم يوجد مقرر يطابق سنة الطالب وفصله تماماً، فسيبدو
+        // الـ Seeding ناجحاً بينما يُحجب الطالب لاحقاً بـ 403 عند أول طلب.
+        $matchesCurrentLevel = $courses
+            ->where('year', $profile->academic_year)
+            ->where('semester', $profile->semester)
+            ->isNotEmpty();
+
+        if (! $matchesCurrentLevel) {
+            $this->command?->warn(sprintf(
+                'تحذير: لا يوجد مقرر للسنة %d/الفصل %d، وسيرفض ميدل وير ensure.courses.setup كل مسارات الطالب.',
+                $profile->academic_year,
+                $profile->semester
+            ));
         }
     }
 

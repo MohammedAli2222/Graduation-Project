@@ -86,4 +86,27 @@ class User extends Authenticatable
             default => null,
         };
     }
+
+    /**
+     * مسار التحميل المسبق (Eager Loading) لعلاقة البروفايل مع علاقاتها المتداخلة.
+     *
+     * السبب: UserResource يصل إلى علاقات داخل البروفايل (group / groups / department)،
+     * فلو حمّلنا البروفايل وحده لانطلق استعلام إضافي لكل علاقة متداخلة عند بناء الرد
+     * (مشكلة N+1). تحميل المسار الكامل دفعةً واحدة يحلّها.
+     *
+     * ملاحظة: التحميل بالمسار المتداخل يُبقي relationLoaded() على العلاقة الأب
+     * صحيحاً، وهو ما يعتمد عليه UserResource لإظهار مفتاح profile.
+     *
+     * @return string|null المسار الجاهز لـ load()، أو null لدور بلا بروفايل (admin/receptionist)
+     */
+    public function getProfileEagerLoadPath($role)
+    {
+        return match ($role) {
+            'student' => 'studentProfile.group',
+            'instructor' => 'instructorProfile.groups',
+            'department_head' => 'departmentHeadProfile.department',
+            'store_owner' => 'storeProfile',
+            default => null,
+        };
+    }
 }
