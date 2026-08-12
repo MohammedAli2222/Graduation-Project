@@ -19,14 +19,25 @@ use Illuminate\Support\Facades\DB;
  */
 class StoreSeeder extends Seeder
 {
-    private const TOTAL_CATEGORIES = 50;
+    private const TOTAL_CATEGORIES = 15;
     private const TOTAL_PRODUCTS = 300;
     private const TOTAL_ORDERS = 1000;
     private const ORDER_CHUNK_SIZE = 100;
 
+    /**
+     * الفئات فقط هي بيانات مرجعية أساسية (صاحب المتجر يحتاجها ليضيف منتجاً)،
+     * أما المنتجات والعروض والطلبات فبيانات وهمية. اجعل هذا false لتوليدها مجدداً.
+     */
+    private const CATEGORIES_ONLY = true;
+
     public function run(): void
     {
         $categories = $this->seedCategories();
+
+        if (self::CATEGORIES_ONLY) {
+            return;
+        }
+
         $stores = User::role('store_owner')->pluck('id');
 
         if ($stores->isEmpty()) {

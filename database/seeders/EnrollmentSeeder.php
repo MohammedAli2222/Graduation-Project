@@ -37,9 +37,10 @@ class EnrollmentSeeder extends Seeder
                 $availableCourses = $coursesByYear->get((string) $profile->academic_year);
 
                 if ($availableCourses && $availableCourses->isNotEmpty()) {
-                    $selectedCourses = $availableCourses->random(
-                        min($availableCourses->count(), random_int(2, 5))
-                    );
+                    // نسجّل الطالب في كل مقررات سنته بدل 2-5 عشوائية: مع طالب واحد فقط
+                    // للاختبار، التسجيل العشوائي قد يجعل الحالة التي يشخّصها المعيد
+                    // غير ظاهرة له لأنها تتبع مقرراً لم يُسجَّل فيه.
+                    $selectedCourses = $availableCourses;
 
                     foreach ($selectedCourses as $course) {
                         StudentCourseEnrollment::factory()->create([

@@ -22,9 +22,14 @@ use Illuminate\Support\Facades\Hash;
  */
 class UserSeeder extends Seeder
 {
-    private const INSTRUCTORS_COUNT = 50;
-    private const STORE_OWNERS_COUNT = 10;
-    private const STUDENTS_COUNT = 200;
+    /**
+     * أعداد مخفّضة إلى مستخدم واحد لكل دور، لأن الهدف الحالي هو الاختبار على
+     * بيانات حقيقية تُدخل من التطبيق نفسه وليس على بيانات وهمية مولّدة.
+     * لإرجاع البيانات الضخمة: أعِد القيم إلى 50 و10 و200 على الترتيب.
+     */
+    private const INSTRUCTORS_COUNT = 1;
+    private const STORE_OWNERS_COUNT = 1;
+    private const STUDENTS_COUNT = 1;
 
     public function run(): void
     {
@@ -75,22 +80,21 @@ class UserSeeder extends Seeder
      */
     private function seedDepartmentHeads(): void
     {
-        $departments = Department::all();
+        $department = Department::query()->orderBy('id')->first();
 
-        foreach ($departments as $index => $department) {
-            if ($index === 0) {
-                // أول رئيس قسم بحساب ثابت معروف لتسهيل الاختبار اليدوي
-                User::factory()->departmentHead($department)->create([
-                    'first_name' => 'خالد',
-                    'last_name' => 'الزين',
-                    'email' => 'head@dentex.test',
-                ]);
+        if (! $department) {
+            $this->command?->warn('لا توجد أقسام بعد — شغّل AcademicSeeder أولاً.');
 
-                continue;
-            }
-
-            User::factory()->departmentHead($department)->create();
+            return;
         }
+
+        // رئيس قسم واحد فقط (للقسم الأول) بحساب ثابت معروف لتسهيل الاختبار اليدوي.
+        // لتغطية كل الأقسام: أعِد الحلقة على Department::all() كما كانت.
+        User::factory()->departmentHead($department)->create([
+            'first_name' => 'خالد',
+            'last_name' => 'الزين',
+            'email' => 'head@dentex.test',
+        ]);
     }
 
     /**
@@ -111,10 +115,12 @@ class UserSeeder extends Seeder
 
         $groupIds = Group::pluck('id');
 
+        // بما أننا نُنشئ معيداً واحداً فقط، نربطه بكل المجموعات بدل 1-3 عشوائية:
+        // لولا ذلك قد لا يشترك المعيد مع الطالب الوحيد بأي مجموعة، فترفض
+        // approveCase/rejectCase الطلب بـ 403 لأن الطالب خارج مجموعاته.
         InstructorProfile::query()->chunkById(50, function ($profiles) use ($groupIds): void {
             foreach ($profiles as $profile) {
-                $randomGroupIds = $groupIds->random(min($groupIds->count(), random_int(1, 3)));
-                $profile->groups()->syncWithoutDetaching($randomGroupIds);
+                $profile->groups()->syncWithoutDetaching($groupIds);
             }
         });
     }

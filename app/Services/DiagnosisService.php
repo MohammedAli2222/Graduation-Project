@@ -64,7 +64,13 @@ class DiagnosisService
                 $patient = $this->patientRepo->FindOrFail($data['patient_id']);
 
                 if ($patient->availability_status !== PatientStatus::WAITING_DIAGNOSIS) {
-                    throw new Exception('This patient is no longer waiting for diagnosis.', 409);
+                    // نُظهر الحالة الفعلية ومعرّف المريض في الرسالة لأن الخطأ العام
+                    // كان يخفي السبب الحقيقي (مريض خاطئ أو مريض تغيّرت حالته فعلاً)
+                    throw new Exception(sprintf(
+                        'This patient is no longer waiting for diagnosis. (patient #%d current status: %s)',
+                        $patient->id,
+                        $patient->availability_status->value
+                    ), 409);
                 }
 
                 $hasPendingStudentDiagnosis = PatientDiagnose::where('patient_id', $data['patient_id'])
