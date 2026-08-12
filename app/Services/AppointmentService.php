@@ -84,18 +84,21 @@ class AppointmentService
 
                 $slotsNeeded = (int) $diagnosis->caseType->slots_needed;
 
+                $slotsPerDay = (int) config('clinic.working_slots_per_day');
+                $dailyLimit = (int) config('clinic.max_student_appointments_per_day');
+
                 $existingCount = $this->appointmentRepo->getActiveAppointmentsCountForStudent($student->id, $dateOnly);
 
-                if (($existingCount + $slotsNeeded) > 2) {
+                if (($existingCount + $slotsNeeded) > $dailyLimit) {
                     throw ValidationException::withMessages([
-                        'appointment_date' => ["Booking failed. This reservation requires {$slotsNeeded} slot(s), which will exceed your daily limit of 2 appointments. You currently have {$existingCount} appointment(s) on this day."],
+                        'appointment_date' => ["Booking failed. This reservation requires {$slotsNeeded} slot(s), which will exceed your daily limit of {$dailyLimit} appointments. You currently have {$existingCount} appointment(s) on this day."],
                     ]);
                 }
 
                 for ($i = 0; $i < $slotsNeeded; $i++) {
                     $currentSlot = $startSlot + $i;
 
-                    if ($currentSlot > 4) {
+                    if ($currentSlot > $slotsPerDay) {
                         throw ValidationException::withMessages([
                             'slot_number' => ['This complex case requires consecutive slots that exceed university working hours.'],
                         ]);

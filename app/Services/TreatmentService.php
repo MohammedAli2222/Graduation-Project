@@ -134,9 +134,11 @@ class TreatmentService
             $slotNumber
         );
 
+        $dailyLimit = (int) config('clinic.max_student_appointments_per_day');
+
         $existingCount = $this->appointmentRepo->getActiveAppointmentsCountForStudent(auth()->id(), $dateOnly);
-        if (($existingCount + $slotsNeeded) > 2) {
-            throw new \Exception('You have reached the daily limit of 2 appointment slots.');
+        if (($existingCount + $slotsNeeded) > $dailyLimit) {
+            throw new \Exception("You have reached the daily limit of {$dailyLimit} appointment slots.");
         }
 
         return $this->appointmentRepo->create([

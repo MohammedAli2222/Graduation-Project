@@ -21,6 +21,8 @@ class StoreAppointmentRequest extends FormRequest
      */
     public function rules(): array
     {
+        $slotsPerDay = (int) config('clinic.working_slots_per_day');
+
         return [
             'diagnosis_id' => 'required|integer|exists:patient_diagnoses,id',
             'appointment_date' => 'required|date|date_format:Y-m-d|after_or_equal:2026-07-03',
@@ -28,15 +30,40 @@ class StoreAppointmentRequest extends FormRequest
                 'required',
                 'integer',
                 'min:1',
-                'max:4',
-                function ($attribute, $value, $fail) {
+                'max:'.$slotsPerDay,
+                function ($attribute, $value, $fail) use ($slotsPerDay) {
                     $diagnosis = PatientDiagnose::find($this->input('diagnosis_id'));
-                    if ($diagnosis) {
-                        $slotsNeeded = (int) $diagnosis->caseType->slots_needed;
-                        if (($value + $slotsNeeded - 1) > 4) {
-                            $fail('The selected starting slot, combined with the case requirements, exceeds university working hours.');
-                        }
+
+                    if (! $diagnosis) {
+                        return;
                     }
+
+                    $slotsNeeded = (int) $diagnosis->caseType->slots_needed;
+
+                    if (($value + $slotsNeeded - 1) <= $slotsPerDay) {
+                        return;
+                    }
+
+                    // الرسالة العامة السابقة كانت تخفي السبب: نذكر الأرقام الفعلية
+                    // حتى يعرف الطالب من أي فترة يستطيع البدء بدل التخمين
+                    $maxStartSlot = $slotsPerDay - $slotsNeeded + 1;
+
+                    if ($maxStartSlot < 1) {
+                        $fail(sprintf(
+                            'This case requires %d consecutive slots, which exceeds the %d slots available in a working day. It cannot be booked.',
+                            $slotsNeeded,
+                            $slotsPerDay
+                        ));
+
+                        return;
+                    }
+
+                    $fail(sprintf(
+                        'This case requires %d consecutive slots. With %d slots per working day, the starting slot must be %d or lower.',
+                        $slotsNeeded,
+                        $slotsPerDay,
+                        $maxStartSlot
+                    ));
                 },
             ],
         ];
@@ -57,7 +84,7 @@ class StoreAppointmentRequest extends FormRequest
 
             'slot_number.required' => 'You must select a specific clinic time slot.',
             'slot_number.min' => 'The slot must be at least 1.',
-            'slot_number.max' => 'The slot cannot be greater than 4.',
+            'slot_number.max' => 'The slot cannot be greater than '.config('clinic.working_slots_per_day').'.',
         ];
     }
 }

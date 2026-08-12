@@ -126,7 +126,13 @@ class AcademicSeeder extends Seeder
      * منها، والطالب يحجزها لإتمام متطلبات مقرره.
      *
      * - required_count: عدد المرات التي يجب على الطالب إنجاز هذه الحالة فيها لينجح بالمقرر.
-     * - slots_needed:  عدد الجلسات (المواعيد) التي تحتاجها الحالة الواحدة حتى تكتمل.
+     * - slots_needed:  عدد الفترات (Slots) المتتالية التي تحجزها الحالة **في اليوم نفسه**،
+     *   وليس عدد الجلسات الموزّعة على أيام.
+     *
+     * ⚠️ سقف slots_needed هو 2 وليس 4، بسبب قيدين متتاليين في منطق الحجز:
+     *   - يوم الدوام 4 فترات: startSlot + slots_needed - 1 ≤ 4  (StoreAppointmentRequest)
+     *   - حد يومي للطالب موعدان: existingCount + slots_needed ≤ 2 (AppointmentService)
+     * فأي حالة بـ slots_needed = 3 أو 4 يستحيل حجزها إطلاقاً حتى من الفترة الأولى.
      *
      * @param  array<string, Course>  $courses
      */
@@ -137,7 +143,7 @@ class AcademicSeeder extends Seeder
                 'name' => 'تقويم ثابت',
                 'course_id' => $courses['orthodontics_2']->id,
                 'required_count' => 2,
-                'slots_needed' => 4,
+                'slots_needed' => 2,
             ],
             [
                 'name' => 'جهاز تقويم متحرك',
