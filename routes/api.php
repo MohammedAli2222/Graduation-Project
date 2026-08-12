@@ -28,36 +28,53 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Artisan;
 
-Route::middleware([VerifyDeploymentSecret::class, 'throttle:10,1'])->prefix('deploy')->group(function () {
-    Route::post('/cache', function () {
-        Artisan::call('optimize:clear');
-        return response()->json(['status' => 'success', 'message' => 'System cache cleared successfully.']);
-    });
+/*
+ * تشغيل أمر Artisan وإرجاع مخرجاته الحقيقية. بدون هذا الغلاف كان أي فشل يرتد
+ * كـ 500 "Server Error" فقط (لأن APP_DEBUG=false في الإنتاج) بلا أي دليل على السبب.
+ * set_time_limit(0) لأن الهجرات والـ Seeding قد تتجاوز مهلة PHP الافتراضية.
+ */
+$runArtisan = function (string $command, array $parameters, string $successMessage) {
+    set_time_limit(0);
 
-    Route::post('/migrate', function () {
-        Artisan::call('migrate', ['--force' => true]);
-        return response()->json(['status' => 'success', 'message' => 'Database migrations executed successfully.']);
-    });
+    try {
+        Artisan::call($command, $parameters);
 
-    Route::post('/refresh', function () {
-        Artisan::call('migrate:refresh', ['--force' => true]);
-        return response()->json(['status' => 'success', 'message' => 'Database refreshed successfully.']);
-    });
+        return response()->json([
+            'status' => 'success',
+            'message' => $successMessage,
+            'output' => trim(Artisan::output()),
+        ]);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => $e->getMessage(),
+            'command' => $command,
+            'output' => trim(Artisan::output()),
+        ], 500);
+    }
+};
 
-    Route::post('/seed', function () {
-        Artisan::call('db:seed', ['--force' => true]);
-        return response()->json(['status' => 'success', 'message' => 'Database seeded successfully.']);
-    });
+Route::middleware([VerifyDeploymentSecret::class, 'throttle:10,1'])->prefix('deploy')->group(function () use ($runArtisan) {
+    Route::post('/cache', fn () => $runArtisan('optimize:clear', [], 'System cache cleared successfully.'));
 
-    Route::post('/queue', function () {
-        Artisan::call('queue:work', ['--stop-when-empty' => true]);
-        return response()->json(['status' => 'success', 'message' => 'Queue jobs processed successfully.']);
-    });
+    Route::post('/migrate', fn () => $runArtisan('migrate', ['--force' => true], 'Database migrations executed successfully.'));
 
-    Route::post('/storage', function () {
-        Artisan::call('storage:link');
-        return response()->json(['status' => 'success', 'message' => 'Storage symbolic link created successfully.']);
-    });
+    Route::post('/refresh', fn () => $runArtisan('migrate:refresh', ['--force' => true], 'Database refreshed successfully.'));
+
+    // migrate:fresh يُسقط كل الجداول مباشرةً بدل الاعتماد على دوال down()، فهو
+    // الخيار الموثوق لإعادة البناء من الصفر. أضف seed=1 لتشغيل الـ Seeders بنفس الطلب.
+    // ⚠️ يمسح كل بيانات قاعدة البيانات نهائياً.
+    Route::post('/fresh', fn (Request $request) => $runArtisan(
+        'migrate:fresh',
+        array_filter(['--force' => true, '--seed' => $request->boolean('seed')]),
+        'Database rebuilt from scratch successfully.'
+    ));
+
+    Route::post('/seed', fn () => $runArtisan('db:seed', ['--force' => true], 'Database seeded successfully.'));
+
+    Route::post('/queue', fn () => $runArtisan('queue:work', ['--stop-when-empty' => true], 'Queue jobs processed successfully.'));
+
+    Route::post('/storage', fn () => $runArtisan('storage:link', [], 'Storage symbolic link created successfully.'));
 });
 
 Route::post('/register', [AuthController::class, 'register']);

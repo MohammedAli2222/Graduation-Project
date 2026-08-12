@@ -4,147 +4,173 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Enums\EnrollmentStatus;
+use App\Models\Course;
 use App\Models\Department;
+use App\Models\DepartmentHeadProfile;
 use App\Models\Group;
 use App\Models\InstructorProfile;
+use App\Models\StoreProfile;
+use App\Models\StudentCourseEnrollment;
+use App\Models\StudentProfile;
 use App\Models\User;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Hash;
 
 /**
- * يُنشئ جميع حسابات المستخدمين وملفاتهم الشخصية: مدير عام، رؤساء أقسام،
- * معيدون، أصحاب متاجر، وطلاب. يعتمد على وجود الأقسام والمجموعات مسبقاً
- * (AcademicSeeder)، لذلك يجب أن يُشغَّل بعده مباشرة.
+ * مستخدم واحد لكل دور، مع البروفايل الخاص به والربط الصحيح بالمجموعات والأقسام.
+ * كل الحسابات بكلمة المرور: password
  *
- * ملاحظة: UserFactory يضبط كلمة المرور الافتراضية لكل مستخدم على "password"
- * (مخزّنة بشكل ثابت static لتفادي تكرار التشفير)، لذلك كل الحسابات أدناه
- * تدخل بنفس كلمة المرور دون الحاجة لتمريرها صراحة.
+ * يعتمد على AcademicSeeder (الأقسام والمجموعات والمقررات يجب أن تكون موجودة مسبقاً).
  */
 class UserSeeder extends Seeder
 {
-    /**
-     * أعداد مخفّضة إلى مستخدم واحد لكل دور، لأن الهدف الحالي هو الاختبار على
-     * بيانات حقيقية تُدخل من التطبيق نفسه وليس على بيانات وهمية مولّدة.
-     * لإرجاع البيانات الضخمة: أعِد القيم إلى 50 و10 و200 على الترتيب.
-     */
-    private const INSTRUCTORS_COUNT = 1;
-    private const STORE_OWNERS_COUNT = 1;
-    private const STUDENTS_COUNT = 1;
+    /** كلمة مرور موحّدة لكل حسابات الاختبار (يُشفّرها كاست 'hashed' في موديل User تلقائياً) */
+    private const PASSWORD = 'password';
 
     public function run(): void
     {
         $this->seedAdmin();
         $this->seedReceptionist();
-        $this->seedDepartmentHeads();
-        $this->seedInstructors();
-        $this->seedStoreOwners();
-        $this->seedStudents();
+        $this->seedDepartmentHead();
+        $this->seedInstructor();
+        $this->seedStoreOwner();
+        $this->seedStudent();
+    }
+
+    /** حساب إشرافي عام؛ الدور موجود في النظام ويملك كل الصلاحيات عبر RoleAndPermissionSeeder */
+    private function seedAdmin(): void
+    {
+        $this->createUser('مدير', 'النظام', 'admin@test.com')->assignRole('admin');
     }
 
     /**
-     * موظف استقبال واحد؛ ليس ضمن الأعداد التي طلبها العميل صراحةً، لكنه
-     * ضروري لأن تدفق تسجيل المرضى (PatientSeeder) يفترض وجود مستخدم بهذا الدور،
-     * تماماً كما يعتمد عليه ReceptionistController فعلياً في التطبيق.
+     * موظف الاستقبال: لا يملك جدول بروفايل خاص به، فدوره وحده كافٍ.
+     * هو نقطة البداية في التطبيق لأنه من يُدخل المرضى الجدد (حالتهم waiting_diagnosis).
      */
     private function seedReceptionist(): void
     {
-        $receptionist = User::forceCreate([
-            'first_name' => 'سوزان',
-            'last_name' => 'الخطيب',
-            'email' => 'receptionist@dentex.test',
-            'password' => Hash::make('password'),
-            'email_verified_at' => now(),
-        ]);
-
-        $receptionist->assignRole('receptionist');
-    }
-
-    /** حساب مدير عام واحد ثابت لتسهيل تسجيل الدخول أثناء الاختبار */
-    private function seedAdmin(): void
-    {
-        $admin = User::forceCreate([
-            'first_name' => 'مدير',
-            'last_name' => 'النظام',
-            'email' => 'admin@dentex.test',
-            'password' => Hash::make('password'),
-            'email_verified_at' => now(),
-        ]);
-
-        $admin->assignRole('admin');
+        $this->createUser('سوزان', 'الخطيب', 'receptionist@test.com')->assignRole('receptionist');
     }
 
     /**
-     * رئيس قسم واحد لكل قسم من الأقسام الخمسة المُنشأة مسبقاً (تطابق 1:1)،
-     * باستخدام حالة departmentHead() في UserFactory التي تمنع تكرار تعيين
-     * أكثر من رئيس لنفس القسم.
+     * رئيس القسم: مرتبط بقسم التقويم. علاقة department_head_profiles مع القسم
+     * هي 1:1 (عمود department_id فريد UNIQUE)، أي لا يمكن تعيين رئيسين للقسم نفسه.
      */
-    private function seedDepartmentHeads(): void
+    private function seedDepartmentHead(): void
     {
-        $department = Department::query()->orderBy('id')->first();
+        $department = Department::where('name', AcademicSeeder::DEPARTMENT_ORTHODONTICS)->firstOrFail();
 
-        if (! $department) {
-            $this->command?->warn('لا توجد أقسام بعد — شغّل AcademicSeeder أولاً.');
+        $user = $this->createUser('خالد', 'الزين', 'head@test.com');
+        $user->assignRole('department_head');
 
-            return;
+        DepartmentHeadProfile::firstOrCreate(
+            ['user_id' => $user->id],
+            ['department_id' => $department->id]
+        );
+    }
+
+    /**
+     * المعيد: نربطه بالمجموعتين معاً عبر جدول group_instructor.
+     * هذا الربط شرط أساسي لعمل approveCase/rejectCase، لأن الخدمة ترفض بـ 403
+     * أي طلب تشخيص قادم من طالب لا يشترك مع المعيد بأي مجموعة.
+     */
+    private function seedInstructor(): void
+    {
+        $user = $this->createUser('سارة', 'يوسف', 'instructor@test.com');
+        $user->assignRole('instructor');
+
+        $profile = InstructorProfile::firstOrCreate(
+            ['user_id' => $user->id],
+            [
+                'phone' => '0991000001',
+                'specialty' => 'تقويم الأسنان',
+                'specialty_year' => '2018',
+            ]
+        );
+
+        $profile->groups()->syncWithoutDetaching(Group::pluck('id'));
+    }
+
+    /** صاحب المتجر: بروفايل المتجر مطلوب، ومنتجاته تُربط به عبر products.store_id (يشير إلى users.id) */
+    private function seedStoreOwner(): void
+    {
+        $user = $this->createUser('سامر', 'البني', 'store@test.com');
+        $user->assignRole('store_owner');
+
+        StoreProfile::firstOrCreate(
+            ['user_id' => $user->id],
+            [
+                'store_name' => 'متجر دنتكس للمستلزمات السنية',
+                'store_phone' => '0991000002',
+                'store_address' => 'دمشق - المزة - شارع الجلاء',
+            ]
+        );
+    }
+
+    /**
+     * الطالب: نضعه في السنة الخامسة/الفصل الثاني (أعلى سنة سريرية) عن قصد، لأن
+     * التحقق في StudentService يسمح للطالب بمقررات سنته والسنوات الأدنى فقط —
+     * فبهذا الشكل تكون كل المقررات والحالات المُنشأة متاحة له أثناء الاختبار.
+     */
+    private function seedStudent(): void
+    {
+        $group = Group::where('group_name', AcademicSeeder::GROUP_YEAR_FIVE)->firstOrFail();
+
+        $user = $this->createUser('أحمد', 'خالد', 'student@test.com');
+        $user->assignRole('student');
+
+        $profile = StudentProfile::firstOrCreate(
+            ['user_id' => $user->id],
+            [
+                'group_id' => $group->id,
+                'phone' => '0991000003',
+                'exam_number' => '500001',
+                'university' => 'جامعة دمشق',
+                'academic_year' => 5,
+                'semester' => 2,
+            ]
+        );
+
+        $this->enrollStudentInAllCourses($profile);
+    }
+
+    /**
+     * تسجيل الطالب في كل المقررات المُنشأة: الميدل وير ensure.courses.setup يمنع
+     * الوصول لمعظم مسارات الطالب ما لم يكن مسجّلاً في مقررات فعّالة، كما أن
+     * الحالة التي يشخّصها المعيد لا تظهر للطالب إلا إذا كان مسجّلاً في مقررها.
+     */
+    private function enrollStudentInAllCourses(StudentProfile $profile): void
+    {
+        foreach (Course::all() as $course) {
+            StudentCourseEnrollment::firstOrCreate(
+                ['student_id' => $profile->id, 'course_id' => $course->id],
+                ['status' => EnrollmentStatus::ACTIVE->value, 'attempts_count' => 1]
+            );
+        }
+    }
+
+    /**
+     * إنشاء المستخدم مع تفعيل بريده مسبقاً حتى لا يعترض تدفق التحقق (OTP) الاختبار.
+     * نستخدم firstOrCreate على البريد ليبقى السيدر قابلاً لإعادة التشغيل دون تكرار.
+     */
+    private function createUser(string $firstName, string $lastName, string $email): User
+    {
+        $user = User::firstOrCreate(
+            ['email' => $email],
+            [
+                'first_name' => $firstName,
+                'last_name' => $lastName,
+                'password' => self::PASSWORD,
+            ]
+        );
+
+        // email_verified_at خارج $fillable في موديل User، فلا يمكن تمريره ضمن create
+        // (سيُهمل بصمت). ونضبطه إلزامياً لأن AuthService يرفض تسجيل الدخول لأي
+        // حساب غير مُفعّل، بل ويحذفه CleanUnverifiedUsersCommand لاحقاً.
+        if (is_null($user->email_verified_at)) {
+            $user->forceFill(['email_verified_at' => now()])->save();
         }
 
-        // رئيس قسم واحد فقط (للقسم الأول) بحساب ثابت معروف لتسهيل الاختبار اليدوي.
-        // لتغطية كل الأقسام: أعِد الحلقة على Department::all() كما كانت.
-        User::factory()->departmentHead($department)->create([
-            'first_name' => 'خالد',
-            'last_name' => 'الزين',
-            'email' => 'head@dentex.test',
-        ]);
-    }
-
-    /**
-     * 50 معيداً، ثم ربط كل معيد بـ 1 إلى 3 مجموعات عشوائية عبر جدول
-     * group_instructor (هذا هو المقصود بـ "Assign Groups" في هيكلية الطلب،
-     * وتوضع هنا لأن ملفات المعيدين instructor_profiles يجب أن تكون موجودة أولاً).
-     */
-    private function seedInstructors(): void
-    {
-        // معيد بحساب ثابت معروف لتسهيل الاختبار اليدوي
-        User::factory()->instructor()->create([
-            'first_name' => 'سارة',
-            'last_name' => 'يوسف',
-            'email' => 'instructor@dentex.test',
-        ]);
-
-        User::factory()->count(self::INSTRUCTORS_COUNT - 1)->instructor()->create();
-
-        $groupIds = Group::pluck('id');
-
-        // بما أننا نُنشئ معيداً واحداً فقط، نربطه بكل المجموعات بدل 1-3 عشوائية:
-        // لولا ذلك قد لا يشترك المعيد مع الطالب الوحيد بأي مجموعة، فترفض
-        // approveCase/rejectCase الطلب بـ 403 لأن الطالب خارج مجموعاته.
-        InstructorProfile::query()->chunkById(50, function ($profiles) use ($groupIds): void {
-            foreach ($profiles as $profile) {
-                $profile->groups()->syncWithoutDetaching($groupIds);
-            }
-        });
-    }
-
-    private function seedStoreOwners(): void
-    {
-        User::factory()->asStoreOwner()->create([
-            'first_name' => 'سامر',
-            'last_name' => 'البني',
-            'email' => 'store@dentex.test',
-        ]);
-
-        User::factory()->count(self::STORE_OWNERS_COUNT - 1)->asStoreOwner()->create();
-    }
-
-    /** 200 طالب، كل طالب يُسنَد تلقائياً لمجموعة موافقة لسنته الدراسية عبر UserFactory::student() */
-    private function seedStudents(): void
-    {
-        User::factory()->student()->create([
-            'first_name' => 'أحمد',
-            'last_name' => 'خالد',
-            'email' => 'student@dentex.test',
-        ]);
-
-        User::factory()->count(self::STUDENTS_COUNT - 1)->student()->create();
+        return $user;
     }
 }

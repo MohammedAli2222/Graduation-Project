@@ -28,8 +28,10 @@ return Application::configure(basePath: dirname(__DIR__))
     // الإشعارات معطّلة مؤقتاً: كل المستمعين في app/Listeners هم مستمعو إشعارات Firebase،
     // وبما أن FIREBASE_CREDENTIALS لم يُضبط بعد فإن تحميلهم يرمي استثناءً. تعطيل الاكتشاف
     // التلقائي يمنع تسجيلهم أصلاً، فتبقى الأحداث تُطلق بلا أي أثر جانبي.
-    // لإعادة التفعيل بعد ضبط Firebase: NOTIFICATIONS_ENABLED=true في ملف .env
-    ->withEvents(discover: filter_var(env('NOTIFICATIONS_ENABLED', false), FILTER_VALIDATE_BOOLEAN))
+    //
+    // لإعادة تفعيل الإشعارات بعد ضبط Firebase: بدّل false إلى true هنا.
+    // (لا يمكن ربطها بمتغيّر من .env لأن هذا السطر يُنفَّذ قبل تحميل ملف .env أصلاً)
+    ->withEvents(discover: false)
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(function (UnauthorizedException $e, Request $request) {
 

@@ -29,4 +29,12 @@ return new class extends Migration
             $table->nullableTimestamps();
         });
     }
+
+    // بدون down() كان migrate:refresh يتخطى هذه الهجرة عند التراجع (لارافيل يستدعي
+    // down فقط إذا كانت معرّفة)، فيبقى جدول media موجوداً ثم يفشل up عند إعادة
+    // التنفيذ بخطأ "Table 'media' already exists".
+    public function down(): void
+    {
+        Schema::dropIfExists('media');
+    }
 };

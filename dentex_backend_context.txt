@@ -746,7 +746,6 @@ use App\Models\Appointment;
 use App\Services\AppointmentService;
 use App\Services\TreatmentService;
 use Illuminate\Database\Eloquent\ModelNotFoundException;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Validation\ValidationException;
 
 class AppointmentController extends Controller
@@ -1167,6 +1166,7 @@ use App\Http\Requests\Hod\UpdateCaseRequirementRequest;
 use App\Http\Resources\Hod\CaseTypeResource;
 use App\Services\Hod\DepartmentHeadService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Exception;
@@ -1214,8 +1214,19 @@ class DepartmentRequirementController extends Controller
     }
 
 
-    public function indexCaseTypes(): JsonResponse
+    public function indexCaseTypes(Request $request): JsonResponse
     {
+        // نفس منطق endpoint الإحصائيات: course_id اختياري، وإن وُجد نتحقق من
+        // صيغته هنا فقط (integer وموجود فعلاً)، بينما التحقق من ملكيته لقسم
+        // رئيس القسم الحالي يتم داخل طبقة الخدمة
+        $validated = $request->validate([
+            'course_id' => ['sometimes', 'nullable', 'integer', 'exists:courses,id'],
+        ]);
+
+        // نُحوّل الناتج صراحةً إلى int لأن قاعدة integer في validate() تتحقق من
+        // الصيغة فقط ولا تُبدّل نوع القيمة، وقيم الاستعلام تصل دائماً كنصوص
+        $courseId = isset($validated['course_id']) ? (int) $validated['course_id'] : null;
+
         try {
             /** @var \App\Models\User $user */
             $user = Auth::user();
@@ -1225,7 +1236,7 @@ class DepartmentRequirementController extends Controller
                 return response_error(null, 403, 'غير مصرح لك: حسابك لا يملك صلاحيات رئيس قسم.');
             }
 
-            $caseTypes = $this->hodService->getCaseTypesForDepartment($hodProfile->department_id);
+            $caseTypes = $this->hodService->getCaseTypesForDepartment($hodProfile->department_id, $courseId);
 
             return response_success(
                 CaseTypeResource::collection($caseTypes),
@@ -1233,8 +1244,16 @@ class DepartmentRequirementController extends Controller
                 'تم جلب أنواع الحالات التابعة لقسمك بنجاح.'
             );
         } catch (Exception $e) {
-            Log::error("خطأ أثناء جلب الحالات لرئيس القسم: " . $e->getMessage());
-            return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة البيانات.');
+            // نُميّز بين استثناءات مقصودة (403/404 عند طلب مقرر تابع لقسم آخر)
+            // وأخطاء داخلية حقيقية، بنفس منطق endpoint الإحصائيات
+            $statusCode = ($e->getCode() >= 400 && $e->getCode() <= 500) ? $e->getCode() : 500;
+
+            if ($statusCode === 500) {
+                Log::error("خطأ أثناء جلب الحالات لرئيس القسم: " . $e->getMessage());
+                return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة البيانات.');
+            }
+
+            return response_error(null, $statusCode, $e->getMessage());
         }
     }
 
@@ -1332,6 +1351,7 @@ namespace App\Http\Controllers\Hod;
 use App\Http\Controllers\Controller;
 use App\Services\Hod\DepartmentHeadService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Exception;
@@ -1343,8 +1363,20 @@ class DepartmentStatisticController extends Controller
     ) {}
 
 
-    public function index(): JsonResponse
+    public function index(Request $request): JsonResponse
     {
+        // نتحقق من course_id قبل أي منطق آخر: حقل اختياري، لكن إن وُجد يجب أن
+        // يشير فعلاً لمقرر موجود في قاعدة البيانات. التحقق من ملكية هذا المقرر
+        // لقسم رئيس القسم الحالي تحديداً يتم لاحقاً داخل طبقة الخدمة (Service)
+        $validated = $request->validate([
+            'course_id' => ['sometimes', 'nullable', 'integer', 'exists:courses,id'],
+        ]);
+
+        // قاعدة integer في validate() تتحقق من الصيغة فقط ولا تحوّل النوع، وبما
+        // أن قيم الاستعلام (query string) تصل دائماً كنصوص، يجب تحويلها صراحةً
+        // إلى int قبل تمريرها لدالة الخدمة المصرَّحة بـ strict_types
+        $courseId = isset($validated['course_id']) ? (int) $validated['course_id'] : null;
+
         try {
             /** @var \App\Models\User $user */
             $user = Auth::user();
@@ -1354,7 +1386,7 @@ class DepartmentStatisticController extends Controller
                 return response_error(null, 403, 'غير مصرح لك: حسابك لا يملك صلاحيات رئيس قسم.');
             }
 
-            $statistics = $this->hodService->getDepartmentStatistics($hodProfile->department_id);
+            $statistics = $this->hodService->getDepartmentStatistics($hodProfile->department_id, $courseId);
 
             return response_success(
                 $statistics,
@@ -1363,8 +1395,16 @@ class DepartmentStatisticController extends Controller
             );
 
         } catch (Exception $e) {
-            Log::error("خطأ أثناء جلب إحصائيات القسم لرئيس القسم: " . $e->getMessage());
-            return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة البيانات.');
+            // نُميّز بين استثناءات مقصودة (403/404 مثلاً عند طلب مقرر تابع لقسم
+            // آخر) وأخطاء داخلية حقيقية، تماماً كما في بقية دوال هذا الـ Controller
+            $statusCode = ($e->getCode() >= 400 && $e->getCode() <= 500) ? $e->getCode() : 500;
+
+            if ($statusCode === 500) {
+                Log::error("خطأ أثناء جلب إحصائيات القسم لرئيس القسم: " . $e->getMessage());
+                return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة البيانات.');
+            }
+
+            return response_error(null, $statusCode, $e->getMessage());
         }
     }
 }
@@ -1730,9 +1770,11 @@ class ReceptionistController extends Controller
                 $files
             );
 
+            // media ستكون فارغة هنا غالباً لأن ProcessPatientImagesJob لم يُنفَّذ بعد؛
+            // هذا متوقع ومقصود، فالهدف هو استجابة فورية لموظف الاستقبال
             $patient->load(['medicalHistory', 'media']);
 
-            return response_success(new PatientResource($patient), 201, 'Created patient successfully.');
+            return response_success(new PatientResource($patient), 201, 'تم تسجيل المريض بنجاح، جاري معالجة الصور في الخلفية.');
         } catch (\Exception $e) {
             return response_error(
                 null,
@@ -2195,6 +2237,7 @@ use App\Services\Store\StoreStatisticService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Exception;
 
 class StoreStatisticController extends Controller
@@ -2218,18 +2261,32 @@ class StoreStatisticController extends Controller
         }
     }
 
-    public function exportReport(): JsonResponse
+    public function exportReport(): JsonResponse|BinaryFileResponse
     {
         try {
             /** @var \App\Models\User $user */
             $user = Auth::user();
 
-            $this->statisticService->triggerSalesReportExport($user->id);
+            // إنشاء ملف التقرير مباشرة ضمن هذا الطلب (Synchronous) بدل تفويضه
+            // لمهمة Job تعمل في الخلفية عبر طابور الأعمال (Queue)
+            $filePath = $this->statisticService->generateSalesReportCsv($user->id);
 
-            return response_success(null, 202, 'تم بدء إنشاء تقرير المبيعات، سيتم إعداده في الخلفية.');
+            // لا داعي لمحاولة إرسال ملف فارغ؛ نتحقق من وجود بيانات أولاً
+            // ونعيد خطأ JSON واضحاً قبل أي محاولة لإنشاء أو إرسال الملف
+            if ($filePath === null) {
+                return response_error(null, 404, 'لا توجد بيانات مبيعات لإنشاء التقرير.');
+            }
+
+            $fileName = 'sales_report_' . now()->format('Y_m_d_His') . '.csv';
+
+            // إرسال الملف كاستجابة تحميل مباشرة (Stream) ضمن نفس دورة الطلب،
+            // ثم حذفه فور اكتمال الإرسال لتفادي تراكم الملفات المؤقتة على الخادم
+            return response()
+                ->download($filePath, $fileName, ['Content-Type' => 'text/csv'])
+                ->deleteFileAfterSend(true);
         } catch (Exception $e) {
-            Log::error('خطأ أثناء إطلاق مهمة تصدير تقرير المبيعات: ' . $e->getMessage());
-            return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة الطلب.');
+            Log::error('خطأ أثناء إنشاء تقرير المبيعات: ' . $e->getMessage());
+            return response_error(null, 500, 'حدث خطأ داخلي أثناء إنشاء التقرير.');
         }
     }
 }
@@ -4588,6 +4645,8 @@ class CaseTypeResource extends JsonResource
             'students_met_requirement' => (int) ($this->students_met_requirement ?? 0),
             'total_students'           => (int) ($this->total_students ?? 0),
             'progress_percentage'      => (int) ($this->progress_percentage ?? 0),
+            // توزيع نسبة الطلاب حسب عدد الحالات المكتملة فعلياً (0، 1، ...، completed_all)
+            'students_distribution'    => $this->students_distribution ?? [],
 
             'course'         => $this->whenLoaded('course', function () {
                 return [
@@ -4633,10 +4692,10 @@ class TreatmentResource extends JsonResource
                         'id'   => $this->diagnosis->caseType?->id,
                         'name' => $this->diagnosis->caseType?->name,
                     ],
+                    // Patient::$fillable لا يحتوي first_name/last_name، بل full_name فقط
                     'patient' => [
-                        'id'         => $this->diagnosis->patient?->id,
-                        'first_name' => $this->diagnosis->patient?->first_name,
-                        'last_name'  => $this->diagnosis->patient?->last_name,
+                        'id'        => $this->diagnosis->patient?->id,
+                        'full_name' => $this->diagnosis->patient?->full_name,
                     ],
                     'student' => [
                         'id'         => $this->diagnosis->student?->id,
@@ -5587,7 +5646,7 @@ class DeleteUnverifiedUserJob implements ShouldQueue
 
 
 =================================================
-File: app\Jobs\ExportStoreSalesReportJob.php
+File: app\Jobs\ProcessPatientImagesJob.php
 =================================================
 
 <?php
@@ -5596,90 +5655,76 @@ declare(strict_types=1);
 
 namespace App\Jobs;
 
-use App\Models\Order;
-use App\Repositories\Contracts\OrderRepositoryInterface;
+use App\Models\Patient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Exception;
 
-class ExportStoreSalesReportJob implements ShouldQueue
+class ProcessPatientImagesJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
 
+    /**
+     * @param array<string, string|array<int, string>> $tempImages مفاتيحه أسماء مجموعات
+     * الوسائط في نموذج Patient (id_cards, clinical_images, x_ray_images)، وقيمته
+     * مسار مؤقت واحد (لـ id_cards) أو مصفوفة مسارات مؤقتة على قرص local
+     */
     public function __construct(
-        public int $storeId
+        public int $patientId,
+        public array $tempImages
     ) {}
 
-    public function handle(OrderRepositoryInterface $orderRepo): void
+    public function handle(): void
     {
+        $patient = Patient::find($this->patientId);
+
+        if (! $patient) {
+            $this->cleanupTempFiles();
+            return;
+        }
+
         try {
-            $orders = $orderRepo->getCompletedOrdersForExport($this->storeId);
+            foreach ($this->tempImages as $collection => $paths) {
+                foreach ((array) $paths as $path) {
+                    if (Storage::disk('local')->exists($path)) {
+                        // addMedia هنا هي الخطوة المكلفة فعلياً (نقل الملف لقرص public
+                        // + توليد تحويل thumb)، والتي كانت سابقاً تُنفَّذ أثناء الطلب
+                        // نفسه وتُبطئ استجابة شاشة الاستقبال؛ الآن تُنفَّذ في الخلفية.
+                        // لا يوجد عمود "رابط صورة" منفصل على جدول patients لتحديثه:
+                        // toMediaCollection() هي نفسها آلية "ربط" الصورة بسجل المريض
+                        // عبر جدول media متعدد الأشكال (polymorphic) التابع لـ Spatie
+                        $patient->addMedia(Storage::disk('local')->path($path))
+                            ->toMediaCollection($collection);
 
-            $csvContent = $this->buildCsvContent($orders);
-
-            $relativePath = sprintf(
-                'exports/store_%d/sales_report_%s.csv',
-                $this->storeId,
-                now()->format('Y_m_d_His')
-            );
-
-            Storage::disk('local')->put($relativePath, $csvContent);
-
-            Log::info("تم إنشاء تقرير المبيعات للمتجر رقم {$this->storeId} بنجاح في المسار: {$relativePath}");
+                        // نقطة تمديد اختيارية: لو أُضيفت مكتبة intervention/image
+                        // مستقبلاً، هذا هو المكان المناسب لضغط/تصغير الصورة قبل
+                        // toMediaCollection() دون التأثير على زمن استجابة الطلب الأصلي
+                    }
+                }
+            }
         } catch (Exception $e) {
-            Log::error("خطأ أثناء إنشاء تقرير المبيعات للمتجر رقم {$this->storeId}: " . $e->getMessage());
+            Log::error("خطأ أثناء معالجة صور المريض رقم {$this->patientId}: " . $e->getMessage());
+        } finally {
+            $this->cleanupTempFiles();
         }
     }
 
-    private function buildCsvContent(Collection $orders): string
+    protected function cleanupTempFiles(): void
     {
-        $handle = fopen('php://temp', 'r+');
-
-        fwrite($handle, "\xEF\xBB\xBF");
-
-        fputcsv($handle, [
-            'رقم الطلب',
-            'تاريخ الطلب',
-            'اسم العميل',
-            'اسم المنتج',
-            'الكمية',
-            'سعر الوحدة',
-            'الإجمالي الفرعي',
-            'إجمالي الطلب',
-        ]);
-
-        /** @var Order $order */
-        foreach ($orders as $order) {
-            $customerName = trim(($order->student->first_name ?? '') . ' ' . ($order->student->last_name ?? ''));
-            $customerName = $customerName !== '' ? $customerName : 'غير معروف';
-
-            foreach ($order->orderItems as $item) {
-                fputcsv($handle, [
-                    $order->id,
-                    $order->created_at->format('Y-m-d H:i'),
-                    $customerName,
-                    $item->product->name ?? 'منتج محذوف',
-                    $item->quantity,
-                    number_format((float) $item->unit_price, 2, '.', ''),
-                    number_format((float) $item->subtotal, 2, '.', ''),
-                    number_format((float) $order->total_amount, 2, '.', ''),
-                ]);
+        foreach ($this->tempImages as $paths) {
+            foreach ((array) $paths as $path) {
+                if (Storage::disk('local')->exists($path)) {
+                    Storage::disk('local')->delete($path);
+                }
             }
         }
-
-        rewind($handle);
-        $csv = stream_get_contents($handle);
-        fclose($handle);
-
-        return $csv;
     }
 }
 
@@ -8148,7 +8193,7 @@ interface CaseTypeRepositoryInterface
 
     public function findByIdWithCourse(int $id): ?CaseType;
     public function updateRequiredCount(CaseType $caseType, int $newCount): bool;
-    public function getCaseTypesByDepartment(int $departmentId): Collection;
+    public function getCaseTypesByDepartment(int $departmentId, ?int $courseId = null): Collection;
     public function create(array $data): CaseType;
     public function delete(CaseType $caseType): bool;
 }
@@ -8343,12 +8388,12 @@ declare(strict_types=1);
 namespace App\Repositories\Contracts;
 
 use App\Models\Treatment;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Contracts\Pagination\Paginator;
 
 interface TreatmentRepositoryInterface
 {
-    public function getOptimizedCompletedTreatments(int $departmentId, int $perPage = 15): LengthAwarePaginator;
-    public function getDepartmentTreatmentStatistics(int $departmentId): array;
+    public function getOptimizedCompletedTreatments(int $departmentId, int $perPage = 15): Paginator;
+    public function getDepartmentTreatmentStatistics(int $departmentId, ?int $courseId = null): array;
     public function findDetailedForDepartment(int $treatmentId): ?Treatment;
 }
 
@@ -8484,7 +8529,7 @@ File: app\Repositories\Hod\CaseTypeRepository.php
 
 <?php
 
-
+declare(strict_types=1);
 
 namespace App\Repositories\Hod;
 
@@ -8512,12 +8557,14 @@ class CaseTypeRepository implements CaseTypeRepositoryInterface
         return $caseType->update(['required_count' => $newCount]);
     }
 
-    public function getCaseTypesByDepartment(int $departmentId): Collection
+    public function getCaseTypesByDepartment(int $departmentId, ?int $courseId = null): Collection
     {
         $caseTypes = $this->model->newQuery()
             ->select('case_types.*')
             ->join('courses', 'case_types.course_id', '=', 'courses.id')
             ->where('courses.department_id', $departmentId)
+            // تصفية اختيارية بمقرر محدد ضمن القسم نفسه؛ لا تُطبَّق إن لم يُمرَّر $courseId
+            ->when($courseId, fn ($q) => $q->where('case_types.course_id', $courseId))
             ->with('course:id,name')
             ->orderBy('courses.name')
             ->get();
@@ -8544,8 +8591,52 @@ class CaseTypeRepository implements CaseTypeRepositoryInterface
                 ? (int) round(min($studentsMetRequirement / $totalStudents, 1) * 100)
                 : 0;
 
+            $caseType->students_distribution = $this->buildStudentsDistribution(
+                $studentCounts,
+                $totalStudents,
+                $caseType->required_count,
+                $studentsMetRequirement
+            );
+
             return $caseType;
         });
+    }
+
+    /**
+     * يبني توزيعاً تكرارياً (Frequency Distribution) لعدد الطلاب حسب عدد
+     * الحالات التي أكملوها فعلياً من هذا النوع، كنسب مئوية من إجمالي الطلاب
+     * المسجَّلين بالمقرر: من "0" (لم يكمل أي حالة) وحتى الحد المطلوب مجتمعاً
+     * في "completed_all" (استوفى المتطلب بالكامل أو تجاوزه).
+     *
+     * @return array<string, int>
+     */
+    private function buildStudentsDistribution(
+        BaseCollection $studentCounts,
+        int $totalStudents,
+        int $requiredCount,
+        int $studentsMetRequirement
+    ): array {
+        $distribution = [];
+
+        // الطلاب الذين لم يُكملوا أي حالة إطلاقاً لا يظهرون في $studentCounts أصلاً
+        $studentsWithZeroCompletions = $totalStudents - $studentCounts->count();
+        $distribution['0_completed'] = $this->toPercentageOfTotal($studentsWithZeroCompletions, $totalStudents);
+
+        // من 1 وحتى (required_count - 1): عدد الطلاب الذين أكملوا هذا العدد بالضبط
+        for ($count = 1; $count < $requiredCount; $count++) {
+            $studentsWithExactCount = $studentCounts->filter(fn (int $c) => $c === $count)->count();
+            $distribution["{$count}_completed"] = $this->toPercentageOfTotal($studentsWithExactCount, $totalStudents);
+        }
+
+        // الطلاب الذين استوفوا العدد المطلوب بالكامل أو تجاوزوه
+        $distribution['completed_all'] = $this->toPercentageOfTotal($studentsMetRequirement, $totalStudents);
+
+        return $distribution;
+    }
+
+    private function toPercentageOfTotal(int $count, int $totalStudents): int
+    {
+        return $totalStudents > 0 ? (int) round($count / $totalStudents * 100) : 0;
     }
 
     private function getPerStudentCompletionCounts(array $caseTypeIds): BaseCollection
@@ -8636,7 +8727,7 @@ namespace App\Repositories\Hod;
 use App\Enums\TreatmentStatus;
 use App\Models\Treatment;
 use App\Repositories\Contracts\TreatmentRepositoryInterface;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Contracts\Pagination\Paginator;
 
 class TreatmentRepository implements TreatmentRepositoryInterface
 {
@@ -8644,7 +8735,7 @@ class TreatmentRepository implements TreatmentRepositoryInterface
         protected Treatment $model
     ) {}
 
-    public function getOptimizedCompletedTreatments(int $departmentId, int $perPage = 15): LengthAwarePaginator
+    public function getOptimizedCompletedTreatments(int $departmentId, int $perPage = 15): Paginator
     {
         return $this->model->newQuery()
             ->select('treatments.*')
@@ -8658,15 +8749,18 @@ class TreatmentRepository implements TreatmentRepositoryInterface
             ->where('courses.department_id', $departmentId)
 
             ->with([
-                'diagnosis:id,patient_id,student_id,case_type_id',
+                'diagnosis:id,patient_id,suggested_by_student_id,case_type_id',
                 'diagnosis.student:id,first_name,last_name',
-                'diagnosis.patient:id,first_name,last_name',
+                // عمود اسم المريض الفعلي في جدول patients هو full_name وليس first_name/last_name
+                'diagnosis.patient:id,full_name',
                 'diagnosis.caseType:id,name',
                 'instructor:id,first_name,last_name'
             ])
 
             ->latest('treatments.updated_at')
-            ->paginate($perPage);
+            // استخدام simplePaginate بدل paginate لإلغاء استعلام COUNT(*) الإضافي
+            // على الجداول المرتبطة بعدة JOIN، والذي يُعدّ العبء الأكبر في هذا الاستعلام
+            ->simplePaginate($perPage);
     }
 
     public function findDetailedForDepartment(int $treatmentId): ?Treatment
@@ -8684,17 +8778,19 @@ class TreatmentRepository implements TreatmentRepositoryInterface
             ->find($treatmentId);
     }
 
-    public function getDepartmentTreatmentStatistics(int $departmentId): array
+    public function getDepartmentTreatmentStatistics(int $departmentId, ?int $courseId = null): array
     {
         return $this->model->newQuery()
 
-        ->selectRaw('treatments.status, COUNT(treatments.id) as total_count')
+            ->selectRaw('treatments.status, COUNT(treatments.id) as total_count')
 
             ->join('patient_diagnoses', 'treatments.diagnosis_id', '=', 'patient_diagnoses.id')
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
             ->join('courses', 'case_types.course_id', '=', 'courses.id')
 
             ->where('courses.department_id', $departmentId)
+            // تصفية اختيارية بمقرر محدد ضمن القسم نفسه؛ لا تُطبَّق إن لم يُمرَّر $courseId
+            ->when($courseId, fn($q) => $q->where('courses.id', $courseId))
 
             ->groupBy('treatments.status')
 
@@ -10061,8 +10157,14 @@ class DiagnosisService
             $createdDiagnoses = DB::transaction(function () use ($data, $instructorId) {
                 $patient = $this->patientRepo->FindOrFail($data['patient_id']);
 
-                if ($patient->availability_status !== PatientStatus::WAITING_DIAGNOSIS->value) {
-                    throw new Exception('This patient is no longer waiting for diagnosis.', 409);
+                if ($patient->availability_status !== PatientStatus::WAITING_DIAGNOSIS) {
+                    // نُظهر الحالة الفعلية ومعرّف المريض في الرسالة لأن الخطأ العام
+                    // كان يخفي السبب الحقيقي (مريض خاطئ أو مريض تغيّرت حالته فعلاً)
+                    throw new Exception(sprintf(
+                        'This patient is no longer waiting for diagnosis. (patient #%d current status: %s)',
+                        $patient->id,
+                        $patient->availability_status->value
+                    ), 409);
                 }
 
                 $hasPendingStudentDiagnosis = PatientDiagnose::where('patient_id', $data['patient_id'])
@@ -10322,7 +10424,7 @@ use App\Repositories\Contracts\TreatmentRepositoryInterface;
 use App\Repositories\Contracts\CaseTypeRepositoryInterface;
 use App\Repositories\Contracts\InstructorRepositoryInterface;
 use App\Support\CacheVersion;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
 use Spatie\Permission\Models\Permission;
@@ -10336,7 +10438,7 @@ class DepartmentHeadService
         protected InstructorRepositoryInterface $instructorRepo
     ) {}
 
-    public function getCompletedTreatmentsForDepartment(int $departmentId, int $page, int $perPage = 15): LengthAwarePaginator
+    public function getCompletedTreatmentsForDepartment(int $departmentId, int $page, int $perPage = 15): Paginator
     {
         $cacheKey = "department_{$departmentId}_completed_treatments_page_{$page}_limit_{$perPage}";
 
@@ -10362,12 +10464,30 @@ class DepartmentHeadService
         return $treatment;
     }
 
-    public function getCaseTypesForDepartment(int $departmentId): Collection
+    public function getCaseTypesForDepartment(int $departmentId, ?int $courseId = null): Collection
     {
+        // نفس تحقق ملكية المقرر المستخدَم في getDepartmentStatistics: يمنع
+        // الاطلاع على أنواع حالات مقرر تابع لقسم آخر
+        if ($courseId !== null) {
+            $course = Course::find($courseId);
+
+            if (! $course) {
+                throw new Exception('المقرر الدراسي غير موجود.', 404);
+            }
+
+            if ($course->department_id !== $departmentId) {
+                throw new Exception('غير مصرح لك: هذا المقرر تابع لقسم آخر.', 403);
+            }
+        }
+
+        // مفتاح الكاش يتضمن معرف المقرر (أو 'all' في حال غيابه) حتى لا تُخلَط
+        // نتائج أنواع حالات القسم كاملاً مع أنواع حالات مقرر محدد ضمنه
+        $cacheKey = "department_{$departmentId}_case_types_course_" . ($courseId ?? 'all');
+
         return Cache::remember(
-            CacheVersion::taggedKey(["department_{$departmentId}", 'case_types'], "department_{$departmentId}_case_types"),
+            CacheVersion::taggedKey(["department_{$departmentId}", 'case_types'], $cacheKey),
             now()->addHours(2),
-            fn() => $this->caseTypeRepo->getCaseTypesByDepartment($departmentId)
+            fn() => $this->caseTypeRepo->getCaseTypesByDepartment($departmentId, $courseId)
         );
     }
 
@@ -10448,15 +10568,31 @@ class DepartmentHeadService
         return $isUpdated;
     }
 
-    public function getDepartmentStatistics(int $departmentId): array
+    public function getDepartmentStatistics(int $departmentId, ?int $courseId = null): array
     {
-        $cacheKey = "department_{$departmentId}_statistics";
+        // إن تم تمرير معرف مقرر، نتحقق أنه موجود فعلاً وأنه تابع لنفس قسم رئيس
+        // القسم الحالي، لمنع الاطلاع على إحصائيات مقرر ينتمي لقسم آخر
+        if ($courseId !== null) {
+            $course = Course::find($courseId);
+
+            if (! $course) {
+                throw new Exception('المقرر الدراسي غير موجود.', 404);
+            }
+
+            if ($course->department_id !== $departmentId) {
+                throw new Exception('غير مصرح لك: هذا المقرر تابع لقسم آخر.', 403);
+            }
+        }
+
+        // مفتاح الكاش يتضمن معرف المقرر (أو 'all' في حال غيابه) حتى لا تُخلَط
+        // نتائج إحصائيات القسم كاملاً مع إحصائيات مقرر محدد ضمنه
+        $cacheKey = "department_{$departmentId}_statistics_course_" . ($courseId ?? 'all');
 
         return Cache::remember(
             CacheVersion::taggedKey(["department_{$departmentId}", 'statistics'], $cacheKey),
             now()->addMinutes(30),
-            function () use ($departmentId) {
-                $rawStats = $this->treatmentRepo->getDepartmentTreatmentStatistics($departmentId);
+            function () use ($departmentId, $courseId) {
+                $rawStats = $this->treatmentRepo->getDepartmentTreatmentStatistics($departmentId, $courseId);
                 $formattedStats = [];
                 $total = 0;
 
@@ -10495,7 +10631,7 @@ class DepartmentHeadService
         }
 
         // إطلاق الحدث لإشعار المعيد بحصوله على صلاحية جديدة دون تأخير استجابة الـ API الرئيسية
-        InstructorDelegatedEvent::dispatch($instructor);
+       // InstructorDelegatedEvent::dispatch($instructor);
 
         return true;
     }
@@ -10594,6 +10730,7 @@ namespace App\Services;
 
 use App\Enums\DiagnosisStatus;
 use App\Enums\PatientStatus;
+use App\Jobs\ProcessPatientImagesJob;
 use App\Models\CaseType;
 use App\Models\Patient;
 use App\Repositories\PatientRepository;
@@ -10641,21 +10778,37 @@ class PatientService
                 'is_pregnant'              => $data['gender'] === 'female' ? filter_var($data['is_pregnant'] ?? false, FILTER_VALIDATE_BOOLEAN) : null,
             ]);
 
-            if (isset($files['id_card'])) {
-                $this->mediaService->upload($patient, $files['id_card'], 'id_cards');
-            }
-
             $user = auth()->user();
 
+            // تخزين سريع فقط للملفات الخام على قرص local المؤقت (نقل بلا معالجة)،
+            // بدل رفعها فوراً لمكتبة الوسائط داخل نفس الطلب. المعالجة الفعلية
+            // (النقل لقرص public + توليد التحويلات + الربط بسجل المريض) تُنقل
+            // بالكامل إلى ProcessPatientImagesJob لتستجيب شاشة الاستقبال فوراً
+            $tempImages = [];
+
+            if (! empty($files['id_card'])) {
+                $tempImages['id_cards'] = $files['id_card']->store('temp/patients', 'local');
+            }
+
             if ($user->hasRole('receptionist')) {
-                if (isset($files['clinical_images'])) {
-                    foreach ($files['clinical_images'] as $image) {
-                        $this->mediaService->upload($patient, $image, 'clinical_images');
+                foreach (['clinical_images', 'x_ray_images'] as $collection) {
+                    if (empty($files[$collection])) {
+                        continue;
                     }
-                }
-                if (isset($files['x_ray_images'])) {
-                    foreach ($files['x_ray_images'] as $image) {
-                        $this->mediaService->upload($patient, $image, 'x_ray_images');
+
+                    foreach ($files[$collection] as $imageOrGroup) {
+                        if (! $imageOrGroup) {
+                            continue;
+                        }
+
+                        // نفس تسطيح المصفوفات المتداخلة الذي كانت MediaService::upload
+                        // تقوم به ضمنياً، لأن clinical_images/x_ray_images قد تصل
+                        // كمصفوفة صور لكل عنصر وليس صورة واحدة فقط
+                        foreach ((is_array($imageOrGroup) ? $imageOrGroup : [$imageOrGroup]) as $image) {
+                            if ($image) {
+                                $tempImages[$collection][] = $image->store('temp/patients', 'local');
+                            }
+                        }
                     }
                 }
             } elseif ($user->hasRole('student') && !empty($diagnosisData['case_type_ids'])) {
@@ -10688,6 +10841,12 @@ class PatientService
                         $this->mediaService->upload($diagnosis, $files['x_ray_images'][$index], 'x_ray_images');
                     }
                 }
+            }
+
+            if (! empty($tempImages)) {
+                // afterCommit(): نضمن أن الـ Job لا يبدأ قبل تأكيد حفظ سجل المريض
+                // فعلياً في قاعدة البيانات (commit)، حتى لا يبحث عن مريض غير موجود بعد
+                ProcessPatientImagesJob::dispatch($patient->id, $tempImages)->afterCommit();
             }
 
             return $patient->load(['medicalHistory', 'diagnoses.media', 'media']);
@@ -10740,7 +10899,7 @@ class PatientService
                 $createdDiagnoses[] = $diagnosis;
             }
 
-            if (in_array($patient->availability_status, [PatientStatus::COMPLETED->value, PatientStatus::FULLY_RESERVED->value], true)) {
+            if (in_array($patient->availability_status, [PatientStatus::COMPLETED, PatientStatus::FULLY_RESERVED], true)) {
                 $patient->update(['availability_status' => PatientStatus::WAITING_DIAGNOSIS->value]);
             }
 
@@ -11096,12 +11255,14 @@ declare(strict_types=1);
 namespace App\Services\Store;
 
 use App\Enums\OrderStatus;
-use App\Jobs\ExportStoreSalesReportJob;
+use App\Models\Order;
 use App\Repositories\Contracts\OrderRepositoryInterface;
 use App\Repositories\Contracts\ProductRepositoryInterface;
 use App\Support\CacheVersion;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Storage;
 
 class StoreStatisticService
 {
@@ -11131,9 +11292,75 @@ class StoreStatisticService
         ];
     }
 
-    public function triggerSalesReportExport(int $storeId): void
+    /**
+     * ينشئ تقرير المبيعات بصيغة CSV بشكل متزامن (Synchronous) أثناء الطلب نفسه،
+     * ويعيد المسار المطلق للملف المؤقت الناتج، أو null إن لم توجد بيانات لتصديرها.
+     */
+    public function generateSalesReportCsv(int $storeId): ?string
     {
-        ExportStoreSalesReportJob::dispatch($storeId);
+        $orders = $this->orderRepo->getCompletedOrdersForExport($storeId);
+
+        if ($orders->isEmpty()) {
+            return null;
+        }
+
+        $csvContent = $this->buildSalesReportCsvContent($orders);
+
+        $relativePath = sprintf(
+            'exports/store_%d/sales_report_%s.csv',
+            $storeId,
+            now()->format('Y_m_d_His')
+        );
+
+        Storage::disk('local')->put($relativePath, $csvContent);
+
+        return Storage::disk('local')->path($relativePath);
+    }
+
+    private function buildSalesReportCsvContent(Collection $orders): string
+    {
+        $handle = fopen('php://temp', 'r+');
+
+        // BOM لضمان عرض صحيح للحروف العربية عند فتح الملف في Excel
+        fwrite($handle, "\xEF\xBB\xBF");
+
+        fputcsv($handle, [
+            'رقم الطلب',
+            'تاريخ الطلب',
+            'اسم العميل',
+            'اسم المنتج',
+            'الكمية',
+            'سعر الوحدة',
+            'الإجمالي الفرعي',
+            'إجمالي الطلب',
+        ]);
+
+        /** @var Order $order */
+        foreach ($orders as $order) {
+            $customerName = trim(($order->student->first_name ?? '') . ' ' . ($order->student->last_name ?? ''));
+            $customerName = $customerName !== '' ? $customerName : 'غير معروف';
+
+            foreach ($order->orderItems as $item) {
+                fputcsv($handle, [
+                    $order->id,
+                    // عرض التاريخ فقط بدون الوقت لتفادي ظهور "########" في Excel
+                    // بسبب ضيق عرض العمود، وبناءً على طلب العميل لتقرير أوضح
+                    $order->created_at->format('Y-m-d'),
+                    $customerName,
+                    $item->product->name ?? 'منتج محذوف',
+                    $item->quantity,
+                    number_format((float) $item->unit_price, 2, '.', ''),
+                    number_format((float) $item->subtotal, 2, '.', ''),
+                    number_format((float) $order->total_amount, 2, '.', ''),
+                ]);
+            }
+        }
+
+        rewind($handle);
+        $csv = stream_get_contents($handle);
+        fclose($handle);
+
+        return $csv;
     }
 
     public function invalidateLiveCache(int $storeId): void
@@ -13950,6 +14177,34 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('user_device_tokens');
+    }
+};
+
+
+=================================================
+File: database/migrations\2026_08_10_000000_add_status_updated_at_index_to_treatments_table.php
+=================================================
+
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('treatments', function (Blueprint $table) {
+            $table->index(['status', 'updated_at'], 'treatments_status_updated_at_idx');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('treatments', function (Blueprint $table) {
+            $table->dropIndex('treatments_status_updated_at_idx');
+        });
     }
 };
 

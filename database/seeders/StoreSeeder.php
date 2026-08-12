@@ -4,182 +4,173 @@ declare(strict_types=1);
 
 namespace Database\Seeders;
 
+use App\Enums\ProductAvailability;
+use App\Enums\ProductCondition;
 use App\Models\Category;
-use App\Models\Order;
 use App\Models\Product;
-use App\Models\Promotion;
 use App\Models\User;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 
 /**
- * يبني بيانات التجارة الإلكترونية: الفئات، المنتجات (موزّعة على المتاجر
- * العشرة التي أنشأها UserSeeder)، العروض الترويجية، والطلبات مع عناصرها.
+ * بيانات المتجر: التصنيفات (الفئات) والمنتجات (المواد والأدوات الطبية).
+ *
+ * يعتمد على UserSeeder لأن products.store_id مفتاح خارجي نحو جدول users
+ * (وليس نحو store_profiles) — أي أن مالك المنتج هو حساب صاحب المتجر نفسه.
  */
 class StoreSeeder extends Seeder
 {
-    private const TOTAL_CATEGORIES = 15;
-    private const TOTAL_PRODUCTS = 300;
-    private const TOTAL_ORDERS = 1000;
-    private const ORDER_CHUNK_SIZE = 100;
-
-    /**
-     * الفئات فقط هي بيانات مرجعية أساسية (صاحب المتجر يحتاجها ليضيف منتجاً)،
-     * أما المنتجات والعروض والطلبات فبيانات وهمية. اجعل هذا false لتوليدها مجدداً.
-     */
-    private const CATEGORIES_ONLY = true;
+    /** بريد صاحب المتجر المُنشأ في UserSeeder */
+    private const STORE_OWNER_EMAIL = 'store@test.com';
 
     public function run(): void
     {
+        $storeOwner = User::where('email', self::STORE_OWNER_EMAIL)->first();
+
+        if (! $storeOwner) {
+            $this->command?->warn('لم يُعثر على صاحب المتجر — شغّل UserSeeder أولاً.');
+
+            return;
+        }
+
         $categories = $this->seedCategories();
-
-        if (self::CATEGORIES_ONLY) {
-            return;
-        }
-
-        $stores = User::role('store_owner')->pluck('id');
-
-        if ($stores->isEmpty()) {
-            $this->command?->warn('يرجى تشغيل UserSeeder أولاً لوجود أصحاب متاجر قبل توليد بيانات التجارة.');
-
-            return;
-        }
-
-        $this->seedProducts($stores, $categories);
-        $this->seedPromotions($stores);
-        $this->seedOrders($stores);
+        $this->seedProducts($storeOwner, $categories);
     }
 
     /**
-     * @return Collection<int, int>
-     */
-    private function seedCategories(): Collection
-    {
-        return Category::factory(self::TOTAL_CATEGORIES)->create()->pluck('id');
-    }
-
-    /**
-     * @param  Collection<int, int>  $stores
-     * @param  Collection<int, int>  $categories
-     */
-    private function seedProducts(Collection $stores, Collection $categories): void
-    {
-        Product::factory()
-            ->count(self::TOTAL_PRODUCTS)
-            ->state(fn (): array => [
-                'store_id' => $stores->random(),
-                'category_id' => $categories->random(),
-            ])
-            ->create();
-    }
-
-    /**
-     * عرض ترويجي أو اثنان لكل متجر، مرتبط فقط بمنتجات ذلك المتجر نفسه
-     * (لأن Promotion.store_id يمثّل ملكية العرض ولا يجوز أن يضم منتجات متجر آخر).
+     * التصنيفات: بيانات مرجعية يختار منها صاحب المتجر عند إضافة أي منتج
+     * (products.category_id مقيّد بـ restrictOnDelete، أي لا يمكن حذف تصنيف مستخدم).
      *
-     * @param  Collection<int, int>  $stores
+     * @return array<string, Category>
      */
-    private function seedPromotions(Collection $stores): void
+    private function seedCategories(): array
     {
-        foreach ($stores as $storeId) {
-            $storeProducts = Product::where('store_id', $storeId)->pluck('id');
+        $definitions = [
+            'surgical' => ['أدوات جراحية', 'مشارط، ملاقط، وأدوات القلع والجراحة الفموية.'],
+            'restorative' => ['مواد ترميمية', 'كومبوزيت، أسمنت، ومواد الحشو والترميم السني.'],
+            'orthodontic' => ['أدوات تقويم', 'حاصرات، أسلاك، وحلقات التقويم الثابت والمتحرك.'],
+            'sterilization' => ['مواد تعقيم ووقاية', 'قفازات، كمامات، ومحاليل التعقيم والتطهير.'],
+        ];
 
-            if ($storeProducts->isEmpty()) {
-                continue;
-            }
+        $categories = [];
 
-            Promotion::factory(random_int(1, 2))->create(['store_id' => $storeId])
-                ->each(function (Promotion $promotion) use ($storeProducts): void {
-                    $randomProducts = $storeProducts->random(min($storeProducts->count(), random_int(2, 5)));
-                    $promotion->products()->attach($randomProducts);
-                });
+        foreach ($definitions as $key => [$name, $description]) {
+            $categories[$key] = Category::firstOrCreate(
+                ['name' => $name],
+                ['description' => $description]
+            );
         }
+
+        return $categories;
     }
 
     /**
-     * نولّد 1000 طلب على دفعات: كل طلب عبر الـ Factory (لضمان توزيع حالات
-     * واقعي عبر OrderFactory)، بينما نُدخل عناصر الطلب (order_items) دفعة
-     * واحدة (Bulk Insert) في كل دفعة لتفادي آلاف الاستعلامات الفردية.
+     * المنتجات: ثمانية منتجات تغطي كل الحالات التي تحتاجها الواجهة أثناء الاختبار
+     * (متوفر / كمية محدودة / نفد من المخزون، وجديد / مستعمل).
      *
-     * @param  Collection<int, int>  $stores
+     * تنبيه: DatabaseSeeder يستخدم WithoutModelEvents، لذلك لا يعمل هوك saving
+     * في موديل Product أثناء الـ Seeding — ولهذا نضبط availability_status صراحةً
+     * بما يوافق الكمية بدل الاعتماد على الاشتقاق التلقائي.
+     *
+     * @param  array<string, Category>  $categories
      */
-    private function seedOrders(Collection $stores): void
+    private function seedProducts(User $storeOwner, array $categories): void
     {
-        $students = User::role('student')->pluck('id');
+        $products = [
+            [
+                'category' => 'surgical',
+                'name' => 'طقم ملاقط قلع للفك العلوي',
+                'description' => 'طقم ملاقط قلع من الفولاذ المقاوم للصدأ مخصص لأسنان الفك العلوي.',
+                'price' => 145000.00,
+                'brand' => 'Medesy',
+                'quantity' => 12,
+                'condition' => ProductCondition::NEW,
+                'availability_status' => ProductAvailability::AVAILABLE,
+            ],
+            [
+                'category' => 'surgical',
+                'name' => 'مبعد سمحاقي',
+                'description' => 'مبعد سمحاقي دقيق يُستخدم في رفع الشريحة أثناء الجراحة الفموية.',
+                'price' => 38000.00,
+                'brand' => 'Hu-Friedy',
+                'quantity' => 3,
+                'condition' => ProductCondition::NEW,
+                'availability_status' => ProductAvailability::LIMITED,
+            ],
+            [
+                'category' => 'restorative',
+                'name' => 'كومبوزيت ضوئي A2',
+                'description' => 'حشوة كومبوزيت ضوئية التصلب بلون A2، عبوة 4 غرام.',
+                'price' => 62000.00,
+                'brand' => '3M ESPE',
+                'quantity' => 25,
+                'condition' => ProductCondition::NEW,
+                'availability_status' => ProductAvailability::AVAILABLE,
+            ],
+            [
+                'category' => 'restorative',
+                'name' => 'أسمنت زجاجي شاردي',
+                'description' => 'أسمنت زجاجي شاردي للتبطين والترميم، عبوة مسحوق وسائل.',
+                'price' => 47500.00,
+                'brand' => 'GC',
+                'quantity' => 0,
+                'condition' => ProductCondition::NEW,
+                'availability_status' => ProductAvailability::OUT_OF_STOCK,
+            ],
+            [
+                'category' => 'orthodontic',
+                'name' => 'حاصرات تقويم معدنية (طقم كامل)',
+                'description' => 'طقم حاصرات تقويم معدنية للفكين، شق 0.022 إنش.',
+                'price' => 210000.00,
+                'brand' => 'Ormco',
+                'quantity' => 8,
+                'condition' => ProductCondition::NEW,
+                'availability_status' => ProductAvailability::AVAILABLE,
+            ],
+            [
+                'category' => 'orthodontic',
+                'name' => 'أسلاك تقويم نيكل تيتانيوم',
+                'description' => 'أسلاك تقويم مرنة من النيكل تيتانيوم بقياسات متعددة.',
+                'price' => 55000.00,
+                'brand' => 'American Orthodontics',
+                'quantity' => 15,
+                'condition' => ProductCondition::NEW,
+                'availability_status' => ProductAvailability::AVAILABLE,
+            ],
+            [
+                'category' => 'orthodontic',
+                'name' => 'كماشة تقويم مستعملة',
+                'description' => 'كماشة ثني أسلاك تقويم بحالة جيدة جداً، استُعملت لفصل واحد.',
+                'price' => 29000.00,
+                'brand' => 'Dentaurum',
+                'quantity' => 2,
+                'condition' => ProductCondition::USED,
+                'availability_status' => ProductAvailability::LIMITED,
+            ],
+            [
+                'category' => 'sterilization',
+                'name' => 'قفازات فحص لاتكس (علبة 100)',
+                'description' => 'قفازات فحص من اللاتكس بودرة خفيفة، علبة تحتوي 100 قفاز.',
+                'price' => 18000.00,
+                'brand' => 'Safeguard',
+                'quantity' => 40,
+                'condition' => ProductCondition::NEW,
+                'availability_status' => ProductAvailability::AVAILABLE,
+            ],
+        ];
 
-        $productsByStore = Product::query()
-            ->select(['id', 'store_id', 'price'])
-            ->get()
-            ->groupBy('store_id');
-
-        if ($students->isEmpty() || $productsByStore->isEmpty()) {
-            $this->command?->warn('يرجى تشغيل UserSeeder وتوليد المنتجات أولاً قبل إنشاء الطلبات.');
-
-            return;
+        foreach ($products as $product) {
+            Product::firstOrCreate(
+                ['name' => $product['name'], 'store_id' => $storeOwner->id],
+                [
+                    'category_id' => $categories[$product['category']]->id,
+                    'description' => $product['description'],
+                    'price' => $product['price'],
+                    'brand' => $product['brand'],
+                    'quantity' => $product['quantity'],
+                    'condition' => $product['condition']->value,
+                    'availability_status' => $product['availability_status']->value,
+                ]
+            );
         }
-
-        $this->command?->getOutput()->writeln('توليد الطلبات وعناصرها...');
-        $this->command?->getOutput()->progressStart(self::TOTAL_ORDERS);
-
-        $storeIds = $productsByStore->keys();
-        $ordersCreated = 0;
-
-        while ($ordersCreated < self::TOTAL_ORDERS) {
-            $batchSize = min(self::ORDER_CHUNK_SIZE, self::TOTAL_ORDERS - $ordersCreated);
-            $orderItemsBatch = [];
-
-            for ($i = 0; $i < $batchSize; $i++) {
-                $storeId = $storeIds->random();
-                $storeProducts = $productsByStore->get($storeId);
-
-                // الطلب أقدم بقليل من "الآن" لمحاكاة تاريخ شراء واقعي، وليس كل الطلبات بنفس اللحظة
-                $orderDate = now()->subDays(random_int(0, 120))->subHours(random_int(0, 23));
-
-                $order = Order::factory()->create([
-                    'student_id' => $students->random(),
-                    'store_id' => $storeId,
-                    'total_amount' => 0,
-                ]);
-
-                $itemsCount = random_int(1, min(5, $storeProducts->count()));
-                $selectedProducts = $storeProducts->random($itemsCount);
-
-                if (! $selectedProducts instanceof Collection) {
-                    $selectedProducts = collect([$selectedProducts]);
-                }
-
-                $total = 0.0;
-
-                foreach ($selectedProducts as $product) {
-                    $quantity = random_int(1, 4);
-                    $subtotal = round($product->price * $quantity, 2);
-                    $total += $subtotal;
-
-                    $orderItemsBatch[] = [
-                        'order_id' => $order->id,
-                        'product_id' => $product->id,
-                        'quantity' => $quantity,
-                        'unit_price' => $product->price,
-                        'subtotal' => $subtotal,
-                        'created_at' => $orderDate,
-                        'updated_at' => $orderDate,
-                    ];
-                }
-
-                // تحديث واحد يجمع بين المبلغ الإجمالي المحسوب وتاريخ الشراء الفعلي في الماضي
-                $order->forceFill([
-                    'total_amount' => $total,
-                    'created_at' => $orderDate,
-                    'updated_at' => $orderDate,
-                ])->save();
-                $this->command?->getOutput()->progressAdvance();
-            }
-
-            DB::table('order_items')->insert($orderItemsBatch);
-            $ordersCreated += $batchSize;
-        }
-
-        $this->command?->getOutput()->progressFinish();
     }
 }
