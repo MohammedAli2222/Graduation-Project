@@ -25,6 +25,11 @@ return Application::configure(basePath: dirname(__DIR__))
             'ensure.courses.setup' => EnsureCoursesAreSetup::class,
         ]);
     })
+    // الإشعارات معطّلة مؤقتاً: كل المستمعين في app/Listeners هم مستمعو إشعارات Firebase،
+    // وبما أن FIREBASE_CREDENTIALS لم يُضبط بعد فإن تحميلهم يرمي استثناءً. تعطيل الاكتشاف
+    // التلقائي يمنع تسجيلهم أصلاً، فتبقى الأحداث تُطلق بلا أي أثر جانبي.
+    // لإعادة التفعيل بعد ضبط Firebase: NOTIFICATIONS_ENABLED=true في ملف .env
+    ->withEvents(discover: filter_var(env('NOTIFICATIONS_ENABLED', false), FILTER_VALIDATE_BOOLEAN))
     ->withExceptions(function (Exceptions $exceptions): void {
         $exceptions->render(function (UnauthorizedException $e, Request $request) {
 
