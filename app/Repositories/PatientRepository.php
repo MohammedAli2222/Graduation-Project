@@ -142,6 +142,9 @@ class PatientRepository
             'patient' => fn($q) => $q->select('id', 'full_name', 'phone', 'gender', 'birth_date', 'address'),
             'patient.media',
             'patient.medicalHistory',
+            // وسائط التشخيص نفسه: يقرأها PatientDiagnosisDetailsResource إلى جانب
+            // وسائط المريض، وبدون تحميلها مسبقاً ينطلق استعلام إضافي عند بناء الرد
+            'media',
             'caseType' => fn($q) => $q->select('id', 'name'),
             'department' => fn($q) => $q->select('id', 'name'),
             'instructor' => fn($q) => $q->select('id', 'first_name', 'last_name'),

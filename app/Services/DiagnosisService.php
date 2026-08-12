@@ -77,8 +77,19 @@ class DiagnosisService
                     ->where('status', DiagnosisStatus::WAITING_APPROVAL->value)
                     ->exists();
 
+                // تشخيص المعيد المباشر له الأولوية المطلقة: أي اقتراح معلّق من طالب
+                // على هذا المريض يُرفض تلقائياً هنا بدل أن يمنع العملية. الهدف تحقيق
+                // العدالة بين الطلاب — فالحالة تصبح متاحة للجميع بدل أن يحجزها
+                // الطالب الذي سبق واقترحها. ولولا هذا الرفض لبقي اقتراحه معلّقاً
+                // إلى الأبد بينما المريض صار available.
                 if ($hasPendingStudentDiagnosis) {
-                    throw new Exception('This patient has a pending diagnosis from a student. Please approve or reject it from the pending requests list.', 422);
+                    PatientDiagnose::where('patient_id', $data['patient_id'])
+                        ->where('status', DiagnosisStatus::WAITING_APPROVAL->value)
+                        ->update([
+                            'status' => DiagnosisStatus::REJECTED->value,
+                            'instructor_id' => $instructorId,
+                            'rejection_reason' => 'تم التشخيص مباشرة من قبل المعيد.',
+                        ]);
                 }
 
                 if (! auth()->user()->instructorProfile?->id) {

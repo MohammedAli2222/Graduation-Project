@@ -50,20 +50,39 @@ class PatientDiagnosisDetailsResource extends JsonResource
                 'patient_documents' => $this->patient->getMedia('id_cards')->map(fn($m) => [
                     'id' => $m->id,
                     'url' => $m->getUrl(),
-                ]),
+                ])->values(),
 
-                'clinical_images' => $this->getMedia('clinical_images')->map(fn($m) => [
-                    'id' => $m->id,
-                    'url' => $m->getUrl(),
-                ]),
+                'clinical_images' => $this->collectMedia('clinical_images'),
 
-                'x_ray_images' => $this->getMedia('x_ray_images')->map(fn($m) => [
-                    'id' => $m->id,
-                    'url' => $m->getUrl(),
-                ]),
+                'x_ray_images' => $this->collectMedia('x_ray_images'),
             ],
             'instructor_name' => trim(($this->instructor->first_name ?? 'N/A') . ' ' . ($this->instructor->last_name ?? '')),
             'created_at' => $this->created_at ? $this->created_at->format('Y-m-d H:i') : null,
         ];
+    }
+
+    /**
+     * يجمع صور المجموعة من مصدرَيها معاً بدل الاكتفاء بمصدر واحد:
+     *
+     * - صور المريض: يرفعها موظف الاستقبال وتُربط بسجل المريض نفسه.
+     * - صور التشخيص: يرفعها الطالب مع اقتراحه، أو ينسخها المعيد عبر media_ids
+     *   عند التشخيص المباشر.
+     *
+     * كان التابع يقرأ من التشخيص فقط، فتختفي صور الاستقبال كلياً عن الطالب
+     * إن لم ينسخها المعيد يدوياً.
+     *
+     * إزالة التكرار على file_name: نسخة الوسائط (Media::copy) تحتفظ باسم الملف
+     * نفسه وتغيّر الـ id فقط، فلولا ذلك لظهرت الصورة المنسوخة مرتين.
+     */
+    private function collectMedia(string $collection)
+    {
+        return $this->patient->getMedia($collection)
+            ->concat($this->getMedia($collection))
+            ->unique('file_name')
+            ->map(fn($m) => [
+                'id' => $m->id,
+                'url' => $m->getUrl(),
+            ])
+            ->values();
     }
 }
