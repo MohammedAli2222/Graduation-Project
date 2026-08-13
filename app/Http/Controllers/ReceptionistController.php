@@ -72,7 +72,7 @@ class ReceptionistController extends Controller
     {
         try {
             $patient = $this->patientService->getPatientProfile($id);
-
+            $patient->load('medicalHistory');
             return response_success(new PatientResource($patient), 200, 'Patient profile fetched.');
         } catch (ModelNotFoundException $e) {
             return response_error(null, 404, 'Patient not found.');

@@ -37,10 +37,15 @@ class AppointmentController extends Controller
                 'The case has been successfully reserved and the appointment scheduled.'
             );
         } catch (ValidationException $e) {
+            // كانت الرسالة ثابتة "Academic validation requirements failed" لكل أنواع
+            // الفشل (تعارض موعد، تجاوز الفترات، امتلاء الكراسي...) فتُضلّل من يقرأ
+            // الرد. نعرض السبب الحقيقي الأول ونُبقي التفاصيل كاملة في data.
+            $firstMessage = collect($e->errors())->flatten()->first();
+
             return response_error(
                 $e->errors(),
                 422,
-                'Academic validation requirements failed.'
+                $firstMessage ?? 'Booking validation failed.'
             );
         } catch (\Exception $e) {
             return response_error(
