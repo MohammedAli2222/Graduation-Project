@@ -1,0 +1,398 @@
+@startuml Dentex_Class_Diagram
+!theme plain
+title Dentex — Class Diagram
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam roundCorner 8
+skinparam classAttributeIconSize 0
+skinparam padding 2
+skinparam nodesep 30
+skinparam ranksep 45
+
+skinparam class {
+    BackgroundColor #F8FAFC
+    BorderColor #64748B
+    ArrowColor #475569
+    FontName Segoe UI
+    FontSize 12
+    AttributeFontSize 11
+    AttributeFontColor #334155
+    HeaderFontColor #0F172A
+}
+
+skinparam package {
+    BackgroundColor #FFFFFF
+    BorderColor #94A3B8
+    FontStyle bold
+    FontColor #1E293B
+    FontSize 14
+}
+
+skinparam enum {
+    BackgroundColor #FEF3C7
+    BorderColor #B45309
+    FontColor #78350F
+}
+
+skinparam note {
+    BackgroundColor #EFF6FF
+    BorderColor #93C5FD
+    FontColor #1E3A8A
+}
+
+hide empty members
+
+' ============================================================
+' IDENTITY & ACCESS
+' ============================================================
+package "Identity & Access" #F1F5F9 {
+
+    class User {
+        + id: int
+        + first_name: string
+        + last_name: string
+        + email: string
+        + password: string
+        + email_verified_at: datetime
+        --
+        + storeProfile(): StoreProfile
+        + studentProfile(): StudentProfile
+        + instructorProfile(): InstructorProfile
+        + departmentHeadProfile(): DepartmentHeadProfile
+        + deviceTokens(): UserDeviceToken[]
+        + getProfileRelationName(role): string
+    }
+
+    note right of User
+        Roles/permissions are managed via
+        Spatie **HasRoles** (roles: admin,
+        student, instructor, department_head,
+        store_owner, receptionist).
+        Exactly one profile below is attached
+        depending on the assigned role.
+    end note
+
+    class StudentProfile {
+        + id: int
+        + phone: string
+        + exam_number: string
+        + university: string
+        + academic_year: int
+        + semester: int
+    }
+
+    class InstructorProfile {
+        + id: int
+        + phone: string
+        + specialty: string
+        + specialty_year: int
+    }
+
+    class DepartmentHeadProfile {
+        + id: int
+        + first_name: string
+        + last_name: string
+    }
+
+    class StoreProfile {
+        + id: int
+        + store_name: string
+        + store_phone: string
+        + store_address: string
+    }
+
+    class UserDeviceToken {
+        + id: int
+        + device_type: string
+        + fcm_token: string
+    }
+
+    class Group {
+        + id: int
+        + group_name: string
+        + academic_year: int
+    }
+}
+
+' ============================================================
+' ACADEMIC STRUCTURE
+' ============================================================
+package "Academic Structure" #F0FDF4 {
+
+    class Department {
+        + id: int
+        + name: string
+        + total_chairs: int
+        + description: string
+    }
+
+    class Course {
+        + id: int
+        + name: string
+        + year: int
+        + semester: int
+    }
+
+    class CaseType {
+        + id: int
+        + name: string
+        + slots_needed: int
+        + required_count: int
+    }
+
+    class StudentCourseEnrollment <<association>> {
+        + id: int
+        + status: EnrollmentStatus
+        + attempts_count: int
+    }
+}
+
+' ============================================================
+' CLINICAL / PATIENT MANAGEMENT
+' ============================================================
+package "Clinical Management" #FEF2F2 {
+
+    class Patient {
+        + id: int
+        + patient_code: string
+        + full_name: string
+        + birth_date: date
+        + gender: string
+        + phone: string
+        + address: string
+        + preliminary_diagnosis: text
+        + availability_status: PatientStatus
+        --
+        + medicalHistory(): PatientMedicalHistory
+        + diagnoses(): PatientDiagnose[]
+    }
+
+    class PatientMedicalHistory {
+        + id: int
+        + has_general_diseases: bool
+        + general_diseases_details: text
+        + is_special_needs: bool
+        + special_needs_details: text
+        + takes_medications: bool
+        + medications_details: text
+        + has_allergies: bool
+        + allergies_details: text
+        + is_pregnant: bool
+    }
+
+    class PatientDiagnose {
+        + id: int
+        + final_diagnosis: text
+        + status: DiagnosisStatus
+        + estimated_cost: decimal
+        + rejection_reason: text
+        --
+        + treatment(): Treatment
+        + appointments(): Appointment[]
+    }
+
+    class Treatment {
+        + id: int
+        + status: TreatmentStatus
+        + start_date: datetime
+        + end_date: datetime
+        + instructor_notes: text
+        + rejection_reason: text
+    }
+
+    class Appointment {
+        + id: int
+        + slot_number: tinyint
+        + appointment_date: date
+        + status: AppointmentStatus
+        --
+        + getSlotTimeRange(): string
+    }
+}
+
+' ============================================================
+' E-COMMERCE / STORE
+' ============================================================
+package "E-Commerce & Store" #EFF6FF {
+
+    class Category {
+        + id: int
+        + name: string
+        + description: text
+    }
+
+    class Product {
+        + id: int
+        + name: string
+        + description: text
+        + price: decimal
+        + brand: string
+        + availability_status: ProductAvailability
+        + condition: ProductCondition
+        + quantity: int
+        --
+        + scopeFilter(filters): void
+    }
+
+    class Promotion {
+        + id: int
+        + title: string
+        + description: text
+        + discount_percentage: float
+        + start_date: datetime
+        + end_date: datetime
+        + is_active: bool
+    }
+
+    class Cart {
+        + id: int
+    }
+
+    class CartItem {
+        + id: int
+        + quantity: int
+    }
+
+    class Order {
+        + id: int
+        + total_amount: decimal
+        + status: OrderStatus
+        + rejection_reason: text
+    }
+
+    class OrderItem {
+        + id: int
+        + quantity: int
+        + unit_price: decimal
+        + subtotal: decimal
+    }
+}
+
+' ============================================================
+' ENUMERATIONS
+' ============================================================
+package "Enumerations" #FFFBEB {
+    enum PatientStatus {
+        WAITING_DIAGNOSIS
+        AVAILABLE
+        FULLY_RESERVED
+        COMPLETED
+    }
+
+    enum DiagnosisStatus {
+        WAITING_APPROVAL
+        AVAILABLE
+        RESERVED
+        REJECTED
+        CONVERTED_TO_TREATMENT
+        FINISHED
+    }
+
+    enum TreatmentStatus {
+        WAITING_INSTRUCTOR_APPROVAL
+        IN_PROGRESS
+        COMPLETED
+        CANCELLED
+        REJECTED
+    }
+
+    enum AppointmentStatus {
+        SCHEDULED
+        ATTENDED
+        MISSED
+        CANCELLED
+    }
+
+    enum EnrollmentStatus {
+        ACTIVE
+        COMPLETED
+        FAILED
+        DROPPED
+    }
+
+    enum ProductAvailability {
+        AVAILABLE
+        LIMITED
+        OUT_OF_STOCK
+    }
+
+    enum ProductCondition {
+        NEW
+        USED
+    }
+
+    enum OrderStatus {
+        PENDING
+        PROCESSING
+        READY
+        COMPLETED
+        REJECTED
+    }
+}
+
+' ============================================================
+' RELATIONSHIPS — Identity & Access
+' ============================================================
+User "1" -- "0..1" StudentProfile        : owns >
+User "1" -- "0..1" InstructorProfile     : owns >
+User "1" -- "0..1" DepartmentHeadProfile : owns >
+User "1" -- "0..1" StoreProfile          : owns >
+User "1" -- "0..*" UserDeviceToken       : registers >
+StudentProfile "0..*" -- "0..1" Group    : belongs to >
+InstructorProfile "0..*" -- "0..*" Group : supervises (group_instructor)
+
+' ============================================================
+' RELATIONSHIPS — Academic Structure
+' ============================================================
+DepartmentHeadProfile "0..1" -- "1" Department : heads >
+Department "1" -- "0..*" Course               : offers >
+Course "1" -- "0..*" CaseType                 : defines >
+StudentProfile "1" --- "0..*" Course : enrolls in >
+(StudentProfile, Course) .. StudentCourseEnrollment
+
+' ============================================================
+' RELATIONSHIPS — Clinical Management
+' ============================================================
+User "1" -- "0..*" Patient                 : registers (added_by) >
+Patient "1" -- "0..1" PatientMedicalHistory : has >
+Patient "1" -- "0..*" PatientDiagnose       : has >
+CaseType "1" -- "0..*" PatientDiagnose      : classifies >
+Department "1" -- "0..*" PatientDiagnose    : scopes >
+User "1" -- "0..*" PatientDiagnose          : reviews (instructor) >
+User "1" -- "0..*" PatientDiagnose          : suggests (student) >
+PatientDiagnose "1" -- "0..1" Treatment     : converts to >
+User "1" -- "0..*" Treatment                : supervises (instructor) >
+PatientDiagnose "1" -- "0..*" Appointment   : scheduled for >
+Treatment "0..1" -- "0..*" Appointment      : covers >
+Patient "1" -- "0..*" Appointment           : attends >
+User "1" -- "0..*" Appointment              : performs (student) >
+
+' ============================================================
+' RELATIONSHIPS — E-Commerce & Store
+' ============================================================
+Category "1" -- "0..*" Product          : classifies >
+User "1" -- "0..*" Product              : sells (store) >
+User "1" -- "0..*" Promotion            : creates (store) >
+Product "0..*" -- "0..*" Promotion      : promotion_product
+User "1" -- "0..1" Cart                 : owns (student) >
+Cart "1" -- "0..*" CartItem             : contains >
+Product "1" -- "0..*" CartItem          : referenced by >
+User "1" -- "0..*" Order                : places (student) >
+User "1" -- "0..*" Order                : fulfills (store) >
+Order "1" -- "0..*" OrderItem           : contains >
+Product "1" -- "0..*" OrderItem         : referenced by >
+
+' ============================================================
+' RELATIONSHIPS — Enum bindings (dotted, non-clutter)
+' ============================================================
+Patient ..> PatientStatus
+PatientDiagnose ..> DiagnosisStatus
+Treatment ..> TreatmentStatus
+Appointment ..> AppointmentStatus
+StudentCourseEnrollment ..> EnrollmentStatus
+Product ..> ProductAvailability
+Product ..> ProductCondition
+Order ..> OrderStatus
+
+@enduml

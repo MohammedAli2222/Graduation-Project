@@ -3714,13 +3714,7 @@ namespace App\Http\Requests;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
-/**
- * طلب سحب مقررات من تسجيل الطالب الفعّال.
- *
- * التحقق هنا شكلي فقط (وجود المقررات)؛ أما قواعد العمل — منع السحب عند وجود
- * نشاط سريري، والحفاظ على المقرر الناجح بحالة COMPLETED — فمكانها الخدمة
- * StudentCourseService::dropCourses لأنها تحتاج سياق الطالب وتاريخه.
- */
+
 class DropStudentCoursesRequest extends FormRequest
 {
     public function authorize(): bool
@@ -6024,6 +6018,7 @@ declare(strict_types=1);
 namespace App\Jobs;
 
 use App\Models\Patient;
+use Exception;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -6031,8 +6026,20 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
-use Exception;
+use Throwable;
 
+/**
+ * معالجة صور المريض في الخلفية: نقلها من القرص المؤقت إلى مكتبة الوسائط
+ * وتوليد تحويلاتها، حتى تبقى استجابة شاشة الاستقبال فورية.
+ *
+ * قاعدة إدارة الملفات المؤقتة (Idempotency):
+ * الملفات المؤقتة هي *مصدر البيانات الوحيد* لهذه المهمة، فحذفها قبل نجاحها
+ * يجعل كل محاولة إعادة لاحقة بلا مدخلات فتفشل نهائياً وتضيع صور المريض.
+ * لذلك لا تُحذف إلا في ثلاث حالات فقط:
+ * 1) اكتمال المعالجة بنجاح.
+ * 2) عدم وجود المريض أصلاً (لا مالك للملفات).
+ * 3) استنفاد كل المحاولات عبر failed() — تنظيف نهائي يمنع تراكم ملفات يتيمة.
+ */
 class ProcessPatientImagesJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
@@ -6040,7 +6047,7 @@ class ProcessPatientImagesJob implements ShouldQueue
     public int $tries = 3;
 
     /**
-     * @param array<string, string|array<int, string>> $tempImages مفاتيحه أسماء مجموعات
+     * @param  array<string, string|array<int, string>>  $tempImages مفاتيحه أسماء مجموعات
      * الوسائط في نموذج Patient (id_cards, clinical_images, x_ray_images)، وقيمته
      * مسار مؤقت واحد (لـ id_cards) أو مصفوفة مسارات مؤقتة على قرص local
      */
@@ -6054,42 +6061,66 @@ class ProcessPatientImagesJob implements ShouldQueue
         $patient = Patient::find($this->patientId);
 
         if (! $patient) {
+            // لا مالك للملفات: إعادة المحاولة لن تُنشئ المريض، فالتنظيف نهائي هنا.
             $this->cleanupTempFiles();
+
             return;
         }
 
-        try {
-            foreach ($this->tempImages as $collection => $paths) {
-                foreach ((array) $paths as $path) {
-                    if (Storage::disk('local')->exists($path)) {
-                        // addMedia هنا هي الخطوة المكلفة فعلياً (نقل الملف لقرص public
-                        // + توليد تحويل thumb)، والتي كانت سابقاً تُنفَّذ أثناء الطلب
-                        // نفسه وتُبطئ استجابة شاشة الاستقبال؛ الآن تُنفَّذ في الخلفية.
-                        // لا يوجد عمود "رابط صورة" منفصل على جدول patients لتحديثه:
-                        // toMediaCollection() هي نفسها آلية "ربط" الصورة بسجل المريض
-                        // عبر جدول media متعدد الأشكال (polymorphic) التابع لـ Spatie
-                        $patient->addMedia(Storage::disk('local')->path($path))
-                            ->toMediaCollection($collection);
-
-                        // نقطة تمديد اختيارية: لو أُضيفت مكتبة intervention/image
-                        // مستقبلاً، هذا هو المكان المناسب لضغط/تصغير الصورة قبل
-                        // toMediaCollection() دون التأثير على زمن استجابة الطلب الأصلي
-                    }
+        foreach ($this->tempImages as $collection => $paths) {
+            foreach ((array) $paths as $path) {
+                if (! Storage::disk('local')->exists($path)) {
+                    // الملف غير موجود: إمّا عولج في محاولة سابقة نجحت جزئياً،
+                    // أو حُذف يدوياً. نتخطّاه بدل إفشال المهمة كلها.
+                    continue;
                 }
+
+                // addMedia هي الخطوة المكلفة فعلياً (نقل الملف لقرص public
+                // + توليد التحويلات)، وكانت سابقاً تُنفَّذ داخل الطلب نفسه.
+                $patient->addMedia(Storage::disk('local')->path($path))
+                    ->toMediaCollection($collection);
             }
-        } catch (Exception $e) {
-            Log::error("خطأ أثناء معالجة صور المريض رقم {$this->patientId}: " . $e->getMessage());
-        } finally {
-            $this->cleanupTempFiles();
         }
+
+        // لا يُحذف شيء إلا بعد اكتمال كل المجموعات بنجاح: أي استثناء أعلاه
+        // يترك الملفات سليمة لتلتقطها المحاولة التالية.
+        $this->cleanupTempFiles();
+    }
+
+    /**
+     * تُستدعى من لارافيل بعد استنفاد كل المحاولات ($tries).
+     *
+     * هنا فقط نتخلّص من الملفات المؤقتة نهائياً، وإلا بقيت على القرص للأبد
+     * بلا أي مهمة تستهلكها. نسجّل الفشل مع مسارات الملفات قبل حذفها ليبقى
+     * أثرٌ يمكن التحقيق فيه.
+     */
+    public function failed(?Throwable $exception): void
+    {
+        Log::error('فشلت معالجة صور المريض نهائياً بعد استنفاد المحاولات.', [
+            'patient_id' => $this->patientId,
+            'temp_images' => $this->tempImages,
+            'exception' => $exception?->getMessage(),
+        ]);
+
+        $this->cleanupTempFiles();
     }
 
     protected function cleanupTempFiles(): void
     {
         foreach ($this->tempImages as $paths) {
             foreach ((array) $paths as $path) {
-                if (Storage::disk('local')->exists($path)) {
-                    Storage::disk('local')->delete($path);
+                try {
+                    if (Storage::disk('local')->exists($path)) {
+                        Storage::disk('local')->delete($path);
+                    }
+                } catch (Exception $e) {
+                    // فشل حذف ملف مؤقت لا يجوز أن يُفشل مهمة نجحت معالجتها،
+                    // ولا أن يمنع تنظيف بقية الملفات.
+                    Log::warning('تعذّر حذف ملف مؤقت لصور المريض.', [
+                        'patient_id' => $this->patientId,
+                        'path' => $path,
+                        'exception' => $e->getMessage(),
+                    ]);
                 }
             }
         }
@@ -11357,29 +11388,11 @@ class PatientService
         $this->mediaService = $mediaService;
     }
 
-    /**
-     * تسجيل مريض جديد (من الاستقبال أو من الطالب).
-     *
-     * أسباب البطء التي عُولجت هنا:
-     * 1) رفع الصور لمكتبة الوسائط كان يتم أثناء الطلب (نقل ملف + توليد
-     *    تحويلات) → نُقل بالكامل إلى ProcessPatientImagesJob.
-     * 2) نقل الملفات المؤقتة كان *داخل* معاملة قاعدة البيانات، فتبقى المعاملة
-     *    مفتوحة طوال زمن الـ I/O وتحجز الصفوف بلا داعٍ → صار قبل فتحها.
-     * 3) الرد كان يحمّل diagnoses.media و media وهي فارغة أصلاً لأن الـ Job
-     *    لم يُنفَّذ بعد → أُزيلت من مسار الاستقبال.
-     *
-     * @param  array<string, mixed>  $data
-     * @param  array<string, mixed>  $files
-     * @param  array<string, mixed>|null  $diagnosisData
-     */
     public function registerPatient(array $data, array $files = [], ?array $diagnosisData = null)
     {
         $user = auth()->user();
         $isReceptionist = $user->hasRole('receptionist');
 
-        // نقل الملفات الخام إلى القرص المؤقت قبل فتح المعاملة: عملية I/O
-        // بحتة لا تحتاج قاعدة البيانات، وإبقاؤها داخل المعاملة كان يطيل
-        // زمن القفل على جدول المرضى بلا فائدة.
         $tempImages = $isReceptionist ? $this->stageReceptionistImages($files) : [];
 
         if (! empty($files['id_card'])) {
@@ -11453,14 +11466,7 @@ class PatientService
         }
     }
 
-    /**
-     * كتابة سجل المريض وتاريخه الطبي (وتشخيصات الطالب إن وُجدت) في معاملة
-     * واحدة قصيرة تقتصر على عمليات قاعدة البيانات.
-     *
-     * @param  array<string, mixed>  $data
-     * @param  array<string, mixed>  $files
-     * @param  array<string, mixed>|null  $diagnosisData
-     */
+
     private function persistPatient(array $data, array $files, ?array $diagnosisData, $user)
     {
         return DB::transaction(function () use ($data, $files, $diagnosisData, $user) {
@@ -11490,8 +11496,6 @@ class PatientService
                 'is_pregnant'              => $data['gender'] === 'female' ? filter_var($data['is_pregnant'] ?? false, FILTER_VALIDATE_BOOLEAN) : null,
             ]);
 
-            // مسار الطالب: التشخيصات المقترحة تُنشأ ضمن نفس المعاملة لأنها
-            // بيانات وليست ملفات، وصورها قليلة ومرتبطة بكل تشخيص على حدة.
             if ($user->hasRole('student') && ! empty($diagnosisData['case_type_ids'])) {
                 $this->createStudentSuggestedDiagnoses($patient, $files, $diagnosisData, $user);
             }
@@ -11763,13 +11767,13 @@ class PatientService
         return $diagnosis;
     }
 
-    public function getPatientDiagnoses(int $patientId ,$studentId)
+    public function getPatientDiagnoses(int $patientId, $studentId)
     {
         if (!Patient::where('id', $patientId)->exists()) {
             throw new \Exception('Patient not found.', 404);
         }
 
-        return $this->repository->getAvailableDiagnosesForPatient($patientId ,$studentId);
+        return $this->repository->getAvailableDiagnosesForPatient($patientId, $studentId);
     }
 }
 
@@ -12661,73 +12665,70 @@ class StudentCourseService
     }
 
     /**
-     * سحب/إزالة مقررات من تسجيل الطالب الحالي.
+     * سحب مقررات من التسجيل الفعّال للطالب مع تطبيق حواجز الحماية (Guardrails).
      *
-     * القيد رقم ٢ (الحالة الحدّية): الطالب المعيد للسنة قد يُسجَّل تلقائياً على
-     * مقرر سبق أن نجح فيه، فيُجبَر على إعادته بلا داعٍ. نسمح بسحبه، لكن
-     * نحفظه بحالة COMPLETED لا DROPPED حتى لا يضيع إنجازه السابق ولا يُعاد
-     * إدراجه في التسجيل التلقائي لاحقاً.
-     *
-     * الحماية: يُمنع السحب إن وُجد نشاط سريري قائم على المقرر (موعد أو علاج
-     * غير ملغى)، لأنه يترك حالات يتيمة خارج تسجيل الطالب وتفسد إحصاءاته.
+     * السلوك: نجاح جزئي — كل مقرر يُعالَج على حدة، وما يتعذّر سحبه يعود ضمن
+     * failed_to_drop مع سبب واضح بدل إفشال الطلب كاملاً. لا نرمي استثناءً إلا
+     * إذا لم يُسحب أي مقرر إطلاقاً.
      *
      * @param  array<int, int|string>  $courseIds
-     * @return array{dropped_course_ids: array<int, int>, preserved_as_completed: array<int, int>, skipped_course_ids: array<int, int>, dropped_count: int}
+     * @return array{dropped_courses: array<int, int>, failed_to_drop: array<int|string, string>}
      */
     public function dropCourses(StudentProfile $student, array $courseIds): array
     {
-        $courseIds = array_values(array_unique(array_map('intval', $courseIds)));
-
-        if ($courseIds === []) {
-            throw new Exception('No courses provided to drop.', 422);
-        }
-
         $result = DB::transaction(function () use ($student, $courseIds): array {
-            $enrollments = StudentCourseEnrollment::query()
-                ->with('course:id,name,year,semester')
+            $droppedCourseIds = [];
+            $failedToDropIds = [];
+
+            $activeEnrollments = StudentCourseEnrollment::query()
                 ->where('student_id', $student->id)
                 ->whereIn('course_id', $courseIds)
-                ->lockForUpdate()
-                ->get();
-
-            $dropped = [];
-            $preservedAsCompleted = [];
-            $skipped = [];
+                ->where('status', EnrollmentStatus::ACTIVE->value)
+                ->get()
+                ->keyBy('course_id');
 
             foreach ($courseIds as $courseId) {
-                $enrollment = $enrollments->firstWhere('course_id', $courseId);
+                $enrollment = $activeEnrollments->get($courseId);
 
-                // غير مسجَّل أصلاً أو ليس فعّالاً → لا شيء لفعله.
-                if (! $enrollment || $enrollment->status !== EnrollmentStatus::ACTIVE) {
-                    $skipped[] = $courseId;
+                if (! $enrollment) {
+                    $failedToDropIds[$courseId] = 'Course is not currently active.';
                     continue;
                 }
 
-                if ($this->studentRepo->hasClinicalActivityInCourse((int) $student->user_id, $courseId)) {
-                    throw new Exception(
-                        "Course #{$courseId} cannot be dropped because you already have appointments or treatments registered under it.",
-                        422
-                    );
-                }
+                // حماية معمارية: منع سحب المقرر إذا كان الطالب قد بدأ بأي نشاط سريري يتبعه
+                $hasClinicalActivity = $this->studentRepo->hasClinicalActivityInCourse($student->user_id, $courseId);
 
-                if ($this->wasPreviouslyPassed($student, $enrollment)) {
-                    $enrollment->update(['status' => EnrollmentStatus::COMPLETED]);
-                    $preservedAsCompleted[] = $courseId;
+                if ($hasClinicalActivity) {
+                    $failedToDropIds[$courseId] = 'Cannot drop course. You have active patients or treatments linked to it.';
                     continue;
                 }
 
-                $enrollment->update(['status' => EnrollmentStatus::DROPPED]);
-                $dropped[] = $courseId;
+                // التحقق مما إذا كان الطالب قد اجتاز المقرر بنجاح في سنة سابقة
+                $hasPassedBefore = $this->studentRepo->hasPassedCourseBefore($student->id, $courseId);
+
+                if ($hasPassedBefore) {
+                    // إذا كان ناجحاً فيه سابقاً، نقوم بإلغاء التسجيل النشط فقط دون مسح السجل التاريخي الناجح
+                    $enrollment->delete();
+                } else {
+                    // إذا كان مقرراً جديداً ولم ينجح فيه سابقاً، نحوله إلى مسحوب
+                    $enrollment->update(['status' => EnrollmentStatus::DROPPED->value]);
+                }
+
+                $droppedCourseIds[] = (int) $courseId;
+            }
+
+            if (empty($droppedCourseIds) && ! empty($failedToDropIds)) {
+                throw new Exception('Failed to drop any courses due to existing clinical activities or invalid states.', 422);
             }
 
             return [
-                'dropped_course_ids' => $dropped,
-                'preserved_as_completed' => $preservedAsCompleted,
-                'skipped_course_ids' => $skipped,
-                'dropped_count' => count($dropped) + count($preservedAsCompleted),
+                'dropped_courses' => $droppedCourseIds,
+                'failed_to_drop' => $failedToDropIds,
             ];
         });
 
+        // سحب المقرر يغيّر أنواع الحالات المتاحة وإحصائيات التقدّم، فبدون
+        // تصفير الكاش يبقى الطالب يرى مقرراته القديمة حتى انتهاء مدة الكاش.
         $this->flushStudentCaches($student);
 
         return $result;
@@ -12768,30 +12769,6 @@ class StudentCourseService
                 422
             );
         }
-    }
-
-    /**
-     * هل نجح الطالب في هذا المقرر سابقاً؟
-     *
-     * مؤشران:
-     * 1) وجود سجل نجاح سابق لنفس المقرر في تاريخ الطالب.
-     * 2) المقرر يتبع سنة أقدم من سنة الطالب الحالية: التسجيل التلقائي لا
-     *    يُدرج مقررات السنوات السابقة إلا إن كانت راسبة، فوجودها فعّالة مع
-     *    عدم رسوبها يعني أنها أُدرجت بالخطأ عند إعادة السنة.
-     */
-    private function wasPreviouslyPassed(StudentProfile $student, StudentCourseEnrollment $enrollment): bool
-    {
-        if ($this->studentRepo->hasPassedCourseBefore((int) $student->id, (int) $enrollment->course_id)) {
-            return true;
-        }
-
-        $course = $enrollment->course;
-
-        if (! $course) {
-            return false;
-        }
-
-        return (int) $course->year < $this->normalizeLevel($student->academic_year);
     }
 
     /**
@@ -13520,17 +13497,7 @@ declare(strict_types=1);
 
 namespace App\Support;
 
-/**
- * أسماء مجموعات الكاش — مصدر واحد للحقيقة.
- *
- * كل مفتاح كاش في النظام ينتمي لمجموعة أو أكثر، والإبطال يتم بزيادة رقم إصدار
- * المجموعة عبر CacheVersion::bump() بدل تتبّع المفاتيح واحداً واحداً (وهو ما
- * كان مستحيلاً عملياً مع المفاتيح المتغيّرة مثل مفاتيح الترقيم والفلاتر).
- *
- * القاعدة عند إضافة كاش جديد:
- * 1) اقرأ عبر CacheVersion::remember() مع المجموعات التي تصف مصدر البيانات.
- * 2) سجّل النموذج المؤثّر في خريطة CacheInvalidationRegistry ليُبطَل تلقائياً.
- */
+
 final class CacheGroup
 {
     /** المتاجر الرسمية وقوائمها. */
@@ -13601,12 +13568,6 @@ namespace App\Support;
 
 use Illuminate\Support\Facades\Cache;
 
-/**
- * يحاكي إبطال الكاش بالوسوم (Cache::tags) على مخازن لا تدعمها مثل file/database
- * (المستخدَمة حالياً في الاستضافة لعدم توفر Redis)، عبر رقم إصدار لكل مجموعة:
- * كل مفتاح كاش يتضمن رقم الإصدار الحالي لمجموعاته، وإبطال مجموعة بأكملها يتم
- * بزيادة رقم إصدارها بدلاً من حذف كل مفتاح على حدة كما تفعل Cache::tags()->flush().
- */
 final class CacheVersion
 {
     public static function key(string $group, string $cacheKey): string
