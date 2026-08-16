@@ -212,7 +212,9 @@ return [
                  * https://github.com/kreait/firebase-php/blob/6.x/src/Firebase/Http/HttpClientOptions.php
                  */
 
-                'timeout' => env('FIREBASE_HTTP_CLIENT_TIMEOUT'),
+                // القيمة الافتراضية قصيرة عمداً: الإشعارات تُرسل الآن بشكل متزامن ضمن دورة
+                // الطلب، فيجب أن يفشل نداء Firebase بسرعة بدل تعليق استجابة الـ API الرئيسية
+                'timeout' => env('FIREBASE_HTTP_CLIENT_TIMEOUT', 5.0),
 
                 'guzzle_middlewares' => [
                     // MyInvokableMiddleware::class,

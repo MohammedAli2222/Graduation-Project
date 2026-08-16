@@ -8,11 +8,9 @@ use App\Enums\EnrollmentStatus;
 use App\Events\NewDiagnosesAvailableEvent;
 use App\Models\CaseType;
 use App\Services\FirebaseNotificationService;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 
-// يعمل ضمن قائمة انتظار (Queue) حتى لا يؤخر إرسال الإشعارات استجابة الـ API الرئيسية
-class SendNewCaseNotificationListener implements ShouldQueue
+class SendNewCaseNotificationListener
 {
     public function __construct(protected FirebaseNotificationService $notificationService) {}
 

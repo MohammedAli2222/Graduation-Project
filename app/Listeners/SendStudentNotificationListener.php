@@ -11,11 +11,9 @@ use App\Events\DiagnosisReviewedEvent;
 use App\Events\OrderStatusUpdatedEvent;
 use App\Events\TreatmentReviewedEvent;
 use App\Services\FirebaseNotificationService;
-use Illuminate\Contracts\Queue\ShouldQueue;
 
 // مستمع واحد يعالج جميع الإشعارات الموجهة للطالب لتفادي تكرار منطق الإرسال
-// يعمل ضمن قائمة انتظار (Queue) حتى لا يؤخر إرسال الإشعار استجابة الـ API الرئيسية
-class SendStudentNotificationListener implements ShouldQueue
+class SendStudentNotificationListener
 {
     public function __construct(protected FirebaseNotificationService $notificationService) {}
 

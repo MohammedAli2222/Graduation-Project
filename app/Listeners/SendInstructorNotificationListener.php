@@ -6,10 +6,8 @@ namespace App\Listeners;
 
 use App\Events\TreatmentCompletedByStudentEvent;
 use App\Services\FirebaseNotificationService;
-use Illuminate\Contracts\Queue\ShouldQueue;
 
-// يعمل ضمن قائمة انتظار (Queue) حتى لا يؤخر إرسال الإشعار استجابة الـ API الرئيسية
-class SendInstructorNotificationListener implements ShouldQueue
+class SendInstructorNotificationListener
 {
     public function __construct(protected FirebaseNotificationService $notificationService) {}
 
