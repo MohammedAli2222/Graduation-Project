@@ -18,7 +18,8 @@ class SendDelegationNotificationListener
             $event->instructor->id,
             'صلاحيات إدارية جديدة 🔑',
             'لقد قام رئيس القسم بتفويضك بصلاحية مراجعة الحالات السريرية لطلاب القسم.',
-            ['type' => 'instructor_delegated']
+            ['type' => 'instructor_delegated'],
+            'instructor_delegated'
         );
     }
 }

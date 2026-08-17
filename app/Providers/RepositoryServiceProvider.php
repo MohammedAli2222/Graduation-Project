@@ -65,6 +65,11 @@ class RepositoryServiceProvider extends ServiceProvider
             \App\Repositories\Contracts\FcmTokenRepositoryInterface::class,
             \App\Repositories\FcmTokenRepository::class
         );
+
+        $this->app->bind(
+            \App\Repositories\Contracts\NotificationRepositoryInterface::class,
+            \App\Repositories\NotificationRepository::class
+        );
     }
 
     public function boot(): void

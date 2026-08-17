@@ -51,7 +51,8 @@ class SendNewCaseNotificationListener
                 (int) $studentUserId,
                 'حالات مرضية جديدة متاحة 🚨',
                 'تم إضافة حالات سريرية جديدة تناسب متطلبات مقرراتك الفعالة. سارع بحجزها!',
-                ['type' => 'new_cases_available']
+                ['type' => 'new_cases_available'],
+                'new_cases_available'
             );
         }
     }

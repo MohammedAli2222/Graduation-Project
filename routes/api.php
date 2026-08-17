@@ -9,6 +9,7 @@ use App\Http\Controllers\Hod\DepartmentRequirementController;
 use App\Http\Controllers\Hod\DepartmentStatisticController;
 use App\Http\Controllers\Hod\DepartmentTreatmentController;
 use App\Http\Controllers\InstructorController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ReceptionistController;
 use App\Http\Controllers\Store\StoreOrderController;
 use App\Http\Controllers\Store\StoreProductController;
@@ -106,6 +107,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:strict_auth');
     Route::post('/fcm-token', [FcmTokenController::class, 'store']);
+    // عند تسجيل الخروج: يزيل توكن هذا الجهاز فقط، وضمن نطاق المستخدم الحالي حصراً
+    Route::delete('/fcm-token', [FcmTokenController::class, 'destroy']);
+
+    Route::prefix('notifications')->group(function () {
+        Route::get('/', [NotificationController::class, 'index']);
+        Route::get('/unread-count', [NotificationController::class, 'unreadCount']);
+        Route::post('/read-all', [NotificationController::class, 'markAllAsRead']);
+        Route::post('/{id}/read', [NotificationController::class, 'markAsRead']);
+        Route::delete('/{id}', [NotificationController::class, 'destroy']);
+    });
 
     Route::middleware('role:receptionist|instructor')->group(function () {
         Route::get('/receptionistWaiting', [ReceptionistController::class, 'receptionistWaiting']);

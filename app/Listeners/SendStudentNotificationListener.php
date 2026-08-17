@@ -35,7 +35,8 @@ class SendStudentNotificationListener
             $isApproved
                 ? 'تمت الموافقة على التشخيص الذي اقترحته، يمكنك الآن متابعة الحالة.'
                 : 'تم رفض التشخيص الذي اقترحته، يرجى مراجعة سبب الرفض.',
-            ['type' => 'diagnosis_reviewed', 'diagnosis_id' => (string) $diagnosis->id]
+            ['type' => 'diagnosis_reviewed', 'diagnosis_id' => (string) $diagnosis->id],
+            'diagnosis_reviewed'
         );
     }
 
@@ -59,7 +60,8 @@ class SendStudentNotificationListener
             $isApproved
                 ? 'تمت الموافقة على حالتك العلاجية بنجاح.'
                 : 'تم رفض حالتك العلاجية، يرجى مراجعة ملاحظات المدرّس.',
-            ['type' => 'treatment_reviewed', 'treatment_id' => (string) $treatment->id]
+            ['type' => 'treatment_reviewed', 'treatment_id' => (string) $treatment->id],
+            'treatment_reviewed'
         );
     }
 
@@ -72,7 +74,8 @@ class SendStudentNotificationListener
             $order->student_id,
             'تحديث حالة الطلب',
             'تم تحديث حالة طلبك رقم ' . $order->id . ' إلى: ' . $this->orderStatusLabel($order->status),
-            ['type' => 'order_status_updated', 'order_id' => (string) $order->id]
+            ['type' => 'order_status_updated', 'order_id' => (string) $order->id],
+            'order_status_updated'
         );
     }
 

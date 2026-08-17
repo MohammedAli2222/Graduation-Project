@@ -31,4 +31,9 @@ class FcmTokenRepository implements FcmTokenRepositoryInterface
     {
         return $this->model->where('fcm_token', $fcmToken)->delete() > 0;
     }
+
+    public function deleteTokenForUser(int $userId, string $fcmToken): bool
+    {
+        return $this->model->where('user_id', $userId)->where('fcm_token', $fcmToken)->delete() > 0;
+    }
 }

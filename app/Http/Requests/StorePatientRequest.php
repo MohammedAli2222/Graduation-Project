@@ -41,7 +41,7 @@ class StorePatientRequest extends FormRequest
 
             'is_pregnant' => 'nullable|boolean|prohibited_if:gender,male',
 
-            'id_card' => ['required', 'image', 'mimes:jpeg,png,jpg', 'max:5120'],
+            'id_card' => ['sometimes', 'image', 'mimes:jpeg,png,jpg', 'max:5120'],
 
             'clinical_images' => 'required|array',
             'clinical_images.*' => 'nullable',

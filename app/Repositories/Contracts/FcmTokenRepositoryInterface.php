@@ -14,4 +14,11 @@ interface FcmTokenRepositoryInterface
     public function getTokensForUser(int $userId): Collection;
 
     public function deleteToken(string $fcmToken): bool;
+
+    /**
+     * حذف توكن مملوك لهذا المستخدم تحديداً فقط — يُستخدم عند تسجيل الخروج، على
+     * عكس deleteToken() غير المقيَّد بمالك والمخصّص لتنظيف توكنات أثبتت
+     * Firebase عدم صلاحيتها (لا علاقة له بمدخلات المستخدم مباشرة).
+     */
+    public function deleteTokenForUser(int $userId, string $fcmToken): bool;
 }

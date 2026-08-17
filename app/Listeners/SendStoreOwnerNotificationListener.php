@@ -20,7 +20,8 @@ class SendStoreOwnerNotificationListener
             $order->store_id,
             'طلب جديد',
             'لديك طلب شراء جديد رقم ' . $order->id . ' بقيمة ' . $order->total_amount . '.',
-            ['type' => 'new_store_order', 'order_id' => (string) $order->id]
+            ['type' => 'new_store_order', 'order_id' => (string) $order->id],
+            'new_store_order'
         );
     }
 }

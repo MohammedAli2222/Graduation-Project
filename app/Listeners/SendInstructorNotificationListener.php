@@ -27,7 +27,8 @@ class SendInstructorNotificationListener
             $instructorId,
             'حالة جديدة بانتظار المراجعة',
             'قام أحد الطلاب بإنهاء تنفيذ العلاج، والحالة الآن بانتظار مراجعتك.',
-            ['type' => 'treatment_completed_by_student', 'treatment_id' => (string) $treatment->id]
+            ['type' => 'treatment_completed_by_student', 'treatment_id' => (string) $treatment->id],
+            'treatment_completed_by_student'
         );
     }
 }
