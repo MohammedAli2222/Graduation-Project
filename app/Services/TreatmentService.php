@@ -477,9 +477,11 @@ class TreatmentService
     private function formatCourseBreakdown(array $rawStats): \Illuminate\Support\Collection
     {
         return collect($rawStats['types_detail'])->map(function ($item) {
-            $required = $item->required_to_pass ?? 1;
-            $done = $item->completed_count ?? 0;
-            $pct = round($done / $required * 100);
+            $required = (int) ($item->required_to_pass ?? 0);
+            $done = (int) ($item->completed_count ?? 0);
+            // required_count قد يكون 0 فعلياً (لا مجرد null) إن ضبطه رئيس القسم
+            // كذلك؛ القسمة عليه مباشرة ترمي DivisionByZeroError في PHP 8.
+            $pct = $required > 0 ? round($done / $required * 100) : 0;
 
             return [
                 'case_type_id' => $item->type_id,

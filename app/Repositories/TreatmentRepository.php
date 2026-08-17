@@ -178,7 +178,16 @@ class TreatmentRepository
 
         $profileId = $studentProfile->id;
 
+        // ملكية العلاج تُحدَّد حصراً عبر appointments.treatment_id + student_id،
+        // نفس المعيار المعتمد في TreatmentService::completeTreatmentFromStudent
+        // و TreatmentRepository::getOwningStudentId. الربط السابق كان يصل إلى
+        // treatments عبر diagnosis_id فقط دون قيد الطالب، فكان يحتسب علاجات
+        // طلاب آخرين أنجزوا حالات من نفس نوع الحالة (تسرّب بيانات بين الطلاب).
         $treatmentsCount = DB::table('treatments')
+            ->join('appointments', function ($join) use ($userId): void {
+                $join->on('appointments.treatment_id', '=', 'treatments.id')
+                    ->where('appointments.student_id', $userId);
+            })
             ->join('patient_diagnoses', 'treatments.diagnosis_id', '=', 'patient_diagnoses.id')
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
             ->join('student_course_enrollments', function ($join) use ($profileId): void {
@@ -186,8 +195,6 @@ class TreatmentRepository
                     ->where('student_course_enrollments.student_id', $profileId)
                     ->where('student_course_enrollments.status', 'active');
             })
-            ->join('appointments', 'patient_diagnoses.id', '=', 'appointments.diagnosis_id')
-            ->where('appointments.student_id', $userId)
             ->selectRaw("
             COUNT(DISTINCT treatments.id) as total,
             COUNT(DISTINCT CASE WHEN treatments.status = 'completed' THEN treatments.id END) as completed,
@@ -196,13 +203,21 @@ class TreatmentRepository
         ")
             ->first();
 
+        // نفس تصحيح الملكية أعلاه: patient_diagnoses يبقى عريضاً عمداً (كل
+        // تشخيصات نوع الحالة، بلا علاقة بالطالب) حتى يظهر نوع الحالة بصفر حتى
+        // لو لم يوجد له أي تشخيص بعد، لكن الوصول إلى treatments يمرّ الآن حصراً
+        // عبر موعد يملكه هذا الطالب تحديداً (appointments.student_id = $userId
+        // على كل من الوصلتين)، فلا تتسرّب علاجات طلاب آخرين ضمن العدّ.
         $casesByType = DB::table('student_course_enrollments')
             ->join('case_types', 'student_course_enrollments.course_id', '=', 'case_types.course_id')
             ->join('courses', 'case_types.course_id', '=', 'courses.id')
             ->leftJoin('patient_diagnoses', 'case_types.id', '=', 'patient_diagnoses.case_type_id')
-            ->leftJoin('treatments', 'patient_diagnoses.id', '=', 'treatments.diagnosis_id')
             ->leftJoin('appointments', function ($join) use ($userId): void {
                 $join->on('patient_diagnoses.id', '=', 'appointments.diagnosis_id')
+                    ->where('appointments.student_id', $userId);
+            })
+            ->leftJoin('treatments', function ($join) use ($userId): void {
+                $join->on('appointments.treatment_id', '=', 'treatments.id')
                     ->where('appointments.student_id', $userId);
             })
             ->where('student_course_enrollments.student_id', $profileId)
