@@ -208,11 +208,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/dashboard/stats', [InstructorController::class, 'getStats']);
         Route::get('/case-types', [InstructorController::class, 'getCaseTypesDropdown']);
 
-        /*
-         * فصل مهام المعيد المعلّقة إلى نقطتين مستقلتين:
-         * A) pending-diagnoses  → مرضى ينتظرون وضع خطة تشخيص (استقبال + اقتراح طلاب).
-         * B) treatments/pending → علاجات نُفِّذت وتنتظر التقييم النهائي فقط.
-         */
+        
         Route::get('/patients/pending-diagnoses', [InstructorController::class, 'pendingDiagnoses']);
 
         // نقطة قديمة (deprecated) تُبقي الإصدارات الحالية من التطبيق تعمل.
