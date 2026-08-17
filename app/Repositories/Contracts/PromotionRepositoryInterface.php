@@ -16,6 +16,9 @@ interface PromotionRepositoryInterface
     public function getStorePromotions(int $storeId, int $perPage = 15): LengthAwarePaginator;
 
 
+    public function getActivePromotions(int $perPage = 15): LengthAwarePaginator;
+
+
     public function findStorePromotion(int $storeId, int $promotionId): ?Promotion;
 
 

@@ -19,6 +19,7 @@ use App\Http\Controllers\Store\StorePromotionController;
 use App\Http\Controllers\Store\StoreStatisticController;
 use App\Http\Controllers\Student\BrowseStoreController;
 use App\Http\Controllers\Student\MarketplaceBrowseController;
+use App\Http\Controllers\Student\PromotionBrowseController;
 use App\Http\Controllers\Student\StudentCartController;
 use App\Http\Controllers\Student\StudentCheckoutController;
 use App\Http\Controllers\Student\StudentProductController;
@@ -177,6 +178,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::get('/student-products', [StudentSellerBrowseController::class, 'index']);
             Route::get('/student-products/{id}', [StudentSellerBrowseController::class, 'show']);
+
+            Route::get('/promotions', [PromotionBrowseController::class, 'index']);
         });
 
         Route::middleware(['ensure.courses.setup'])->group(function () {
