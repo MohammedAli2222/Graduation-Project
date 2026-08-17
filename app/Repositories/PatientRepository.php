@@ -40,7 +40,7 @@ class PatientRepository
 
     public function findWithMedia(int $id): Patient
     {
-        return Patient::with('media')->findOrFail($id);
+        return Patient::with(['media', 'medicalHistory'])->findOrFail($id);
     }
 
     public function getReceptionistWaitingList(): LengthAwarePaginator

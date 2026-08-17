@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\FcmTokenController;
 use App\Http\Controllers\GroupController;
 use App\Http\Controllers\Hod\DepartmentDelegationController;
@@ -84,6 +85,9 @@ Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:strict_auth');
 
 Route::get('/instructor/groups', [GroupController::class, 'index']);
+// عام وبلا مصادقة عمداً: بيانات مرجعية غير حساسة، ومطلوبة قبل تسجيل الدخول
+// (مثلاً شاشة طلب تفويض المعيد لاختيار القسم)، بنفس نمط /instructor/groups.
+Route::get('/departments', [DepartmentController::class, 'index']);
 Route::get('/students/groups', [GroupController::class, 'getGroupsByYear']);
 
 Route::middleware('auth:sanctum')->group(function () {
