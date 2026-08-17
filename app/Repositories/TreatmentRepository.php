@@ -203,34 +203,43 @@ class TreatmentRepository
         ")
             ->first();
 
-        // نفس تصحيح الملكية أعلاه: patient_diagnoses يبقى عريضاً عمداً (كل
-        // تشخيصات نوع الحالة، بلا علاقة بالطالب) حتى يظهر نوع الحالة بصفر حتى
-        // لو لم يوجد له أي تشخيص بعد، لكن الوصول إلى treatments يمرّ الآن حصراً
-        // عبر موعد يملكه هذا الطالب تحديداً (appointments.student_id = $userId
-        // على كل من الوصلتين)، فلا تتسرّب علاجات طلاب آخرين ضمن العدّ.
+        // مقيّد بالكامل عبر استعلامات فرعية مترابطة (Correlated Subqueries)
+        // بدل الوصلات (LEFT JOIN) نحو patient_diagnoses/appointments/treatments:
+        // كل استعلام فرعي مستقل بذاته ومقيّد بـ a.student_id مباشرة، فلا وجود
+        // لأي تمدّد صفوف (Row Fan-out) يمكن أن يسرّب بيانات طالب آخر ضمن
+        // التجميع الخارجي. القاعدة الخارجية (enrollments ⋈ case_types ⋈
+        // courses) نظيفة أصلاً: صف واحد لكل (طالب، نوع حالة) بلا أي تكرار،
+        // فلا حاجة لـ GROUP BY بعد الآن.
         $casesByType = DB::table('student_course_enrollments')
             ->join('case_types', 'student_course_enrollments.course_id', '=', 'case_types.course_id')
             ->join('courses', 'case_types.course_id', '=', 'courses.id')
-            ->leftJoin('patient_diagnoses', 'case_types.id', '=', 'patient_diagnoses.case_type_id')
-            ->leftJoin('appointments', function ($join) use ($userId): void {
-                $join->on('patient_diagnoses.id', '=', 'appointments.diagnosis_id')
-                    ->where('appointments.student_id', $userId);
-            })
-            ->leftJoin('treatments', function ($join) use ($userId): void {
-                $join->on('appointments.treatment_id', '=', 'treatments.id')
-                    ->where('appointments.student_id', $userId);
-            })
             ->where('student_course_enrollments.student_id', $profileId)
             ->where('student_course_enrollments.status', 'active')
-            ->groupBy('case_types.id', 'case_types.name', 'case_types.required_count', 'courses.name')
+            ->orderBy('case_types.id')
             ->selectRaw("
             case_types.id as type_id,
             case_types.name as case_type_name,
             courses.name as course_name,
             case_types.required_count as required_to_pass,
-            COUNT(DISTINCT CASE WHEN treatments.status = 'completed' THEN treatments.id END) as completed_count,
-            COUNT(DISTINCT CASE WHEN treatments.status IN ('in_progress','waiting_instructor_approval') THEN treatments.id END) as in_progress_count
-        ")
+            (
+                SELECT COUNT(DISTINCT t.id)
+                FROM treatments t
+                JOIN appointments a ON a.treatment_id = t.id
+                JOIN patient_diagnoses pd ON pd.id = t.diagnosis_id
+                WHERE a.student_id = ?
+                  AND pd.case_type_id = case_types.id
+                  AND t.status = 'completed'
+            ) as completed_count,
+            (
+                SELECT COUNT(DISTINCT t.id)
+                FROM treatments t
+                JOIN appointments a ON a.treatment_id = t.id
+                JOIN patient_diagnoses pd ON pd.id = t.diagnosis_id
+                WHERE a.student_id = ?
+                  AND pd.case_type_id = case_types.id
+                  AND t.status IN ('in_progress', 'waiting_instructor_approval')
+            ) as in_progress_count
+        ", [$userId, $userId])
             ->get();
 
         $appointmentsCount = DB::table('appointments')
