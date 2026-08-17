@@ -30,6 +30,58 @@ class StudentCourseService
         });
     }
 
+    /**
+     * قائمة إعداد المقررات: كل المقررات المؤهَّلة أكاديمياً للطالب (فصله
+     * الحالي + كل ما سبقه)، مقسّمة إلى فصل حالي/فصول سابقة، وكل مقرر معه
+     * أعلام حالة (is_enrolled/can_enroll/can_drop/lock_reason) جاهزة للعرض.
+     *
+     * @return array{current_semester_courses: \Illuminate\Support\Collection, previous_semesters_courses: \Illuminate\Support\Collection}
+     */
+    public function getCourseSetupList(StudentProfile $student): array
+    {
+        $year = $this->normalizeLevel($student->academic_year);
+        $semester = $this->normalizeLevel($student->semester);
+
+        $courses = $this->studentRepo->getAvailableCoursesByLevel($year, $semester);
+        $enrollmentsByCourseId = $this->studentRepo->getEnrollmentsKeyedByCourse($student->id);
+
+        $current = collect();
+        $previous = collect();
+
+        foreach ($courses as $course) {
+            $enrollment = $enrollmentsByCourseId->get($course->id);
+            $status = $enrollment?->status;
+
+            $isEnrolled = $status === EnrollmentStatus::ACTIVE;
+            $hasPassedBefore = $status === EnrollmentStatus::COMPLETED;
+
+            // لا داعي لاستعلام النشاط السريري إلا للمقررات المسجَّلة فعلياً،
+            // فيبقى عدد الاستعلامات محصوراً بعدد مقررات الطالب النشطة فقط.
+            $hasClinicalActivity = $isEnrolled
+                && $this->studentRepo->hasClinicalActivityInCourse((int) $student->user_id, $course->id);
+
+            $course->is_enrolled = $isEnrolled;
+            $course->can_enroll = ! $isEnrolled && ! $hasPassedBefore;
+            $course->can_drop = $isEnrolled && ! $hasClinicalActivity;
+            $course->lock_reason = match (true) {
+                $hasPassedBefore => 'لقد اجتزت هذا المقرر سابقاً.',
+                $hasClinicalActivity => 'لا يمكن سحب المقرر بعد بدء نشاط سريري فيه.',
+                default => null,
+            };
+
+            if ((int) $course->year === $year && (int) $course->semester === $semester) {
+                $current->push($course);
+            } else {
+                $previous->push($course);
+            }
+        }
+
+        return [
+            'current_semester_courses' => $current->values(),
+            'previous_semesters_courses' => $previous->values(),
+        ];
+    }
+
     public function getActiveCoursesForStudent(int $studentId): \Illuminate\Support\Collection
     {
         // جلب المقررات الفعالة للطالب
@@ -90,9 +142,9 @@ class StudentCourseService
     /**
      * إضافة مقررات يدوياً إلى تسجيل الطالب الحالي.
      *
-     * القيد رقم ١ (قواعد الفصل): لا يُسمح بإضافة إلا مقررات تعود لفصل الطالب
-     * الدراسي الحالي (نفس السنة ونفس الفصل)؛ إضافة مقرر من فصل آخر تكسر حساب
-     * المتطلبات السريرية وتفتح للطالب حالات خارج مستواه.
+     * القيد رقم ١ (قواعد الفصل): يُسمح بإضافة مقررات فصل الطالب الدراسي
+     * الحالي أو أي فصل سابق (مقررات محمولة/راسب فيها الطالب سابقاً)، ولا
+     * يُسمح بإضافة مقرر من فصل مستقبلي لم يصل إليه الطالب بعد.
      *
      * @param  array<int, int|string>  $courseIds
      * @return array{enrolled_course_ids: array<int, int>, skipped_course_ids: array<int, int>, enrolled_count: int}
@@ -101,7 +153,7 @@ class StudentCourseService
     {
         $courseIds = array_values(array_unique(array_map('intval', $courseIds)));
 
-        $this->assertCoursesBelongToCurrentSemester($student, $courseIds);
+        $this->assertCoursesAreNotInTheFuture($student, $courseIds);
 
         $result = DB::transaction(function () use ($student, $courseIds): array {
 
@@ -195,7 +247,7 @@ class StudentCourseService
                 $hasClinicalActivity = $this->studentRepo->hasClinicalActivityInCourse($student->user_id, $courseId);
 
                 if ($hasClinicalActivity) {
-                    $failedToDropIds[$courseId] = 'Cannot drop course. You have active patients or treatments linked to it.';
+                    $failedToDropIds[$courseId] = 'لا يمكن سحب المقرر بعد بدء نشاط سريري فيه.';
                     continue;
                 }
 
@@ -231,11 +283,12 @@ class StudentCourseService
     }
 
     /**
-     * التحقق من أن كل المقررات المطلوبة تعود لفصل الطالب الحالي.
+     * التحقق من أن كل المقررات المطلوبة تعود لفصل الطالب الحالي أو ما قبله؛
+     * يُرفض فقط أي مقرر يتبع فصلاً مستقبلياً لم يصل إليه الطالب بعد.
      *
      * @param  array<int, int>  $courseIds
      */
-    private function assertCoursesBelongToCurrentSemester(StudentProfile $student, array $courseIds): void
+    private function assertCoursesAreNotInTheFuture(StudentProfile $student, array $courseIds): void
     {
         if ($courseIds === []) {
             throw new Exception('No courses provided to enroll.', 422);
@@ -250,17 +303,20 @@ class StudentCourseService
             throw new Exception('One or more selected courses do not exist.', 404);
         }
 
-        $invalid = $courses->filter(
-            fn ($course): bool => (int) $course->year !== $year || (int) $course->semester !== $semester
-        );
+        $future = $courses->filter(function ($course) use ($year, $semester): bool {
+            $courseYear = (int) $course->year;
+            $courseSemester = (int) $course->semester;
 
-        if ($invalid->isNotEmpty()) {
+            return $courseYear > $year || ($courseYear === $year && $courseSemester > $semester);
+        });
+
+        if ($future->isNotEmpty()) {
             throw new Exception(
                 sprintf(
-                    'You can only enroll in courses of your current semester (year %d, semester %d). Rejected: %s.',
+                    'You can only enroll in courses from your current semester (year %d, semester %d) or earlier. Rejected: %s.',
                     $year,
                     $semester,
-                    $invalid->pluck('name')->implode(', ')
+                    $future->pluck('name')->implode(', ')
                 ),
                 422
             );

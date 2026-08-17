@@ -121,6 +121,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware(['role:student'])->prefix('student')->group(function () {
         Route::post('/setup-courses', [StudentController::class, 'setupAcademicCourses']);
+        // شاشة إعداد المقررات: تُستخدم قبل أن يكون للطالب أي مقررات مفعّلة، لذا
+        // تبقى خارج مجموعة ensure.courses.setup كبقية مسارات إعداد المقررات.
+        Route::get('/courses/setup-list', [StudentController::class, 'getCourseSetupList']);
         Route::post('/courses/enroll', [StudentController::class, 'enrollInCourses']);
         // سحب مقرر: يعالج أيضاً حالة الطالب المعيد للسنة ومقرر سبق نجاحه فيه.
         Route::post('/courses/drop', [StudentController::class, 'dropCourses']);

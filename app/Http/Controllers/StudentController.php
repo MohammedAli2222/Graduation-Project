@@ -11,6 +11,7 @@ use App\Http\Resources\CourseResource;
 use App\Http\Resources\PatientDiagnosisDetailsResource;
 use App\Http\Resources\PatientDiagnosisResource;
 use App\Http\Resources\PatientResource;
+use App\Http\Resources\StudentCourseStatusResource;
 use App\Http\Resources\StudentPatientDiagnosisResource;
 use App\Services\PatientService;
 use App\Services\StudentCourseService;
@@ -146,6 +147,26 @@ class StudentController extends Controller
             200,
             $result['message']
         );
+    }
+
+    /**
+     * شاشة إعداد المقررات: مقررات الفصل الحالي + المقررات المحمولة من فصول
+     * سابقة، كل مقرر مع أعلام is_enrolled/can_enroll/can_drop/lock_reason.
+     */
+    public function getCourseSetupList(Request $request)
+    {
+        $student = $request->user()->studentProfile;
+
+        if (! $student) {
+            return response_error(null, 404, 'Student profile not found.');
+        }
+
+        $lists = $this->courseService->getCourseSetupList($student);
+
+        return response_success([
+            'current_semester_courses' => StudentCourseStatusResource::collection($lists['current_semester_courses']),
+            'previous_semesters_courses' => StudentCourseStatusResource::collection($lists['previous_semesters_courses']),
+        ], 200, 'Course setup list retrieved successfully.');
     }
 
     public function enrollInCourses(EnrollStudentCoursesRequest $request)

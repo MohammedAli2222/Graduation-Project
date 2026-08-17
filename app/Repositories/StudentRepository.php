@@ -23,14 +23,30 @@ class StudentRepository
 
     public function getAvailableCoursesByLevel(int $year, int $semester)
     {
-        return Course::with('department')
+        return Course::with(['department', 'caseTypes'])
             ->where(function ($query) use ($year, $semester) {
                 $query->where('year', '<', $year)
                     ->orWhere(function ($q) use ($year, $semester) {
                         $q->where('year', $year)
                             ->where('semester', '<=', $semester);
                     });
-            })->get();
+            })
+            ->orderBy('year')
+            ->orderBy('semester')
+            ->get();
+    }
+
+    /**
+     * سجلات تسجيل الطالب في كل المقررات (بكل الحالات)، مفهرسة بمعرّف المقرر.
+     *
+     * استعلام واحد يغطي كل المقررات دفعة واحدة بدل استعلام منفصل لكل مقرر
+     * (N+1) عند بناء قائمة is_enrolled/can_enroll لشاشة إعداد المقررات.
+     */
+    public function getEnrollmentsKeyedByCourse(int $studentId): \Illuminate\Support\Collection
+    {
+        return StudentCourseEnrollment::where('student_id', $studentId)
+            ->get()
+            ->keyBy('course_id');
     }
 
     public function findExistingEnrollment(int $studentId, int $courseId)
