@@ -22,7 +22,11 @@ class InstructorDelegationController extends Controller
 
             return response_success(null, 200, 'تم إرسال طلب التفويض بنجاح، بانتظار موافقة رئيس القسم.');
         } catch (Exception $e) {
-            return response_error(null, $e->getCode() ?: 400, $e->getMessage());
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? (int) $e->getCode()
+                : 500;
+
+            return response_error(null, $statusCode, $e->getMessage());
         }
     }
 }
