@@ -11,4 +11,9 @@ interface InstructorRepositoryInterface
     public function getAllInstructors(): Collection;
 
     public function findInstructorById(int $instructorId): ?User;
+
+    /**
+     * معيدون لديهم طلب تفويض معلَّق موجَّه تحديداً إلى هذا القسم.
+     */
+    public function getPendingDelegationRequests(int $departmentId): Collection;
 }

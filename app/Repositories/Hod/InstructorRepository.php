@@ -31,4 +31,16 @@ class InstructorRepository implements InstructorRepositoryInterface
             ->role('instructor')
             ->find($instructorId);
     }
+
+    public function getPendingDelegationRequests(int $departmentId): Collection
+    {
+        return $this->model->newQuery()
+            ->role('instructor')
+            ->whereHas('instructorProfile', function ($query) use ($departmentId) {
+                $query->where('requested_department_id', $departmentId);
+            })
+            ->with('instructorProfile')
+            ->select(['id', 'first_name', 'last_name', 'email'])
+            ->get();
+    }
 }

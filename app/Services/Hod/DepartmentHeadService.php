@@ -201,12 +201,36 @@ class DepartmentHeadService
         return $this->instructorRepo->getAllInstructors();
     }
 
-    public function delegateViewTreatmentsToInstructor(int $instructorId): bool
+    /**
+     * معيدون لديهم طلب تفويض معلَّق موجَّه تحديداً لقسم رئيس القسم الحالي.
+     */
+    public function getDelegationRequests(int $hodDepartmentId): Collection
+    {
+        return $this->instructorRepo->getPendingDelegationRequests($hodDepartmentId);
+    }
+
+    /**
+     * منح صلاحية عرض معالجات القسم لمعيد.
+     *
+     * مسارَان يبقيان معاً صالحَين:
+     * - المعيد طلب الانضمام (requested_department_id مضبوط): لا يجوز قبول
+     *   الطلب إلا من رئيس القسم المطلوب تحديداً؛ عزل بيانات صارم.
+     * - منح مباشر من رئيس القسم بلا طلب سابق (السلوك الأصلي قبل هذه الميزة):
+     *   يبقى يعمل كما كان، ويُسجَّل المعيد ضمن قسم رئيس القسم المانِح.
+     */
+    public function delegateViewTreatmentsToInstructor(int $instructorId, int $hodDepartmentId): bool
     {
         $instructor = $this->instructorRepo->findInstructorById($instructorId);
 
         if (! $instructor) {
             throw new Exception('المعيد المطلوب غير موجود في النظام.', 404);
+        }
+
+        $profile = $instructor->instructorProfile;
+        $requestedDepartmentId = $profile?->requested_department_id;
+
+        if ($requestedDepartmentId !== null && (int) $requestedDepartmentId !== $hodDepartmentId) {
+            throw new Exception('غير مصرح لك: هذا الطلب موجَّه إلى قسم آخر.', 403);
         }
 
         $permission = Permission::firstOrCreate([
@@ -218,8 +242,38 @@ class DepartmentHeadService
             $instructor->givePermissionTo($permission);
         }
 
+        if ($profile) {
+            $profile->update([
+                'department_id' => $requestedDepartmentId ?? $hodDepartmentId,
+                'requested_department_id' => null,
+            ]);
+        }
+
         // إطلاق الحدث لإشعار المعيد بحصوله على صلاحية جديدة دون تأخير استجابة الـ API الرئيسية
        // InstructorDelegatedEvent::dispatch($instructor);
+
+        return true;
+    }
+
+    /**
+     * رفض طلب تفويض معلَّق. لا يجوز إلا لرئيس القسم الذي وُجِّه إليه الطلب،
+     * ولا معنى للرفض أصلاً إن لم يوجد طلب معلَّق فعلي (عزل بيانات + تحقّق حالة).
+     */
+    public function rejectDelegationRequest(int $instructorId, int $hodDepartmentId): bool
+    {
+        $instructor = $this->instructorRepo->findInstructorById($instructorId);
+
+        if (! $instructor || ! $instructor->instructorProfile) {
+            throw new Exception('المعيد المطلوب غير موجود في النظام.', 404);
+        }
+
+        $profile = $instructor->instructorProfile;
+
+        if ($profile->requested_department_id === null || (int) $profile->requested_department_id !== $hodDepartmentId) {
+            throw new Exception('لا يوجد طلب تفويض معلَّق من هذا المعيد لقسمك.', 404);
+        }
+
+        $profile->update(['requested_department_id' => null]);
 
         return true;
     }

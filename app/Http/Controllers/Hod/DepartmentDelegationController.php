@@ -32,10 +32,38 @@ class DepartmentDelegationController extends Controller
         }
     }
 
+    public function delegationRequests(): JsonResponse
+    {
+        try {
+            $hodProfile = auth()->user()->departmentHeadProfile;
+
+            if (! $hodProfile) {
+                return response_error(null, 403, 'غير مصرح لك: حسابك لا يملك صلاحيات رئيس قسم.');
+            }
+
+            $requests = $this->hodService->getDelegationRequests($hodProfile->department_id);
+
+            return response_success(
+                $requests,
+                200,
+                'تم جلب طلبات التفويض المعلَّقة بنجاح.'
+            );
+        } catch (Exception $e) {
+            Log::error("خطأ أثناء جلب طلبات التفويض: " . $e->getMessage());
+            return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة البيانات.');
+        }
+    }
+
     public function grantPermission(int $instructorId): JsonResponse
     {
         try {
-            $this->hodService->delegateViewTreatmentsToInstructor($instructorId);
+            $hodProfile = auth()->user()->departmentHeadProfile;
+
+            if (! $hodProfile) {
+                return response_error(null, 403, 'غير مصرح لك: حسابك لا يملك صلاحيات رئيس قسم.');
+            }
+
+            $this->hodService->delegateViewTreatmentsToInstructor($instructorId, $hodProfile->department_id);
 
             return response_success(
                 null,
@@ -43,10 +71,38 @@ class DepartmentDelegationController extends Controller
                 'تم تفويض الصلاحية للمعيد بنجاح.'
             );
         } catch (Exception $e) {
-            $statusCode = ($e->getCode() === 404) ? 404 : 500;
+            $statusCode = in_array($e->getCode(), [403, 404], true) ? $e->getCode() : 500;
 
             if ($statusCode === 500) {
                 Log::error("خطأ أثناء منح الصلاحية للمعيد: " . $e->getMessage());
+                return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة الطلب.');
+            }
+
+            return response_error(null, $statusCode, $e->getMessage());
+        }
+    }
+
+    public function rejectRequest(int $instructorId): JsonResponse
+    {
+        try {
+            $hodProfile = auth()->user()->departmentHeadProfile;
+
+            if (! $hodProfile) {
+                return response_error(null, 403, 'غير مصرح لك: حسابك لا يملك صلاحيات رئيس قسم.');
+            }
+
+            $this->hodService->rejectDelegationRequest($instructorId, $hodProfile->department_id);
+
+            return response_success(
+                null,
+                200,
+                'تم رفض طلب التفويض.'
+            );
+        } catch (Exception $e) {
+            $statusCode = ($e->getCode() === 404) ? 404 : 500;
+
+            if ($statusCode === 500) {
+                Log::error("خطأ أثناء رفض طلب التفويض: " . $e->getMessage());
                 return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة الطلب.');
             }
 

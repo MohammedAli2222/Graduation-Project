@@ -9,6 +9,7 @@ use App\Http\Controllers\Hod\DepartmentRequirementController;
 use App\Http\Controllers\Hod\DepartmentStatisticController;
 use App\Http\Controllers\Hod\DepartmentTreatmentController;
 use App\Http\Controllers\InstructorController;
+use App\Http\Controllers\InstructorDelegationController;
 use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ReceptionistController;
 use App\Http\Controllers\Store\StoreOrderController;
@@ -219,6 +220,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/treatments/pending', [InstructorController::class, 'getPendingTreatmentsList']);
         Route::get('/treatments/pending/{id}', [InstructorController::class, 'getTreatmentDetails']);
         Route::post('treatments/review', [InstructorController::class, 'reviewTreatment']);
+
+        Route::post('/delegation/request', [InstructorDelegationController::class, 'request']);
     });
 
     Route::prefix('hod')->middleware('role_or_permission:department_head|view-department-treatments')->group(function () {
@@ -235,8 +238,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/courses', [DepartmentRequirementController::class, 'indexCourses']);
 
         Route::get('/instructors', [DepartmentDelegationController::class, 'instructorsList']);
+        // المسار بلا تغيير عمداً (وليس /delegation/grant/{id}): لوحة الويب
+        // المنشورة فعلياً تنادي هذا المسار تحديداً؛ المنطق فقط هو ما تحدَّث.
         Route::post('/instructors/{id}/delegate', [DepartmentDelegationController::class, 'grantPermission']);
         Route::post('/instructors/{id}/revoke', [DepartmentDelegationController::class, 'revokePermission']);
+
+        Route::get('/delegation/requests', [DepartmentDelegationController::class, 'delegationRequests']);
+        Route::post('/delegation/reject/{id}', [DepartmentDelegationController::class, 'rejectRequest']);
 
         Route::get('/statistics', [DepartmentStatisticController::class, 'index']);
     });

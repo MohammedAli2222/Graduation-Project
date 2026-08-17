@@ -13,6 +13,8 @@ class InstructorProfile extends Model
         'phone',
         'specialty',
         'specialty_year',
+        'department_id',
+        'requested_department_id',
     ];
 
     public function user()
@@ -23,5 +25,15 @@ class InstructorProfile extends Model
     public function groups()
     {
         return $this->belongsToMany(Group::class, 'group_instructor', 'instructor_profile_id', 'group_id');
+    }
+
+    public function department()
+    {
+        return $this->belongsTo(Department::class);
+    }
+
+    public function requestedDepartment()
+    {
+        return $this->belongsTo(Department::class, 'requested_department_id');
     }
 }
