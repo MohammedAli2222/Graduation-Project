@@ -38,7 +38,7 @@ class AppointmentRepository
 
     public function updateStatus(int $appointmentId, string $status): bool
     {
-        return Appointment::where('id', $appointmentId)->update(['status' => $status]);
+        return (bool) Appointment::where('id', $appointmentId)->update(['status' => $status]);
     }
 
     public function countAppointmentsForTreatment(int $treatmentId): int
@@ -48,7 +48,7 @@ class AppointmentRepository
 
     public function cancelCurrentAttendedAppointment(int $treatmentId): bool
     {
-        return Appointment::where('treatment_id', $treatmentId)
+        return (bool) Appointment::where('treatment_id', $treatmentId)
             ->where('status', AppointmentStatus::ATTENDED->value)
             ->update(['status' => AppointmentStatus::CANCELLED->value]);
     }
