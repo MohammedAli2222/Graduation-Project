@@ -230,11 +230,10 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::prefix('hod')->middleware('role_or_permission:department_head|view-department-treatments')->group(function () {
         Route::get('/completed-treatments', [DepartmentTreatmentController::class, 'completedTreatments']);
+        Route::get('/completed-treatments/{treatment}', [DepartmentTreatmentController::class, 'show']);
     });
 
     Route::middleware('role:department_head')->prefix('hod')->group(function () {
-        Route::get('/completed-treatments/{treatment}', [DepartmentTreatmentController::class, 'show']);
-
         Route::get('/case-types', [DepartmentRequirementController::class, 'indexCaseTypes']);
         Route::post('/case-types', [DepartmentRequirementController::class, 'store']);
         Route::delete('/case-types/{caseType}', [DepartmentRequirementController::class, 'destroy']);
