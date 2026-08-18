@@ -29,11 +29,12 @@ class TreatmentRepository implements TreatmentRepositoryInterface
             ->where('courses.department_id', $departmentId)
 
             ->with([
-                'diagnosis:id,patient_id,suggested_by_student_id,case_type_id',
+                'diagnosis:id,patient_id,suggested_by_student_id,case_type_id,department_id',
                 'diagnosis.student:id,first_name,last_name',
                 // عمود اسم المريض الفعلي في جدول patients هو full_name وليس first_name/last_name
-                'diagnosis.patient:id,full_name',
+                'diagnosis.patient:id,full_name,phone',
                 'diagnosis.caseType:id,name',
+                'diagnosis.department:id,name',
                 'instructor:id,first_name,last_name'
             ])
 

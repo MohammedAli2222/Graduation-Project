@@ -43,10 +43,15 @@ class TreatmentResource extends JsonResource
                         'id'   => $this->diagnosis->caseType?->id,
                         'name' => $this->diagnosis->caseType?->name,
                     ],
+                    'department' => [
+                        'id'   => $this->diagnosis->department?->id,
+                        'name' => $this->diagnosis->department?->name,
+                    ],
                     // Patient::$fillable لا يحتوي first_name/last_name، بل full_name فقط
                     'patient' => [
                         'id'        => $this->diagnosis->patient?->id,
                         'full_name' => $this->diagnosis->patient?->full_name,
+                        'phone'     => $this->diagnosis->patient?->phone,
                     ],
                     'student' => [
                         'id'         => $this->diagnosis->student?->id,
