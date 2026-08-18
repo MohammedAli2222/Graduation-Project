@@ -23,6 +23,13 @@ jobs:
       - name: 📦 Install Composer dependencies
         run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-scripts
 
+      - name: 🗜 Package vendor as a single archive
+        run: |
+          cd vendor
+          zip -qr ../vendor-deploy.zip .
+          cd ..
+          ls -lh vendor-deploy.zip
+
       - name: 📂 Sync files via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
         with:
@@ -38,6 +45,7 @@ jobs:
             **/.git*
             **/.git*/**
             **/node_modules/**
+            /vendor/**
             /tests/**
             /.claude/**
             /.github/**
@@ -47,6 +55,10 @@ jobs:
             /phpunit.xml
             /.editorconfig
             /README.md
+
+      - name: 📦 Extract vendor archive on server
+        run: |
+          curl -sf "https://dsd.haderin.sy/deploy-unzip.php?secret=${{ secrets.DEPLOYMENT_SECRET }}"
 
       - name: 🔄 Run post-deploy tasks (migrate + cache clear)
         run: |
