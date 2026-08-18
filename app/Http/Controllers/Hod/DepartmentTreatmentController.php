@@ -60,14 +60,16 @@ class DepartmentTreatmentController extends Controller
         try {
             /** @var \App\Models\User $user */
             $user = Auth::user();
-            $hodProfile = $user->departmentHeadProfile;
 
-            if (! $hodProfile) {
-                return response_error(null, 403, 'غير مصرح لك: حسابك لا يملك صلاحيات رئيس قسم.');
+            $departmentId = $user->departmentHeadProfile?->department_id
+                         ?? $user->instructorProfile?->department_id;
+
+            if (! $departmentId) {
+                return response_error(null, 403, 'غير مصرح لك: لم يتم ربط حسابك بقسم أكاديمي.');
             }
 
             $treatment = $this->hodService->getTreatmentDetailForDepartment(
-                $hodProfile->department_id,
+                $departmentId,
                 $treatmentId
             );
 

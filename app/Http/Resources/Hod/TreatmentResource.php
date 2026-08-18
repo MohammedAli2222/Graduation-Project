@@ -20,6 +20,22 @@ class TreatmentResource extends JsonResource
             'instructor_notes' => $this->instructor_notes,
             'rejection_reason' => $this->rejection_reason,
 
+            'before_images' => $this->getMedia('before_treatment_images')->map(function ($media) {
+                return [
+                    'id' => $media->id,
+                    'file_name' => $media->file_name,
+                    'url' => $media->getUrl(),
+                ];
+            }),
+
+            'after_images' => $this->getMedia('after_treatment_images')->map(function ($media) {
+                return [
+                    'id' => $media->id,
+                    'file_name' => $media->file_name,
+                    'url' => $media->getUrl(),
+                ];
+            }),
+
             'diagnosis' => $this->whenLoaded('diagnosis', function () {
                 return [
                     'id' => $this->diagnosis_id,
