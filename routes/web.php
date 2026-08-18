@@ -20,8 +20,7 @@ Route::get('/run-deployment', function (Request $request): Response {
     try {
         Artisan::call('optimize:clear');
 
-        Artisan::call('migrate:refresh', [
-            '--seed' => true,
+        Artisan::call('migrate', [
             '--force' => true,
         ]);
 

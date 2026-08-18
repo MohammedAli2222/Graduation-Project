@@ -1044,6 +1044,32 @@ abstract class Controller
 
 
 =================================================
+File: app\Http\Controllers\DepartmentController.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers;
+
+use App\Repositories\DepartmentRepository;
+use Illuminate\Http\JsonResponse;
+
+class DepartmentController extends Controller
+{
+    public function __construct(protected DepartmentRepository $departmentRepo) {}
+
+    public function index(): JsonResponse
+    {
+        $departments = $this->departmentRepo->getAllCached();
+
+        return response_success($departments, 200, 'Departments retrieved successfully.');
+    }
+}
+
+
+=================================================
 File: app\Http\Controllers\FcmTokenController.php
 =================================================
 
@@ -1081,6 +1107,25 @@ class FcmTokenController extends Controller
             return response_error($e->errors(), 422, 'بيانات غير صالحة.');
         } catch (\Exception $e) {
             return response_error(null, 500, 'حدث خطأ أثناء حفظ توكن الإشعارات: ' . $e->getMessage());
+        }
+    }
+
+    // إزالة توكن الجهاز عند تسجيل الخروج، حتى لا يستمر المستخدم التالي الذي
+    // يسجّل دخوله على نفس الجهاز باستقبال إشعارات المستخدم السابق
+    public function destroy(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'fcm_token' => ['required', 'string'],
+            ]);
+
+            $this->fcmTokenRepo->deleteTokenForUser(auth()->id(), $validated['fcm_token']);
+
+            return response_success(null, 200, 'تم حذف توكن الإشعارات بنجاح.');
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response_error($e->errors(), 422, 'بيانات غير صالحة.');
+        } catch (\Exception $e) {
+            return response_error(null, 500, 'حدث خطأ أثناء حذف توكن الإشعارات: ' . $e->getMessage());
         }
     }
 }
@@ -1170,10 +1215,38 @@ class DepartmentDelegationController extends Controller
         }
     }
 
+    public function delegationRequests(): JsonResponse
+    {
+        try {
+            $hodProfile = auth()->user()->departmentHeadProfile;
+
+            if (! $hodProfile) {
+                return response_error(null, 403, 'غير مصرح لك: حسابك لا يملك صلاحيات رئيس قسم.');
+            }
+
+            $requests = $this->hodService->getDelegationRequests($hodProfile->department_id);
+
+            return response_success(
+                $requests,
+                200,
+                'تم جلب طلبات التفويض المعلَّقة بنجاح.'
+            );
+        } catch (Exception $e) {
+            Log::error("خطأ أثناء جلب طلبات التفويض: " . $e->getMessage());
+            return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة البيانات.');
+        }
+    }
+
     public function grantPermission(int $instructorId): JsonResponse
     {
         try {
-            $this->hodService->delegateViewTreatmentsToInstructor($instructorId);
+            $hodProfile = auth()->user()->departmentHeadProfile;
+
+            if (! $hodProfile) {
+                return response_error(null, 403, 'غير مصرح لك: حسابك لا يملك صلاحيات رئيس قسم.');
+            }
+
+            $this->hodService->delegateViewTreatmentsToInstructor($instructorId, $hodProfile->department_id);
 
             return response_success(
                 null,
@@ -1181,10 +1254,38 @@ class DepartmentDelegationController extends Controller
                 'تم تفويض الصلاحية للمعيد بنجاح.'
             );
         } catch (Exception $e) {
-            $statusCode = ($e->getCode() === 404) ? 404 : 500;
+            $statusCode = in_array($e->getCode(), [403, 404], true) ? $e->getCode() : 500;
 
             if ($statusCode === 500) {
                 Log::error("خطأ أثناء منح الصلاحية للمعيد: " . $e->getMessage());
+                return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة الطلب.');
+            }
+
+            return response_error(null, $statusCode, $e->getMessage());
+        }
+    }
+
+    public function rejectRequest(int $instructorId): JsonResponse
+    {
+        try {
+            $hodProfile = auth()->user()->departmentHeadProfile;
+
+            if (! $hodProfile) {
+                return response_error(null, 403, 'غير مصرح لك: حسابك لا يملك صلاحيات رئيس قسم.');
+            }
+
+            $this->hodService->rejectDelegationRequest($instructorId, $hodProfile->department_id);
+
+            return response_success(
+                null,
+                200,
+                'تم رفض طلب التفويض.'
+            );
+        } catch (Exception $e) {
+            $statusCode = ($e->getCode() === 404) ? 404 : 500;
+
+            if ($statusCode === 500) {
+                Log::error("خطأ أثناء رفض طلب التفويض: " . $e->getMessage());
                 return response_error(null, 500, 'حدث خطأ داخلي أثناء معالجة الطلب.');
             }
 
@@ -1828,6 +1929,131 @@ class InstructorController extends Controller
                 400,
                 'Failed to process instructor action.'
             );
+        }
+    }
+}
+
+
+=================================================
+File: app\Http\Controllers\InstructorDelegationController.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers;
+
+use App\Http\Requests\RequestDelegationRequest;
+use App\Services\InstructorDelegationService;
+use Exception;
+
+class InstructorDelegationController extends Controller
+{
+    public function __construct(protected InstructorDelegationService $service) {}
+
+    public function request(RequestDelegationRequest $request)
+    {
+        try {
+            $this->service->requestDelegation(
+                $request->user(),
+                (int) $request->validated()['department_id']
+            );
+
+            return response_success(null, 200, 'تم إرسال طلب التفويض بنجاح، بانتظار موافقة رئيس القسم.');
+        } catch (Exception $e) {
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? (int) $e->getCode()
+                : 500;
+
+            return response_error(null, $statusCode, $e->getMessage());
+        }
+    }
+}
+
+
+=================================================
+File: app\Http\Controllers\NotificationController.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers;
+
+use App\Http\Resources\UserNotificationResource;
+use App\Services\NotificationService;
+use Exception;
+use Illuminate\Http\Request;
+
+class NotificationController extends Controller
+{
+    public function __construct(protected NotificationService $service) {}
+
+    public function index(Request $request)
+    {
+        $notifications = $this->service->getForUser(
+            $request->user()->id,
+            $request->boolean('unread'),
+            (int) $request->query('per_page', 15)
+        );
+
+        return response_success([
+            'data' => UserNotificationResource::collection($notifications->items()),
+            'pagination' => [
+                'total' => $notifications->total(),
+                'count' => $notifications->count(),
+                'per_page' => $notifications->perPage(),
+                'current_page' => $notifications->currentPage(),
+                'last_page' => $notifications->lastPage(),
+            ],
+        ], 200, 'Notifications retrieved successfully.');
+    }
+
+    public function unreadCount(Request $request)
+    {
+        return response_success(
+            ['count' => $this->service->unreadCount($request->user()->id)],
+            200,
+            'Unread notifications count retrieved successfully.'
+        );
+    }
+
+    public function markAsRead(Request $request, int $id)
+    {
+        try {
+            $this->service->markAsRead($request->user()->id, $id);
+
+            return response_success(null, 200, 'Notification marked as read.');
+        } catch (Exception $e) {
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? (int) $e->getCode()
+                : 500;
+
+            return response_error(null, $statusCode, $e->getMessage());
+        }
+    }
+
+    public function markAllAsRead(Request $request)
+    {
+        $count = $this->service->markAllAsRead($request->user()->id);
+
+        return response_success(['updated_count' => $count], 200, 'All notifications marked as read.');
+    }
+
+    public function destroy(Request $request, int $id)
+    {
+        try {
+            $this->service->delete($request->user()->id, $id);
+
+            return response_success(null, 200, 'Notification deleted.');
+        } catch (Exception $e) {
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? (int) $e->getCode()
+                : 500;
+
+            return response_error(null, $statusCode, $e->getMessage());
         }
     }
 }
@@ -2530,6 +2756,48 @@ class MarketplaceBrowseController extends Controller
 
 
 =================================================
+File: app\Http\Controllers\Student\PromotionBrowseController.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Controllers\Student;
+
+use App\Http\Controllers\Controller;
+use App\Http\Resources\Store\PromotionResource;
+use App\Services\Student\PromotionBrowseService;
+use Exception;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+
+class PromotionBrowseController extends Controller
+{
+    public function __construct(
+        protected PromotionBrowseService $promotionBrowseService
+    ) {}
+
+    public function index(Request $request): JsonResponse
+    {
+        try {
+            $perPage = (int) $request->query('per_page', 15);
+            $promotions = $this->promotionBrowseService->getActivePromotions($perPage);
+
+            $resourceData = PromotionResource::collection($promotions)->response()->getData(true);
+
+            return response_success($resourceData, 200, 'تم جلب العروض الترويجية بنجاح.');
+        } catch (Exception $e) {
+            Log::error('خطأ أثناء تصفح العروض الترويجية: ' . $e->getMessage());
+
+            return response_error(null, 500, 'حدث خطأ داخلي.');
+        }
+    }
+}
+
+
+=================================================
 File: app\Http\Controllers\Student\StudentCartController.php
 =================================================
 
@@ -2955,6 +3223,7 @@ use App\Http\Resources\CourseResource;
 use App\Http\Resources\PatientDiagnosisDetailsResource;
 use App\Http\Resources\PatientDiagnosisResource;
 use App\Http\Resources\PatientResource;
+use App\Http\Resources\StudentCourseStatusResource;
 use App\Http\Resources\StudentPatientDiagnosisResource;
 use App\Services\PatientService;
 use App\Services\StudentCourseService;
@@ -3090,6 +3359,26 @@ class StudentController extends Controller
             200,
             $result['message']
         );
+    }
+
+    /**
+     * شاشة إعداد المقررات: مقررات الفصل الحالي + المقررات المحمولة من فصول
+     * سابقة، كل مقرر مع أعلام is_enrolled/can_enroll/can_drop/lock_reason.
+     */
+    public function getCourseSetupList(Request $request)
+    {
+        $student = $request->user()->studentProfile;
+
+        if (! $student) {
+            return response_error(null, 404, 'Student profile not found.');
+        }
+
+        $lists = $this->courseService->getCourseSetupList($student);
+
+        return response_success([
+            'current_semester_courses' => StudentCourseStatusResource::collection($lists['current_semester_courses']),
+            'previous_semesters_courses' => StudentCourseStatusResource::collection($lists['previous_semesters_courses']),
+        ], 200, 'Course setup list retrieved successfully.');
     }
 
     public function enrollInCourses(EnrollStudentCoursesRequest $request)
@@ -3902,6 +4191,37 @@ class RejectCaseRequest extends FormRequest
 
 
 =================================================
+File: app\Http\Requests\RequestDelegationRequest.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Requests;
+
+use Illuminate\Foundation\Http\FormRequest;
+
+class RequestDelegationRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function rules(): array
+    {
+        return [
+            'department_id' => ['required', 'integer', 'exists:departments,id'],
+        ];
+    }
+}
+
+
+=================================================
 File: app\Http\Requests\ReviewTreatmentRequest.php
 =================================================
 
@@ -4563,7 +4883,7 @@ class StorePatientRequest extends FormRequest
 
             'is_pregnant' => 'nullable|boolean|prohibited_if:gender,male',
 
-            'id_card' => ['required', 'image', 'mimes:jpeg,png,jpg', 'max:5120'],
+            'id_card' => ['sometimes', 'image', 'mimes:jpeg,png,jpg', 'max:5120'],
 
             'clinical_images' => 'required|array',
             'clinical_images.*' => 'nullable',
@@ -5744,6 +6064,53 @@ class OrderResource extends JsonResource
 
 
 =================================================
+File: app\Http\Resources\StudentCourseStatusResource.php
+=================================================
+
+<?php
+
+namespace App\Http\Resources;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+class StudentCourseStatusResource extends JsonResource
+{
+    /**
+     * Transform the resource into an array.
+     *
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+            'name' => $this->name,
+            'year' => $this->year,
+            'semester' => $this->semester,
+            'department' => [
+                'id' => $this->department->id,
+                'name' => $this->department->name,
+            ],
+
+            'required_cases' => $this->caseTypes->map(function ($type) {
+                return [
+                    'id' => $type->id,
+                    'name' => $type->name,
+                    'required_count' => $type->required_count,
+                ];
+            }),
+
+            'is_enrolled' => $this->is_enrolled,
+            'can_enroll' => $this->can_enroll,
+            'can_drop' => $this->can_drop,
+            'lock_reason' => $this->lock_reason,
+        ];
+    }
+}
+
+
+=================================================
 File: app\Http\Resources\StudentPatientDiagnosisResource.php
 =================================================
 
@@ -5871,6 +6238,39 @@ class TreatmentResource extends JsonResource
                 'first_name' => $this->instructor->first_name,
                 'last_name' => $this->instructor->last_name,
             ] : null,
+        ];
+    }
+}
+
+
+=================================================
+File: app\Http\Resources\UserNotificationResource.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Http\Resources;
+
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\JsonResource;
+
+class UserNotificationResource extends JsonResource
+{
+    /**
+     * @return array<string, mixed>
+     */
+    public function toArray(Request $request): array
+    {
+        return [
+            'id' => $this->id,
+            'title' => $this->title,
+            'body' => $this->body,
+            'type' => $this->type,
+            'data' => $this->data,
+            'is_read' => $this->read_at !== null,
+            'created_at' => $this->created_at->format('Y-m-d H:i'),
         ];
     }
 }
@@ -6210,10 +6610,8 @@ namespace App\Listeners;
 
 use App\Events\InstructorDelegatedEvent;
 use App\Services\FirebaseNotificationService;
-use Illuminate\Contracts\Queue\ShouldQueue;
 
-// يعمل ضمن قائمة انتظار (Queue) حتى لا يؤخر إرسال الإشعار استجابة الـ API الرئيسية
-class SendDelegationNotificationListener implements ShouldQueue
+class SendDelegationNotificationListener
 {
     public function __construct(protected FirebaseNotificationService $notificationService) {}
 
@@ -6224,7 +6622,8 @@ class SendDelegationNotificationListener implements ShouldQueue
             $event->instructor->id,
             'صلاحيات إدارية جديدة 🔑',
             'لقد قام رئيس القسم بتفويضك بصلاحية مراجعة الحالات السريرية لطلاب القسم.',
-            ['type' => 'instructor_delegated']
+            ['type' => 'instructor_delegated'],
+            'instructor_delegated'
         );
     }
 }
@@ -6242,10 +6641,8 @@ namespace App\Listeners;
 
 use App\Events\TreatmentCompletedByStudentEvent;
 use App\Services\FirebaseNotificationService;
-use Illuminate\Contracts\Queue\ShouldQueue;
 
-// يعمل ضمن قائمة انتظار (Queue) حتى لا يؤخر إرسال الإشعار استجابة الـ API الرئيسية
-class SendInstructorNotificationListener implements ShouldQueue
+class SendInstructorNotificationListener
 {
     public function __construct(protected FirebaseNotificationService $notificationService) {}
 
@@ -6265,7 +6662,8 @@ class SendInstructorNotificationListener implements ShouldQueue
             $instructorId,
             'حالة جديدة بانتظار المراجعة',
             'قام أحد الطلاب بإنهاء تنفيذ العلاج، والحالة الآن بانتظار مراجعتك.',
-            ['type' => 'treatment_completed_by_student', 'treatment_id' => (string) $treatment->id]
+            ['type' => 'treatment_completed_by_student', 'treatment_id' => (string) $treatment->id],
+            'treatment_completed_by_student'
         );
     }
 }
@@ -6285,11 +6683,9 @@ use App\Enums\EnrollmentStatus;
 use App\Events\NewDiagnosesAvailableEvent;
 use App\Models\CaseType;
 use App\Services\FirebaseNotificationService;
-use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Support\Facades\DB;
 
-// يعمل ضمن قائمة انتظار (Queue) حتى لا يؤخر إرسال الإشعارات استجابة الـ API الرئيسية
-class SendNewCaseNotificationListener implements ShouldQueue
+class SendNewCaseNotificationListener
 {
     public function __construct(protected FirebaseNotificationService $notificationService) {}
 
@@ -6330,7 +6726,8 @@ class SendNewCaseNotificationListener implements ShouldQueue
                 (int) $studentUserId,
                 'حالات مرضية جديدة متاحة 🚨',
                 'تم إضافة حالات سريرية جديدة تناسب متطلبات مقرراتك الفعالة. سارع بحجزها!',
-                ['type' => 'new_cases_available']
+                ['type' => 'new_cases_available'],
+                'new_cases_available'
             );
         }
     }
@@ -6349,10 +6746,8 @@ namespace App\Listeners;
 
 use App\Events\NewStoreOrderPlacedEvent;
 use App\Services\FirebaseNotificationService;
-use Illuminate\Contracts\Queue\ShouldQueue;
 
-// يعمل ضمن قائمة انتظار (Queue) حتى لا يؤخر إرسال الإشعار استجابة الـ API الرئيسية
-class SendStoreOwnerNotificationListener implements ShouldQueue
+class SendStoreOwnerNotificationListener
 {
     public function __construct(protected FirebaseNotificationService $notificationService) {}
 
@@ -6365,7 +6760,8 @@ class SendStoreOwnerNotificationListener implements ShouldQueue
             $order->store_id,
             'طلب جديد',
             'لديك طلب شراء جديد رقم ' . $order->id . ' بقيمة ' . $order->total_amount . '.',
-            ['type' => 'new_store_order', 'order_id' => (string) $order->id]
+            ['type' => 'new_store_order', 'order_id' => (string) $order->id],
+            'new_store_order'
         );
     }
 }
@@ -6388,11 +6784,9 @@ use App\Events\DiagnosisReviewedEvent;
 use App\Events\OrderStatusUpdatedEvent;
 use App\Events\TreatmentReviewedEvent;
 use App\Services\FirebaseNotificationService;
-use Illuminate\Contracts\Queue\ShouldQueue;
 
 // مستمع واحد يعالج جميع الإشعارات الموجهة للطالب لتفادي تكرار منطق الإرسال
-// يعمل ضمن قائمة انتظار (Queue) حتى لا يؤخر إرسال الإشعار استجابة الـ API الرئيسية
-class SendStudentNotificationListener implements ShouldQueue
+class SendStudentNotificationListener
 {
     public function __construct(protected FirebaseNotificationService $notificationService) {}
 
@@ -6414,7 +6808,8 @@ class SendStudentNotificationListener implements ShouldQueue
             $isApproved
                 ? 'تمت الموافقة على التشخيص الذي اقترحته، يمكنك الآن متابعة الحالة.'
                 : 'تم رفض التشخيص الذي اقترحته، يرجى مراجعة سبب الرفض.',
-            ['type' => 'diagnosis_reviewed', 'diagnosis_id' => (string) $diagnosis->id]
+            ['type' => 'diagnosis_reviewed', 'diagnosis_id' => (string) $diagnosis->id],
+            'diagnosis_reviewed'
         );
     }
 
@@ -6438,7 +6833,8 @@ class SendStudentNotificationListener implements ShouldQueue
             $isApproved
                 ? 'تمت الموافقة على حالتك العلاجية بنجاح.'
                 : 'تم رفض حالتك العلاجية، يرجى مراجعة ملاحظات المدرّس.',
-            ['type' => 'treatment_reviewed', 'treatment_id' => (string) $treatment->id]
+            ['type' => 'treatment_reviewed', 'treatment_id' => (string) $treatment->id],
+            'treatment_reviewed'
         );
     }
 
@@ -6451,7 +6847,8 @@ class SendStudentNotificationListener implements ShouldQueue
             $order->student_id,
             'تحديث حالة الطلب',
             'تم تحديث حالة طلبك رقم ' . $order->id . ' إلى: ' . $this->orderStatusLabel($order->status),
-            ['type' => 'order_status_updated', 'order_id' => (string) $order->id]
+            ['type' => 'order_status_updated', 'order_id' => (string) $order->id],
+            'order_status_updated'
         );
     }
 
@@ -6853,6 +7250,8 @@ class InstructorProfile extends Model
         'phone',
         'specialty',
         'specialty_year',
+        'department_id',
+        'requested_department_id',
     ];
 
     public function user()
@@ -6863,6 +7262,16 @@ class InstructorProfile extends Model
     public function groups()
     {
         return $this->belongsToMany(Group::class, 'group_instructor', 'instructor_profile_id', 'group_id');
+    }
+
+    public function department()
+    {
+        return $this->belongsTo(Department::class);
+    }
+
+    public function requestedDepartment()
+    {
+        return $this->belongsTo(Department::class, 'requested_department_id');
     }
 }
 
@@ -7662,6 +8071,48 @@ class UserDeviceToken extends Model
 
 
 =================================================
+File: app\Models\UserNotification.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+
+class UserNotification extends Model
+{
+    use HasFactory;
+
+    protected $fillable = [
+        'user_id',
+        'title',
+        'body',
+        'type',
+        'data',
+        'read_at',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'data' => 'array',
+            'read_at' => 'datetime',
+        ];
+    }
+
+    public function user(): BelongsTo
+    {
+        return $this->belongsTo(User::class);
+    }
+}
+
+
+=================================================
 File: app\Notifications\SendOtpNotification.php
 =================================================
 
@@ -8085,6 +8536,11 @@ class RepositoryServiceProvider extends ServiceProvider
         $this->app->bind(
             \App\Repositories\Contracts\FcmTokenRepositoryInterface::class,
             \App\Repositories\FcmTokenRepository::class
+        );
+
+        $this->app->bind(
+            \App\Repositories\Contracts\NotificationRepositoryInterface::class,
+            \App\Repositories\NotificationRepository::class
         );
     }
 
@@ -8641,6 +9097,13 @@ interface FcmTokenRepositoryInterface
     public function getTokensForUser(int $userId): Collection;
 
     public function deleteToken(string $fcmToken): bool;
+
+    /**
+     * حذف توكن مملوك لهذا المستخدم تحديداً فقط — يُستخدم عند تسجيل الخروج، على
+     * عكس deleteToken() غير المقيَّد بمالك والمخصّص لتنظيف توكنات أثبتت
+     * Firebase عدم صلاحيتها (لا علاقة له بمدخلات المستخدم مباشرة).
+     */
+    public function deleteTokenForUser(int $userId, string $fcmToken): bool;
 }
 
 
@@ -8661,6 +9124,52 @@ interface InstructorRepositoryInterface
     public function getAllInstructors(): Collection;
 
     public function findInstructorById(int $instructorId): ?User;
+
+    /**
+     * معيدون لديهم طلب تفويض معلَّق موجَّه تحديداً إلى هذا القسم.
+     */
+    public function getPendingDelegationRequests(int $departmentId): Collection;
+}
+
+
+=================================================
+File: app\Repositories\Contracts\NotificationRepositoryInterface.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Repositories\Contracts;
+
+use App\Models\UserNotification;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+
+interface NotificationRepositoryInterface
+{
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public function create(int $userId, string $title, string $body, string $type, array $data = []): UserNotification;
+
+    public function paginateForUser(int $userId, bool $unreadOnly, int $perPage): LengthAwarePaginator;
+
+    public function unreadCountForUser(int $userId): int;
+
+    /**
+     * @return bool  false إذا لم يوجد الإشعار أو لم يعد للمستخدم المطالِب
+     */
+    public function markAsReadForUser(int $userId, int $notificationId): bool;
+
+    /**
+     * @return int  عدد الإشعارات التي تحوّلت إلى مقروءة
+     */
+    public function markAllAsReadForUser(int $userId): int;
+
+    /**
+     * @return bool  false إذا لم يوجد الإشعار أو لم يعد للمستخدم المطالِب
+     */
+    public function deleteForUser(int $userId, int $notificationId): bool;
 }
 
 
@@ -8762,6 +9271,9 @@ interface PromotionRepositoryInterface
     public function getStorePromotions(int $storeId, int $perPage = 15): LengthAwarePaginator;
 
 
+    public function getActivePromotions(int $perPage = 15): LengthAwarePaginator;
+
+
     public function findStorePromotion(int $storeId, int $promotionId): ?Promotion;
 
 
@@ -8817,6 +9329,30 @@ interface TreatmentRepositoryInterface
     public function getOptimizedCompletedTreatments(int $departmentId, int $perPage = 15): Paginator;
     public function getDepartmentTreatmentStatistics(int $departmentId, ?int $courseId = null): array;
     public function findDetailedForDepartment(int $treatmentId): ?Treatment;
+}
+
+
+=================================================
+File: app\Repositories\DepartmentRepository.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Repositories;
+
+use App\Models\Department;
+use Illuminate\Support\Facades\Cache;
+
+class DepartmentRepository
+{
+    public function getAllCached()
+    {
+        return Cache::remember('all_departments', 86400, function () {
+            return Department::select('id', 'name')->orderBy('name')->get();
+        });
+    }
 }
 
 
@@ -8899,6 +9435,11 @@ class FcmTokenRepository implements FcmTokenRepositoryInterface
     public function deleteToken(string $fcmToken): bool
     {
         return $this->model->where('fcm_token', $fcmToken)->delete() > 0;
+    }
+
+    public function deleteTokenForUser(int $userId, string $fcmToken): bool
+    {
+        return $this->model->where('user_id', $userId)->where('fcm_token', $fcmToken)->delete() > 0;
     }
 }
 
@@ -9133,6 +9674,18 @@ class InstructorRepository implements InstructorRepositoryInterface
             ->role('instructor')
             ->find($instructorId);
     }
+
+    public function getPendingDelegationRequests(int $departmentId): Collection
+    {
+        return $this->model->newQuery()
+            ->role('instructor')
+            ->whereHas('instructorProfile', function ($query) use ($departmentId) {
+                $query->where('requested_department_id', $departmentId);
+            })
+            ->with('instructorProfile')
+            ->select(['id', 'first_name', 'last_name', 'email'])
+            ->get();
+    }
 }
 
 
@@ -9218,6 +9771,83 @@ class TreatmentRepository implements TreatmentRepositoryInterface
 
             ->pluck('total_count', 'status')
             ->toArray();
+    }
+}
+
+
+=================================================
+File: app\Repositories\NotificationRepository.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Repositories;
+
+use App\Models\UserNotification;
+use App\Repositories\Contracts\NotificationRepositoryInterface;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+
+class NotificationRepository implements NotificationRepositoryInterface
+{
+    public function __construct(protected UserNotification $model) {}
+
+    public function create(int $userId, string $title, string $body, string $type, array $data = []): UserNotification
+    {
+        return $this->model->create([
+            'user_id' => $userId,
+            'title' => $title,
+            'body' => $body,
+            'type' => $type,
+            'data' => $data,
+        ]);
+    }
+
+    public function paginateForUser(int $userId, bool $unreadOnly, int $perPage): LengthAwarePaginator
+    {
+        return $this->model
+            ->where('user_id', $userId)
+            ->when($unreadOnly, fn ($query) => $query->whereNull('read_at'))
+            ->latest('id')
+            ->paginate($perPage);
+    }
+
+    public function unreadCountForUser(int $userId): int
+    {
+        return $this->model
+            ->where('user_id', $userId)
+            ->whereNull('read_at')
+            ->count();
+    }
+
+    public function markAsReadForUser(int $userId, int $notificationId): bool
+    {
+        return $this->model
+            ->where('id', $notificationId)
+            ->where('user_id', $userId)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]) > 0
+            // إن كان الإشعار مقروءاً مسبقاً فلا صف يتحدّث (0)، لكن هذا ليس
+            // خطأ 404: تحقّق ثانٍ من الملكية وحدها يفرّق بين "غير موجود" و
+            // "مقروء أصلاً" دون تنفيذ تحديث إضافي بلا داعٍ.
+            || $this->model->where('id', $notificationId)->where('user_id', $userId)->exists();
+    }
+
+    public function markAllAsReadForUser(int $userId): int
+    {
+        return $this->model
+            ->where('user_id', $userId)
+            ->whereNull('read_at')
+            ->update(['read_at' => now()]);
+    }
+
+    public function deleteForUser(int $userId, int $notificationId): bool
+    {
+        return $this->model
+            ->where('id', $notificationId)
+            ->where('user_id', $userId)
+            ->delete() > 0;
     }
 }
 
@@ -9389,7 +10019,7 @@ class PatientRepository
 
     public function findWithMedia(int $id): Patient
     {
-        return Patient::with('media')->findOrFail($id);
+        return Patient::with(['media', 'medicalHistory'])->findOrFail($id);
     }
 
     public function getReceptionistWaitingList(): LengthAwarePaginator
@@ -9797,6 +10427,26 @@ class PromotionRepository implements PromotionRepositoryInterface
     }
 
 
+    /**
+     * العروض السارية حالياً من كل المتاجر (لتصفّح الطالب) — مفعّلة يدوياً
+     * وضمن تاريخها الفعلي، بعكس getStorePromotions التي تعرض للمتجر كل
+     * عروضه (منتهية أو مستقبلية أو معطّلة) لأنه هو من يديرها.
+     */
+    public function getActivePromotions(int $perPage = 15): LengthAwarePaginator
+    {
+        return $this->model->newQuery()
+            ->where('is_active', true)
+            ->where('start_date', '<=', now())
+            ->where('end_date', '>=', now())
+            ->withCount('products')
+            ->with(['products' => function ($query) {
+                $query->with(['seller:id,first_name,last_name', 'media']);
+            }])
+            ->latest()
+            ->paginate($perPage);
+    }
+
+
     public function findStorePromotion(int $storeId, int $promotionId): ?Promotion
     {
         return $this->model->newQuery()
@@ -9928,14 +10578,30 @@ class StudentRepository
 
     public function getAvailableCoursesByLevel(int $year, int $semester)
     {
-        return Course::with('department')
+        return Course::with(['department', 'caseTypes'])
             ->where(function ($query) use ($year, $semester) {
                 $query->where('year', '<', $year)
                     ->orWhere(function ($q) use ($year, $semester) {
                         $q->where('year', $year)
                             ->where('semester', '<=', $semester);
                     });
-            })->get();
+            })
+            ->orderBy('year')
+            ->orderBy('semester')
+            ->get();
+    }
+
+    /**
+     * سجلات تسجيل الطالب في كل المقررات (بكل الحالات)، مفهرسة بمعرّف المقرر.
+     *
+     * استعلام واحد يغطي كل المقررات دفعة واحدة بدل استعلام منفصل لكل مقرر
+     * (N+1) عند بناء قائمة is_enrolled/can_enroll لشاشة إعداد المقررات.
+     */
+    public function getEnrollmentsKeyedByCourse(int $studentId): \Illuminate\Support\Collection
+    {
+        return StudentCourseEnrollment::where('student_id', $studentId)
+            ->get()
+            ->keyBy('course_id');
     }
 
     public function findExistingEnrollment(int $studentId, int $courseId)
@@ -10228,7 +10894,16 @@ class TreatmentRepository
 
         $profileId = $studentProfile->id;
 
+        // ملكية العلاج تُحدَّد حصراً عبر appointments.treatment_id + student_id،
+        // نفس المعيار المعتمد في TreatmentService::completeTreatmentFromStudent
+        // و TreatmentRepository::getOwningStudentId. الربط السابق كان يصل إلى
+        // treatments عبر diagnosis_id فقط دون قيد الطالب، فكان يحتسب علاجات
+        // طلاب آخرين أنجزوا حالات من نفس نوع الحالة (تسرّب بيانات بين الطلاب).
         $treatmentsCount = DB::table('treatments')
+            ->join('appointments', function ($join) use ($userId): void {
+                $join->on('appointments.treatment_id', '=', 'treatments.id')
+                    ->where('appointments.student_id', $userId);
+            })
             ->join('patient_diagnoses', 'treatments.diagnosis_id', '=', 'patient_diagnoses.id')
             ->join('case_types', 'patient_diagnoses.case_type_id', '=', 'case_types.id')
             ->join('student_course_enrollments', function ($join) use ($profileId): void {
@@ -10236,8 +10911,6 @@ class TreatmentRepository
                     ->where('student_course_enrollments.student_id', $profileId)
                     ->where('student_course_enrollments.status', 'active');
             })
-            ->join('appointments', 'patient_diagnoses.id', '=', 'appointments.diagnosis_id')
-            ->where('appointments.student_id', $userId)
             ->selectRaw("
             COUNT(DISTINCT treatments.id) as total,
             COUNT(DISTINCT CASE WHEN treatments.status = 'completed' THEN treatments.id END) as completed,
@@ -10246,26 +10919,43 @@ class TreatmentRepository
         ")
             ->first();
 
+        // مقيّد بالكامل عبر استعلامات فرعية مترابطة (Correlated Subqueries)
+        // بدل الوصلات (LEFT JOIN) نحو patient_diagnoses/appointments/treatments:
+        // كل استعلام فرعي مستقل بذاته ومقيّد بـ a.student_id مباشرة، فلا وجود
+        // لأي تمدّد صفوف (Row Fan-out) يمكن أن يسرّب بيانات طالب آخر ضمن
+        // التجميع الخارجي. القاعدة الخارجية (enrollments ⋈ case_types ⋈
+        // courses) نظيفة أصلاً: صف واحد لكل (طالب، نوع حالة) بلا أي تكرار،
+        // فلا حاجة لـ GROUP BY بعد الآن.
         $casesByType = DB::table('student_course_enrollments')
             ->join('case_types', 'student_course_enrollments.course_id', '=', 'case_types.course_id')
             ->join('courses', 'case_types.course_id', '=', 'courses.id')
-            ->leftJoin('patient_diagnoses', 'case_types.id', '=', 'patient_diagnoses.case_type_id')
-            ->leftJoin('treatments', 'patient_diagnoses.id', '=', 'treatments.diagnosis_id')
-            ->leftJoin('appointments', function ($join) use ($userId): void {
-                $join->on('patient_diagnoses.id', '=', 'appointments.diagnosis_id')
-                    ->where('appointments.student_id', $userId);
-            })
             ->where('student_course_enrollments.student_id', $profileId)
             ->where('student_course_enrollments.status', 'active')
-            ->groupBy('case_types.id', 'case_types.name', 'case_types.required_count', 'courses.name')
+            ->orderBy('case_types.id')
             ->selectRaw("
             case_types.id as type_id,
             case_types.name as case_type_name,
             courses.name as course_name,
             case_types.required_count as required_to_pass,
-            COUNT(DISTINCT CASE WHEN treatments.status = 'completed' THEN treatments.id END) as completed_count,
-            COUNT(DISTINCT CASE WHEN treatments.status IN ('in_progress','waiting_instructor_approval') THEN treatments.id END) as in_progress_count
-        ")
+            (
+                SELECT COUNT(DISTINCT t.id)
+                FROM treatments t
+                JOIN appointments a ON a.treatment_id = t.id
+                JOIN patient_diagnoses pd ON pd.id = t.diagnosis_id
+                WHERE a.student_id = ?
+                  AND pd.case_type_id = case_types.id
+                  AND t.status = 'completed'
+            ) as completed_count,
+            (
+                SELECT COUNT(DISTINCT t.id)
+                FROM treatments t
+                JOIN appointments a ON a.treatment_id = t.id
+                JOIN patient_diagnoses pd ON pd.id = t.diagnosis_id
+                WHERE a.student_id = ?
+                  AND pd.case_type_id = case_types.id
+                  AND t.status IN ('in_progress', 'waiting_instructor_approval')
+            ) as in_progress_count
+        ", [$userId, $userId])
             ->get();
 
         $appointmentsCount = DB::table('appointments')
@@ -10998,6 +11688,7 @@ declare(strict_types=1);
 namespace App\Services;
 
 use App\Repositories\Contracts\FcmTokenRepositoryInterface;
+use App\Repositories\Contracts\NotificationRepositoryInterface;
 use Kreait\Firebase\Contract\Messaging;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\MulticastSendReport;
@@ -11009,12 +11700,29 @@ class FirebaseNotificationService
 {
     public function __construct(
         protected Messaging $messaging,
-        protected FcmTokenRepositoryInterface $fcmTokenRepo
+        protected FcmTokenRepositoryInterface $fcmTokenRepo,
+        protected NotificationRepositoryInterface $notificationRepo
     ) {}
 
-    // إرسال إشعار فوري لجميع أجهزة المستخدم المسجّلة (متعددة الأجهزة) عبر Firebase Cloud Messaging
-    public function sendNotificationToUser(int $userId, string $title, string $body, array $data = []): void
-    {
+    /**
+     * إرسال إشعار فوري لجميع أجهزة المستخدم المسجّلة (متعددة الأجهزة) عبر Firebase Cloud Messaging.
+     *
+     * الترتيب مقصود: يُكتب سجل الإشعار في قاعدة البيانات أولاً دائماً، قبل أي
+     * محاولة دفع عبر Firebase. الدفع قد يفشل (لا توكن مسجَّل، توكن غير صالح،
+     * Firebase متعطّل) والمستخدم يجب أن يرى الإشعار من شاشة "الإشعارات" بغضّ
+     * النظر عن نتيجة الدفع.
+     *
+     * @param  array<string, mixed>  $data
+     */
+    public function sendNotificationToUser(
+        int $userId,
+        string $title,
+        string $body,
+        array $data = [],
+        string $type = 'general'
+    ): void {
+        $this->notificationRepo->create($userId, $title, $body, $type, $data);
+
         $tokens = $this->fcmTokenRepo->getTokensForUser($userId);
 
         if ($tokens->isEmpty()) {
@@ -11252,12 +11960,36 @@ class DepartmentHeadService
         return $this->instructorRepo->getAllInstructors();
     }
 
-    public function delegateViewTreatmentsToInstructor(int $instructorId): bool
+    /**
+     * معيدون لديهم طلب تفويض معلَّق موجَّه تحديداً لقسم رئيس القسم الحالي.
+     */
+    public function getDelegationRequests(int $hodDepartmentId): Collection
+    {
+        return $this->instructorRepo->getPendingDelegationRequests($hodDepartmentId);
+    }
+
+    /**
+     * منح صلاحية عرض معالجات القسم لمعيد.
+     *
+     * مسارَان يبقيان معاً صالحَين:
+     * - المعيد طلب الانضمام (requested_department_id مضبوط): لا يجوز قبول
+     *   الطلب إلا من رئيس القسم المطلوب تحديداً؛ عزل بيانات صارم.
+     * - منح مباشر من رئيس القسم بلا طلب سابق (السلوك الأصلي قبل هذه الميزة):
+     *   يبقى يعمل كما كان، ويُسجَّل المعيد ضمن قسم رئيس القسم المانِح.
+     */
+    public function delegateViewTreatmentsToInstructor(int $instructorId, int $hodDepartmentId): bool
     {
         $instructor = $this->instructorRepo->findInstructorById($instructorId);
 
         if (! $instructor) {
             throw new Exception('المعيد المطلوب غير موجود في النظام.', 404);
+        }
+
+        $profile = $instructor->instructorProfile;
+        $requestedDepartmentId = $profile?->requested_department_id;
+
+        if ($requestedDepartmentId !== null && (int) $requestedDepartmentId !== $hodDepartmentId) {
+            throw new Exception('غير مصرح لك: هذا الطلب موجَّه إلى قسم آخر.', 403);
         }
 
         $permission = Permission::firstOrCreate([
@@ -11269,8 +12001,38 @@ class DepartmentHeadService
             $instructor->givePermissionTo($permission);
         }
 
+        if ($profile) {
+            $profile->update([
+                'department_id' => $requestedDepartmentId ?? $hodDepartmentId,
+                'requested_department_id' => null,
+            ]);
+        }
+
         // إطلاق الحدث لإشعار المعيد بحصوله على صلاحية جديدة دون تأخير استجابة الـ API الرئيسية
        // InstructorDelegatedEvent::dispatch($instructor);
+
+        return true;
+    }
+
+    /**
+     * رفض طلب تفويض معلَّق. لا يجوز إلا لرئيس القسم الذي وُجِّه إليه الطلب،
+     * ولا معنى للرفض أصلاً إن لم يوجد طلب معلَّق فعلي (عزل بيانات + تحقّق حالة).
+     */
+    public function rejectDelegationRequest(int $instructorId, int $hodDepartmentId): bool
+    {
+        $instructor = $this->instructorRepo->findInstructorById($instructorId);
+
+        if (! $instructor || ! $instructor->instructorProfile) {
+            throw new Exception('المعيد المطلوب غير موجود في النظام.', 404);
+        }
+
+        $profile = $instructor->instructorProfile;
+
+        if ($profile->requested_department_id === null || (int) $profile->requested_department_id !== $hodDepartmentId) {
+            throw new Exception('لا يوجد طلب تفويض معلَّق من هذا المعيد لقسمك.', 404);
+        }
+
+        $profile->update(['requested_department_id' => null]);
 
         return true;
     }
@@ -11288,6 +12050,38 @@ class DepartmentHeadService
         }
 
         return true;
+    }
+}
+
+
+=================================================
+File: app\Services\InstructorDelegationService.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services;
+
+use App\Models\User;
+use Exception;
+
+class InstructorDelegationService
+{
+    public function requestDelegation(User $user, int $departmentId): void
+    {
+        $instructor = $user->instructorProfile;
+
+        if (! $instructor) {
+            throw new Exception('لم يتم العثور على ملفك الأكاديمي كمعيد.', 404);
+        }
+
+        if ((int) $instructor->department_id === $departmentId) {
+            throw new Exception('أنت بالفعل ضمن هذا القسم.', 422);
+        }
+
+        $instructor->update(['requested_department_id' => $departmentId]);
     }
 }
 
@@ -11315,6 +12109,55 @@ class MediaService
         foreach ($files as $file) {
             $model->addMedia($file)
                 ->toMediaCollection($collection);
+        }
+    }
+}
+
+
+=================================================
+File: app\Services\NotificationService.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services;
+
+use App\Repositories\Contracts\NotificationRepositoryInterface;
+use Exception;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+
+class NotificationService
+{
+    public function __construct(protected NotificationRepositoryInterface $repo) {}
+
+    public function getForUser(int $userId, bool $unreadOnly, int $perPage): LengthAwarePaginator
+    {
+        return $this->repo->paginateForUser($userId, $unreadOnly, $perPage);
+    }
+
+    public function unreadCount(int $userId): int
+    {
+        return $this->repo->unreadCountForUser($userId);
+    }
+
+    public function markAsRead(int $userId, int $notificationId): void
+    {
+        if (! $this->repo->markAsReadForUser($userId, $notificationId)) {
+            throw new Exception('Notification not found.', 404);
+        }
+    }
+
+    public function markAllAsRead(int $userId): int
+    {
+        return $this->repo->markAllAsReadForUser($userId);
+    }
+
+    public function delete(int $userId, int $notificationId): void
+    {
+        if (! $this->repo->deleteForUser($userId, $notificationId)) {
+            throw new Exception('Notification not found.', 404);
         }
     }
 }
@@ -12230,6 +13073,32 @@ class BrowseStoreService
 
 
 =================================================
+File: app\Services\Student\PromotionBrowseService.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+namespace App\Services\Student;
+
+use App\Repositories\Contracts\PromotionRepositoryInterface;
+use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+
+class PromotionBrowseService
+{
+    public function __construct(
+        protected PromotionRepositoryInterface $promotionRepo
+    ) {}
+
+    public function getActivePromotions(int $perPage = 15): LengthAwarePaginator
+    {
+        return $this->promotionRepo->getActivePromotions($perPage);
+    }
+}
+
+
+=================================================
 File: app\Services\Student\StudentCartService.php
 =================================================
 
@@ -12534,6 +13403,58 @@ class StudentCourseService
         });
     }
 
+    /**
+     * قائمة إعداد المقررات: كل المقررات المؤهَّلة أكاديمياً للطالب (فصله
+     * الحالي + كل ما سبقه)، مقسّمة إلى فصل حالي/فصول سابقة، وكل مقرر معه
+     * أعلام حالة (is_enrolled/can_enroll/can_drop/lock_reason) جاهزة للعرض.
+     *
+     * @return array{current_semester_courses: \Illuminate\Support\Collection, previous_semesters_courses: \Illuminate\Support\Collection}
+     */
+    public function getCourseSetupList(StudentProfile $student): array
+    {
+        $year = $this->normalizeLevel($student->academic_year);
+        $semester = $this->normalizeLevel($student->semester);
+
+        $courses = $this->studentRepo->getAvailableCoursesByLevel($year, $semester);
+        $enrollmentsByCourseId = $this->studentRepo->getEnrollmentsKeyedByCourse($student->id);
+
+        $current = collect();
+        $previous = collect();
+
+        foreach ($courses as $course) {
+            $enrollment = $enrollmentsByCourseId->get($course->id);
+            $status = $enrollment?->status;
+
+            $isEnrolled = $status === EnrollmentStatus::ACTIVE;
+            $hasPassedBefore = $status === EnrollmentStatus::COMPLETED;
+
+            // لا داعي لاستعلام النشاط السريري إلا للمقررات المسجَّلة فعلياً،
+            // فيبقى عدد الاستعلامات محصوراً بعدد مقررات الطالب النشطة فقط.
+            $hasClinicalActivity = $isEnrolled
+                && $this->studentRepo->hasClinicalActivityInCourse((int) $student->user_id, $course->id);
+
+            $course->is_enrolled = $isEnrolled;
+            $course->can_enroll = ! $isEnrolled && ! $hasPassedBefore;
+            $course->can_drop = $isEnrolled && ! $hasClinicalActivity;
+            $course->lock_reason = match (true) {
+                $hasPassedBefore => 'لقد اجتزت هذا المقرر سابقاً.',
+                $hasClinicalActivity => 'لا يمكن سحب المقرر بعد بدء نشاط سريري فيه.',
+                default => null,
+            };
+
+            if ((int) $course->year === $year && (int) $course->semester === $semester) {
+                $current->push($course);
+            } else {
+                $previous->push($course);
+            }
+        }
+
+        return [
+            'current_semester_courses' => $current->values(),
+            'previous_semesters_courses' => $previous->values(),
+        ];
+    }
+
     public function getActiveCoursesForStudent(int $studentId): \Illuminate\Support\Collection
     {
         // جلب المقررات الفعالة للطالب
@@ -12594,9 +13515,9 @@ class StudentCourseService
     /**
      * إضافة مقررات يدوياً إلى تسجيل الطالب الحالي.
      *
-     * القيد رقم ١ (قواعد الفصل): لا يُسمح بإضافة إلا مقررات تعود لفصل الطالب
-     * الدراسي الحالي (نفس السنة ونفس الفصل)؛ إضافة مقرر من فصل آخر تكسر حساب
-     * المتطلبات السريرية وتفتح للطالب حالات خارج مستواه.
+     * القيد رقم ١ (قواعد الفصل): يُسمح بإضافة مقررات فصل الطالب الدراسي
+     * الحالي أو أي فصل سابق (مقررات محمولة/راسب فيها الطالب سابقاً)، ولا
+     * يُسمح بإضافة مقرر من فصل مستقبلي لم يصل إليه الطالب بعد.
      *
      * @param  array<int, int|string>  $courseIds
      * @return array{enrolled_course_ids: array<int, int>, skipped_course_ids: array<int, int>, enrolled_count: int}
@@ -12605,7 +13526,7 @@ class StudentCourseService
     {
         $courseIds = array_values(array_unique(array_map('intval', $courseIds)));
 
-        $this->assertCoursesBelongToCurrentSemester($student, $courseIds);
+        $this->assertCoursesAreNotInTheFuture($student, $courseIds);
 
         $result = DB::transaction(function () use ($student, $courseIds): array {
 
@@ -12699,7 +13620,7 @@ class StudentCourseService
                 $hasClinicalActivity = $this->studentRepo->hasClinicalActivityInCourse($student->user_id, $courseId);
 
                 if ($hasClinicalActivity) {
-                    $failedToDropIds[$courseId] = 'Cannot drop course. You have active patients or treatments linked to it.';
+                    $failedToDropIds[$courseId] = 'لا يمكن سحب المقرر بعد بدء نشاط سريري فيه.';
                     continue;
                 }
 
@@ -12735,11 +13656,12 @@ class StudentCourseService
     }
 
     /**
-     * التحقق من أن كل المقررات المطلوبة تعود لفصل الطالب الحالي.
+     * التحقق من أن كل المقررات المطلوبة تعود لفصل الطالب الحالي أو ما قبله؛
+     * يُرفض فقط أي مقرر يتبع فصلاً مستقبلياً لم يصل إليه الطالب بعد.
      *
      * @param  array<int, int>  $courseIds
      */
-    private function assertCoursesBelongToCurrentSemester(StudentProfile $student, array $courseIds): void
+    private function assertCoursesAreNotInTheFuture(StudentProfile $student, array $courseIds): void
     {
         if ($courseIds === []) {
             throw new Exception('No courses provided to enroll.', 422);
@@ -12754,17 +13676,20 @@ class StudentCourseService
             throw new Exception('One or more selected courses do not exist.', 404);
         }
 
-        $invalid = $courses->filter(
-            fn ($course): bool => (int) $course->year !== $year || (int) $course->semester !== $semester
-        );
+        $future = $courses->filter(function ($course) use ($year, $semester): bool {
+            $courseYear = (int) $course->year;
+            $courseSemester = (int) $course->semester;
 
-        if ($invalid->isNotEmpty()) {
+            return $courseYear > $year || ($courseYear === $year && $courseSemester > $semester);
+        });
+
+        if ($future->isNotEmpty()) {
             throw new Exception(
                 sprintf(
-                    'You can only enroll in courses of your current semester (year %d, semester %d). Rejected: %s.',
+                    'You can only enroll in courses from your current semester (year %d, semester %d) or earlier. Rejected: %s.',
                     $year,
                     $semester,
-                    $invalid->pluck('name')->implode(', ')
+                    $future->pluck('name')->implode(', ')
                 ),
                 422
             );
@@ -13337,9 +14262,11 @@ class TreatmentService
     private function formatCourseBreakdown(array $rawStats): \Illuminate\Support\Collection
     {
         return collect($rawStats['types_detail'])->map(function ($item) {
-            $required = $item->required_to_pass ?? 1;
-            $done = $item->completed_count ?? 0;
-            $pct = round($done / $required * 100);
+            $required = (int) ($item->required_to_pass ?? 0);
+            $done = (int) ($item->completed_count ?? 0);
+            // required_count قد يكون 0 فعلياً (لا مجرد null) إن ضبطه رئيس القسم
+            // كذلك؛ القسمة عليه مباشرة ترمي DivisionByZeroError في PHP 8.
+            $pct = $required > 0 ? round($done / $required * 100) : 0;
 
             return [
                 'case_type_id' => $item->type_id,
@@ -15174,6 +16101,108 @@ return new class extends Migration
 
 
 =================================================
+File: database/migrations\2026_08_17_164433_create_user_notifications_table.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * الاسم user_notifications عمداً وليس notifications: لارافيل يحجز اسم
+     * الجدول notifications لقناة database الخاصة بـ Notifiable (مفتاح UUID،
+     * أعمدة polymorphic اسمها notifiable_type/notifiable_id، وعمود type يخزّن
+     * اسم صف الإشعار الكامل). جدولنا هذا بمخطط مختلف تماماً (مفتاح تسلسلي،
+     * user_id مباشر، type نص قصير مخصّص)، فاستخدام نفس الاسم كان سيصطدم لاحقاً
+     * لو استُخدمت قناة database الافتراضية على User (التي تستخدم حالياً قناة
+     * mail فقط عبر SendOtpNotification).
+     */
+    public function up(): void
+    {
+        Schema::create('user_notifications', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+
+            $table->string('title');
+            $table->text('body');
+
+            // نفس قيمة data['type'] المُرسَلة أصلاً إلى Firebase في كل Listener
+            // (مثال: treatment_reviewed, new_cases_available)
+            $table->string('type')->index();
+
+            // نفس حمولة data المرسَلة إلى FCM، تُخزَّن أيضاً هنا حتى تستطيع
+            // الواجهة إعادة بناء نفس التنقّل العميق (Deep Link) من شاشة السجل.
+            $table->json('data')->nullable();
+
+            $table->timestamp('read_at')->nullable();
+            $table->timestamps();
+
+            // استعلام عدّاد غير المقروء يُنفَّذ عند كل فتح للتطبيق، فهرس مركّب
+            // مخصّص له بدل الاعتماد على فهرس user_id وحده.
+            $table->index(['user_id', 'read_at']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('user_notifications');
+    }
+};
+
+
+=================================================
+File: database/migrations\2026_08_17_174504_add_department_columns_to_instructor_profiles_table.php
+=================================================
+
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::table('instructor_profiles', function (Blueprint $table) {
+            // القسم الذي يتبع له المعيد فعلياً بعد اعتماد طلب التفويض. لم يكن
+            // موجوداً أصلاً رغم أن DepartmentTreatmentController@completedTreatments
+            // يعتمد عليه بالفعل عبر $user->instructorProfile?->department_id —
+            // أي أن نقطة "استعراض معالجات القسم" لأي معيد مفوَّض كانت معطوبة
+            // بصمت (403 دائماً) لغياب هذا العمود، بغضّ النظر عن منح الصلاحية.
+            $table->foreignId('department_id')->nullable()
+                ->after('specialty_year')
+                ->constrained('departments')
+                ->nullOnDelete();
+
+            // طلب تفويض معلَّق بانتظار موافقة رئيس القسم؛ يُصفَّر عند القبول
+            // (بعد نقل قيمته إلى department_id) أو عند الرفض.
+            $table->foreignId('requested_department_id')->nullable()
+                ->after('department_id')
+                ->constrained('departments')
+                ->nullOnDelete();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::table('instructor_profiles', function (Blueprint $table) {
+            $table->dropConstrainedForeignId('requested_department_id');
+            $table->dropConstrainedForeignId('department_id');
+        });
+    }
+};
+
+
+=================================================
 File: routes/api.php
 =================================================
 
@@ -15181,6 +16210,7 @@ File: routes/api.php
 
 use App\Http\Controllers\AppointmentController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\DepartmentController;
 use App\Http\Controllers\FcmTokenController;
 use App\Http\Controllers\GroupController;
 use App\Http\Controllers\Hod\DepartmentDelegationController;
@@ -15188,6 +16218,8 @@ use App\Http\Controllers\Hod\DepartmentRequirementController;
 use App\Http\Controllers\Hod\DepartmentStatisticController;
 use App\Http\Controllers\Hod\DepartmentTreatmentController;
 use App\Http\Controllers\InstructorController;
+use App\Http\Controllers\InstructorDelegationController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ReceptionistController;
 use App\Http\Controllers\Store\StoreOrderController;
 use App\Http\Controllers\Store\StoreProductController;
@@ -15195,6 +16227,7 @@ use App\Http\Controllers\Store\StorePromotionController;
 use App\Http\Controllers\Store\StoreStatisticController;
 use App\Http\Controllers\Student\BrowseStoreController;
 use App\Http\Controllers\Student\MarketplaceBrowseController;
+use App\Http\Controllers\Student\PromotionBrowseController;
 use App\Http\Controllers\Student\StudentCartController;
 use App\Http\Controllers\Student\StudentCheckoutController;
 use App\Http\Controllers\Student\StudentProductController;
@@ -15261,6 +16294,9 @@ Route::post('/register', [AuthController::class, 'register']);
 Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:strict_auth');
 
 Route::get('/instructor/groups', [GroupController::class, 'index']);
+// عام وبلا مصادقة عمداً: بيانات مرجعية غير حساسة، ومطلوبة قبل تسجيل الدخول
+// (مثلاً شاشة طلب تفويض المعيد لاختيار القسم)، بنفس نمط /instructor/groups.
+Route::get('/departments', [DepartmentController::class, 'index']);
 Route::get('/students/groups', [GroupController::class, 'getGroupsByYear']);
 
 Route::middleware('auth:sanctum')->group(function () {
@@ -15285,6 +16321,16 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::post('/verify-otp', [AuthController::class, 'verifyOtp'])->middleware('throttle:strict_auth');
     Route::post('/fcm-token', [FcmTokenController::class, 'store']);
+    // عند تسجيل الخروج: يزيل توكن هذا الجهاز فقط، وضمن نطاق المستخدم الحالي حصراً
+    Route::delete('/fcm-token', [FcmTokenController::class, 'destroy']);
+
+    Route::prefix('notifications')->group(function () {
+        Route::get('/', [NotificationController::class, 'index']);
+        Route::get('/unread-count', [NotificationController::class, 'unreadCount']);
+        Route::post('/read-all', [NotificationController::class, 'markAllAsRead']);
+        Route::post('/{id}/read', [NotificationController::class, 'markAsRead']);
+        Route::delete('/{id}', [NotificationController::class, 'destroy']);
+    });
 
     Route::middleware('role:receptionist|instructor')->group(function () {
         Route::get('/receptionistWaiting', [ReceptionistController::class, 'receptionistWaiting']);
@@ -15300,6 +16346,9 @@ Route::middleware('auth:sanctum')->group(function () {
 
     Route::middleware(['role:student'])->prefix('student')->group(function () {
         Route::post('/setup-courses', [StudentController::class, 'setupAcademicCourses']);
+        // شاشة إعداد المقررات: تُستخدم قبل أن يكون للطالب أي مقررات مفعّلة، لذا
+        // تبقى خارج مجموعة ensure.courses.setup كبقية مسارات إعداد المقررات.
+        Route::get('/courses/setup-list', [StudentController::class, 'getCourseSetupList']);
         Route::post('/courses/enroll', [StudentController::class, 'enrollInCourses']);
         // سحب مقرر: يعالج أيضاً حالة الطالب المعيد للسنة ومقرر سبق نجاحه فيه.
         Route::post('/courses/drop', [StudentController::class, 'dropCourses']);
@@ -15337,6 +16386,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
             Route::get('/student-products', [StudentSellerBrowseController::class, 'index']);
             Route::get('/student-products/{id}', [StudentSellerBrowseController::class, 'show']);
+
+            Route::get('/promotions', [PromotionBrowseController::class, 'index']);
         });
 
         Route::middleware(['ensure.courses.setup'])->group(function () {
@@ -15368,11 +16419,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/dashboard/stats', [InstructorController::class, 'getStats']);
         Route::get('/case-types', [InstructorController::class, 'getCaseTypesDropdown']);
 
-        /*
-         * فصل مهام المعيد المعلّقة إلى نقطتين مستقلتين:
-         * A) pending-diagnoses  → مرضى ينتظرون وضع خطة تشخيص (استقبال + اقتراح طلاب).
-         * B) treatments/pending → علاجات نُفِّذت وتنتظر التقييم النهائي فقط.
-         */
+        
         Route::get('/patients/pending-diagnoses', [InstructorController::class, 'pendingDiagnoses']);
 
         // نقطة قديمة (deprecated) تُبقي الإصدارات الحالية من التطبيق تعمل.
@@ -15384,6 +16431,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/treatments/pending', [InstructorController::class, 'getPendingTreatmentsList']);
         Route::get('/treatments/pending/{id}', [InstructorController::class, 'getTreatmentDetails']);
         Route::post('treatments/review', [InstructorController::class, 'reviewTreatment']);
+
+        Route::post('/delegation/request', [InstructorDelegationController::class, 'request']);
     });
 
     Route::prefix('hod')->middleware('role_or_permission:department_head|view-department-treatments')->group(function () {
@@ -15400,8 +16449,13 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/courses', [DepartmentRequirementController::class, 'indexCourses']);
 
         Route::get('/instructors', [DepartmentDelegationController::class, 'instructorsList']);
+        // المسار بلا تغيير عمداً (وليس /delegation/grant/{id}): لوحة الويب
+        // المنشورة فعلياً تنادي هذا المسار تحديداً؛ المنطق فقط هو ما تحدَّث.
         Route::post('/instructors/{id}/delegate', [DepartmentDelegationController::class, 'grantPermission']);
         Route::post('/instructors/{id}/revoke', [DepartmentDelegationController::class, 'revokePermission']);
+
+        Route::get('/delegation/requests', [DepartmentDelegationController::class, 'delegationRequests']);
+        Route::post('/delegation/reject/{id}', [DepartmentDelegationController::class, 'rejectRequest']);
 
         Route::get('/statistics', [DepartmentStatisticController::class, 'index']);
     });

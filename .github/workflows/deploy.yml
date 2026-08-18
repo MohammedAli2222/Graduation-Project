@@ -18,6 +18,10 @@ jobs:
         with:
           php-version: "8.3"
           extensions: mbstring, dom, fileinfo, mysql, pdo_mysql, bcmath
+          tools: composer:v2
+
+      - name: 📦 Install Composer dependencies
+        run: composer install --no-dev --prefer-dist --optimize-autoloader --no-interaction --no-scripts
 
       - name: 📂 Sync files via FTP
         uses: SamKirkland/FTP-Deploy-Action@v4.3.4
@@ -34,7 +38,6 @@ jobs:
             **/.git*
             **/.git*/**
             **/node_modules/**
-            /vendor/**
             /tests/**
             /.claude/**
             /.github/**
@@ -44,3 +47,7 @@ jobs:
             /phpunit.xml
             /.editorconfig
             /README.md
+
+      - name: 🔄 Run post-deploy tasks (migrate + cache clear)
+        run: |
+          curl -sf "https://dsd.haderin.sy/run-deployment?secret=${{ secrets.DEPLOYMENT_SECRET }}"
