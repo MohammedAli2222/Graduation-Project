@@ -217,7 +217,13 @@ class InstructorController extends Controller
     public function getPendingTreatmentsList(Request $request)
     {
         try {
-            $treatments = $this->treatmentService->getPendingTreatmentsListForInstructor($request->user());
+            $groupId = $request->query('group_id') ? (int) $request->query('group_id') : null;
+
+            $treatments = $this->treatmentService->getPendingTreatmentsListForInstructor(
+                $request->user(),
+                10,
+                $groupId
+            );
 
             return response_success([
                 'items' => TreatmentListResource::collection($treatments->items()),

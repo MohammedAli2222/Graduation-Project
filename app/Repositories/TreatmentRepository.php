@@ -98,17 +98,20 @@ class TreatmentRepository
      *   التي كانت تولّد استعلامات فرعية متشعّبة وبطيئة.
      * - تقييد المواعيد المحمَّلة بأعمدة محددة، فالمورد يحتاج أول موعد فقط.
      */
-    public function getPendingApprovalsListForInstructor(int $instructorProfileId, int $perPage = 10): LengthAwarePaginator
+    public function getPendingApprovalsListForInstructor(int $instructorProfileId, int $perPage = 10, ?int $groupId = null): LengthAwarePaginator
     {
         return Treatment::query()
             ->where('treatments.status', TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value)
-            ->whereExists(function ($query) use ($instructorProfileId): void {
+            ->whereExists(function ($query) use ($instructorProfileId, $groupId): void {
                 $query->select(DB::raw(1))
                     ->from('appointments')
                     ->join('student_profiles', 'student_profiles.user_id', '=', 'appointments.student_id')
                     ->join('group_instructor', 'group_instructor.group_id', '=', 'student_profiles.group_id')
                     ->whereColumn('appointments.diagnosis_id', 'treatments.diagnosis_id')
-                    ->where('group_instructor.instructor_profile_id', $instructorProfileId);
+                    ->where('group_instructor.instructor_profile_id', $instructorProfileId)
+                    // فلترة اختيارية بفئة (مجموعة) الطالب؛ ضمن نفس subquery الفحص الأصلي
+                    // أصلاً، فكل فئة ممكن تظهر هون هي أصلاً من فئات هذا المعيد المُشرف عليها
+                    ->when($groupId, fn ($q) => $q->where('student_profiles.group_id', $groupId));
             })
             ->with([
                 'diagnosis:id,patient_id,case_type_id',
@@ -118,6 +121,8 @@ class TreatmentRepository
                         ->orderBy('id');
                 },
                 'diagnosis.appointments.student:id,first_name,last_name',
+                'diagnosis.appointments.student.studentProfile:id,user_id,group_id',
+                'diagnosis.appointments.student.studentProfile.group:id,group_name',
                 'diagnosis.appointments.patient:id,full_name',
             ])
             ->latest('treatments.updated_at')

@@ -317,7 +317,7 @@ class TreatmentService
         });
     }
 
-    public function getPendingTreatmentsListForInstructor($user, int $perPage = 10)
+    public function getPendingTreatmentsListForInstructor($user, int $perPage = 10, ?int $groupId = null)
     {
         $instructorProfile = $user->instructorProfile;
 
@@ -327,7 +327,8 @@ class TreatmentService
 
         return $this->treatmentRepo->getPendingApprovalsListForInstructor(
             $instructorProfile->id,
-            $perPage
+            $perPage,
+            $groupId
         );
     }
 
