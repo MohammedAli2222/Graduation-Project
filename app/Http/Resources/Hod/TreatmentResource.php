@@ -37,6 +37,13 @@ class TreatmentResource extends JsonResource
             }),
 
             'diagnosis' => $this->whenLoaded('diagnosis', function () {
+                // الطالب المُنفِّذ الفعلي للعلاج يُستدل من الموعد المرتبط بالعلاج
+                // (appointments.student)، وليس من diagnosis.suggested_by_student_id:
+                // ذاك العمود يمثّل فقط من اقترح التشخيص أصلاً (غالباً null لأن أغلب
+                // التشخيصات يضعها المعيد مباشرة)، وحتى لو كان موجوداً فأي طالب مؤهَّل
+                // آخر قد يكون من حجز الموعد ونفّذ العلاج فعلياً.
+                $treatingStudent = $this->appointments->first()?->student;
+
                 return [
                     'id' => $this->diagnosis_id,
                     'case_type' => [
@@ -54,9 +61,13 @@ class TreatmentResource extends JsonResource
                         'phone'     => $this->diagnosis->patient?->phone,
                     ],
                     'student' => [
-                        'id'         => $this->diagnosis->student?->id,
-                        'first_name' => $this->diagnosis->student?->first_name,
-                        'last_name'  => $this->diagnosis->student?->last_name,
+                        'id'         => $treatingStudent?->id,
+                        'first_name' => $treatingStudent?->first_name,
+                        'last_name'  => $treatingStudent?->last_name,
+                        'group' => [
+                            'id'         => $treatingStudent?->studentProfile?->group?->id,
+                            'group_name' => $treatingStudent?->studentProfile?->group?->group_name,
+                        ],
                     ],
                 ];
             }),

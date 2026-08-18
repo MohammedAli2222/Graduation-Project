@@ -34,11 +34,13 @@ class DepartmentTreatmentController extends Controller
 
             $page = (int) $request->query('page', 1);
             $perPage = (int) $request->query('per_page', 15);
+            $groupId = $request->query('group_id') ? (int) $request->query('group_id') : null;
 
             $completedTreatments = $this->hodService->getCompletedTreatmentsForDepartment(
                 $departmentId,
                 $page,
-                $perPage
+                $perPage,
+                $groupId
             );
 
             $resourceData = TreatmentResource::collection($completedTreatments)->response()->getData(true);

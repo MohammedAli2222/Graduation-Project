@@ -26,14 +26,14 @@ class DepartmentHeadService
         protected InstructorRepositoryInterface $instructorRepo
     ) {}
 
-    public function getCompletedTreatmentsForDepartment(int $departmentId, int $page, int $perPage = 15): Paginator
+    public function getCompletedTreatmentsForDepartment(int $departmentId, int $page, int $perPage = 15, ?int $groupId = null): Paginator
     {
-        $cacheKey = "department_{$departmentId}_completed_treatments_page_{$page}_limit_{$perPage}";
+        $cacheKey = "department_{$departmentId}_completed_treatments_page_{$page}_limit_{$perPage}_group_" . ($groupId ?? 'all');
 
         return Cache::remember(
             CacheVersion::taggedKey(["department_{$departmentId}", 'treatments'], $cacheKey),
             now()->addMinutes(15),
-            fn() => $this->treatmentRepo->getOptimizedCompletedTreatments($departmentId, $perPage)
+            fn() => $this->treatmentRepo->getOptimizedCompletedTreatments($departmentId, $perPage, $groupId)
         );
     }
 
