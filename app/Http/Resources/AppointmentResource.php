@@ -42,7 +42,7 @@ class AppointmentResource extends JsonResource
 
                     'rejection_reason' => $this->when(
                         optional($this->treatment)->status === TreatmentStatus::REJECTED,
-                        optional($this->treatment)->instructor_notes
+                        optional($this->treatment)->rejection_reason
                     ),
                 ];
             }, null),

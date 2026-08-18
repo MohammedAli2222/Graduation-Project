@@ -276,13 +276,18 @@ class TreatmentRepository
                 $q->where('student_id', $userId);
             });
 
+        // rejected تعتبر "منتهية بقرار المعيد" مثل completed تماماً، فمكانها السجل
+        // لا قيد المعالجة؛ الحالة تعود فعلياً لـ in_progress (وتظهر بقيد المعالجة
+        // من جديد) فقط بعد أن يحجز الطالب موعد متابعة لإعادة الشغل عليها.
         if ($statusType === 'completed') {
-            $query->where('status', TreatmentStatus::COMPLETED->value);
+            $query->whereIn('status', [
+                TreatmentStatus::COMPLETED->value,
+                TreatmentStatus::REJECTED->value,
+            ]);
         } else {
             $query->whereIn('status', [
                 TreatmentStatus::IN_PROGRESS->value,
                 TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value,
-                TreatmentStatus::REJECTED->value,
             ]);
         }
 
