@@ -109,7 +109,16 @@ class TreatmentService
     public function bookFollowUpAppointment(array $data)
     {
         $treatment = $this->treatmentRepo->find($data['treatment_id']);
-        if (! $treatment || $treatment->status !== TreatmentStatus::IN_PROGRESS) {
+
+        // حالة مرفوضة من المعيد قابلة للمتابعة أيضاً: الطالب يحجز موعداً جديداً
+        // ليصحّح ملاحظات الرفض ويعيد تقديم نفس العلاج، لا IN_PROGRESS حصراً
+        // وإلا تبقى أي حالة مرفوضة عالقة بلا أي وسيلة لإكمالها من جديد.
+        $isResumable = $treatment && in_array($treatment->status, [
+            TreatmentStatus::IN_PROGRESS,
+            TreatmentStatus::REJECTED,
+        ], true);
+
+        if (! $isResumable) {
             throw new \Exception('Invalid or inactive treatment.');
         }
 
@@ -141,15 +150,23 @@ class TreatmentService
             throw new \Exception("You have reached the daily limit of {$dailyLimit} appointment slots.");
         }
 
-        return $this->appointmentRepo->create([
-            'patient_id'   => $treatment->diagnosis->patient_id,
-            'student_id'   => auth()->id(),
-            'diagnosis_id' => $treatment->diagnosis_id,
-            'treatment_id' => $treatment->id,
-            'appointment_date' => $dateOnly,
-            'slot_number'  => $slotNumber,
-            'status'       => AppointmentStatus::SCHEDULED->value,
-        ]);
+        return DB::transaction(function () use ($treatment, $dateOnly, $slotNumber) {
+            $appointment = $this->appointmentRepo->create([
+                'patient_id'   => $treatment->diagnosis->patient_id,
+                'student_id'   => auth()->id(),
+                'diagnosis_id' => $treatment->diagnosis_id,
+                'treatment_id' => $treatment->id,
+                'appointment_date' => $dateOnly,
+                'slot_number'  => $slotNumber,
+                'status'       => AppointmentStatus::SCHEDULED->value,
+            ]);
+
+            if ($treatment->status === TreatmentStatus::REJECTED) {
+                $this->treatmentRepo->updateStatus($treatment->id, TreatmentStatus::IN_PROGRESS->value);
+            }
+
+            return $appointment;
+        });
     }
 
     public function completeTreatmentFromStudent(array $data)
@@ -506,7 +523,12 @@ class TreatmentService
 
             return [
                 'treatment_id' => $treatment->id,
-                'status' => $treatment->status,
+                'status' => $treatment->status->value ?? $treatment->status,
+                // العمود الصحيح لسبب الرفض هو rejection_reason، وليس instructor_notes
+                // (ذاك اختياري ومنفصل تماماً وغالباً فارغ عند الرفض).
+                'rejection_reason' => $treatment->status === TreatmentStatus::REJECTED
+                    ? $treatment->rejection_reason
+                    : null,
                 'start_date' => $treatment->start_date
                     ? Carbon::parse($treatment->start_date)->format('Y-m-d H:i A')
                     : null,

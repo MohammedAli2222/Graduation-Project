@@ -21,7 +21,7 @@ class PatientTreatmentHistoryResource extends JsonResource
 
             'rejection_reason' => $this->when(
                 $this->status === TreatmentStatus::REJECTED,
-                $this->instructor_notes
+                $this->rejection_reason
             ),
 
             'start_date' => $this->start_date->format('Y-m-d H:i'),
