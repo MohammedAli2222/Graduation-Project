@@ -521,6 +521,21 @@ class TreatmentService
             $p = $diag?->patient;
             $ct = $diag?->caseType;
 
+            // موعد واحد يمثّل البطاقة: المجدول القادم إن وُجد (لم يُحضَر بعد)،
+            // وإلا آخر موعد فعلياً (بالترتيب الزمني المحمَّل مسبقاً)، حتى لا
+            // تُضطر الواجهة لتجميع هذا بنفسها من نقطتَي /appointments المنفصلتين.
+            $appointments = $treatment->appointments;
+            $relevantAppointment = $appointments->firstWhere('status', AppointmentStatus::SCHEDULED)
+                ?? $appointments->last();
+
+            $nextAction = match (true) {
+                $relevantAppointment?->status === AppointmentStatus::SCHEDULED => 'start_treatment',
+                $treatment->status === TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL => 'awaiting_review',
+                $treatment->status === TreatmentStatus::REJECTED => 'book_follow_up',
+                $treatment->status === TreatmentStatus::IN_PROGRESS => 'complete_and_upload',
+                default => 'none',
+            };
+
             return [
                 'treatment_id' => $treatment->id,
                 'status' => $treatment->status->value ?? $treatment->status,
@@ -529,6 +544,16 @@ class TreatmentService
                 'rejection_reason' => $treatment->status === TreatmentStatus::REJECTED
                     ? $treatment->rejection_reason
                     : null,
+                // تلميح جاهز لأي زر تُظهره البطاقة، حتى لا تشتق الواجهة الحالة
+                // من دمج treatment.status مع حالة الموعد يدوياً وتخطئ بالتفسير.
+                'next_action' => $nextAction,
+                'appointment' => $relevantAppointment ? [
+                    'id' => $relevantAppointment->id,
+                    'status' => $relevantAppointment->status->value ?? $relevantAppointment->status,
+                    'appointment_date' => Carbon::parse($relevantAppointment->appointment_date)->format('Y-m-d'),
+                    'slot_time' => $relevantAppointment->getSlotTimeRange(),
+                    'is_follow_up' => $relevantAppointment->id !== $appointments->first()?->id,
+                ] : null,
                 'start_date' => $treatment->start_date
                     ? Carbon::parse($treatment->start_date)->format('Y-m-d H:i A')
                     : null,

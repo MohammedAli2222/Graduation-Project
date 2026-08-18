@@ -271,6 +271,9 @@ class TreatmentRepository
             ->with([
                 'diagnosis.patient:id,full_name',
                 'diagnosis.caseType.course:id,name',
+                // لعرض بطاقة الحالة بحاجة لتاريخ/فترة آخر أو أقرب موعد مرتبط بها
+                // مباشرة، بدل إجبار الفرونت إند على تجميعها من نقاط مواعيد منفصلة.
+                'appointments' => fn ($q) => $q->orderBy('appointment_date')->orderBy('slot_number'),
             ])
             ->whereHas('diagnosis.appointments', function ($q) use ($userId): void {
                 $q->where('student_id', $userId);
