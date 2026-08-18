@@ -36,9 +36,19 @@ class InstructorController extends Controller
         return $id;
     }
 
-    public function getCaseTypesDropdown()
+    // مع ?department_id=X تُرجع فقط أنواع الحالات التابعة لذلك القسم؛ تُستخدم في
+    // شاشة "تحويل المريض إلى قسم آخر" بعد اختيار القسم الهدف، بدل عرض كل الحالات.
+    public function getCaseTypesDropdown(Request $request)
     {
-        $caseTypes = CaseType::with('course')->orderBy('name')->get();
+        $departmentId = $request->query('department_id');
+
+        $caseTypes = CaseType::with('course.department')
+            ->when($departmentId, fn ($query) => $query->whereHas(
+                'course',
+                fn ($courseQuery) => $courseQuery->where('department_id', $departmentId)
+            ))
+            ->orderBy('name')
+            ->get();
 
         return response_success(
             $caseTypes->map(fn (CaseType $caseType) => [
@@ -46,6 +56,9 @@ class InstructorController extends Controller
                 'name' => $caseType->name,
                 'course' => $caseType->course
                     ? ['id' => $caseType->course->id, 'name' => $caseType->course->name]
+                    : null,
+                'department' => $caseType->course?->department
+                    ? ['id' => $caseType->course->department->id, 'name' => $caseType->course->department->name]
                     : null,
             ]),
             200,

@@ -216,29 +216,53 @@ class DiagnosisService
     // إحالة المريض إلى قسم آخر عبر إضافة نوع حالة جديد يخص ذلك القسم، ليظهر فوراً لطلاب القسم المُحال إليه
     public function referPatientToDepartment(int $patientId, array $data, int $instructorId)
     {
-        $diagnosis = DB::transaction(function () use ($patientId, $data, $instructorId) {
-            $patient = $this->patientRepo->FindOrFail($patientId);
+        // نفس مفتاح القفل المستخدم في storeMultiple لأن الإحالة عملياً إضافة
+        // تشخيص جديد لهذا المريض، فيجب ألا تتزامن مع تشخيص آخر يُنشأ له بالتوازي.
+        $lock = Cache::lock('lock:diagnose_patient:' . $patientId, 10);
 
-            $caseType = CaseType::with('course')->findOrFail($data['case_type_id']);
+        try {
+            $lock->block(3);
 
-            $diagnosis = $this->diagnosisRepo->create([
-                'patient_id' => $patient->id,
-                'instructor_id' => $instructorId,
-                'case_type_id' => $caseType->id,
-                'department_id' => $caseType->course->department_id,
-                'final_diagnosis' => $data['referral_notes'],
-                'status' => DiagnosisStatus::AVAILABLE->value,
-            ]);
+            $diagnosis = DB::transaction(function () use ($patientId, $data, $instructorId) {
+                $patient = $this->patientRepo->FindOrFail($patientId);
 
-            $this->patientRepo->updateAvailability($patient->id, PatientStatus::AVAILABLE->value);
+                $caseType = CaseType::with('course')->findOrFail($data['case_type_id']);
+
+                // منع إحالة مكرّرة لنفس نوع الحالة قبل أن يُغلق (رفض) التشخيص
+                // السابق لها؛ من دون هذا الفحص يمكن تكرار الإحالة عدة مرات ويظهر
+                // نوع الحالة نفسه مرتين لطلاب القسم المُحال إليه.
+                $hasActiveDiagnosisForCaseType = PatientDiagnose::where('patient_id', $patientId)
+                    ->where('case_type_id', $caseType->id)
+                    ->where('status', '!=', DiagnosisStatus::REJECTED->value)
+                    ->exists();
+
+                if ($hasActiveDiagnosisForCaseType) {
+                    throw new Exception('This patient already has an active diagnosis for this case type.', 409);
+                }
+
+                $diagnosis = $this->diagnosisRepo->create([
+                    'patient_id' => $patient->id,
+                    'instructor_id' => $instructorId,
+                    'case_type_id' => $caseType->id,
+                    'department_id' => $caseType->course->department_id,
+                    'final_diagnosis' => $data['referral_notes'],
+                    'status' => DiagnosisStatus::AVAILABLE->value,
+                ]);
+
+                $this->patientRepo->updateAvailability($patient->id, PatientStatus::AVAILABLE->value);
+
+                return $diagnosis;
+            });
+
+            // إطلاق الحدث بعد نجاح المعاملة لإشعار طلاب القسم المُحال إليه فوراً بالحالة الجديدة
+            NewDiagnosesAvailableEvent::dispatch([$diagnosis]);
 
             return $diagnosis;
-        });
-
-        // إطلاق الحدث بعد نجاح المعاملة لإشعار طلاب القسم المُحال إليه فوراً بالحالة الجديدة
-        NewDiagnosesAvailableEvent::dispatch([$diagnosis]);
-
-        return $diagnosis;
+        } catch (LockTimeoutException $e) {
+            throw new Exception('This patient is currently being diagnosed by another instructor.', 409);
+        } finally {
+            optional($lock)->release();
+        }
     }
 
     private function validatePendingStatus($diagnosis)
