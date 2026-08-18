@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\PatientDiagnose;
+use Carbon\Carbon;
 use Illuminate\Contracts\Validation\ValidationRule;
 use Illuminate\Foundation\Http\FormRequest;
 
@@ -25,7 +26,9 @@ class StoreAppointmentRequest extends FormRequest
 
         return [
             'diagnosis_id' => 'required|integer|exists:patient_diagnoses,id',
-            'appointment_date' => 'required|date|date_format:Y-m-d|after_or_equal:2026-07-03',
+            // كانت مثبّتة على تاريخ ثابت (2026-07-03) بدل اليوم الحالي، فكل تاريخ
+            // بين ذلك الثابت واليوم الحالي كان يُقبل رغم كونه ماضياً فعلاً.
+            'appointment_date' => 'required|date|date_format:Y-m-d|after_or_equal:'.Carbon::now('Asia/Damascus')->format('Y-m-d'),
             'slot_number' => [
                 'required',
                 'integer',
