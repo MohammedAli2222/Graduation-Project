@@ -8436,10 +8436,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        if ($this->app->environment('local')) {
-            $this->app->register(\App\Providers\TelescopeServiceProvider::class);
-            $this->app->register(\Laravel\Telescope\TelescopeServiceProvider::class);
-        }
+        //
     }
 
     /**
@@ -8547,77 +8544,6 @@ class RepositoryServiceProvider extends ServiceProvider
     public function boot(): void
     {
         //
-    }
-}
-
-
-=================================================
-File: app\Providers\TelescopeServiceProvider.php
-=================================================
-
-<?php
-
-namespace App\Providers;
-
-use App\Models\User;
-use Illuminate\Support\Facades\Gate;
-use Laravel\Telescope\IncomingEntry;
-use Laravel\Telescope\Telescope;
-use Laravel\Telescope\TelescopeApplicationServiceProvider;
-
-class TelescopeServiceProvider extends TelescopeApplicationServiceProvider
-{
-    /**
-     * Register any application services.
-     */
-    public function register(): void
-    {
-        // Telescope::night();
-
-        $this->hideSensitiveRequestDetails();
-
-        $isLocal = $this->app->environment('local');
-
-        Telescope::filter(function (IncomingEntry $entry) use ($isLocal) {
-            return $isLocal ||
-                   $entry->isReportableException() ||
-                   $entry->isFailedRequest() ||
-                   $entry->isFailedJob() ||
-                   $entry->isScheduledTask() ||
-                   $entry->hasMonitoredTag();
-        });
-    }
-
-    /**
-     * Prevent sensitive request details from being logged by Telescope.
-     */
-    protected function hideSensitiveRequestDetails(): void
-    {
-        if ($this->app->environment('local')) {
-            return;
-        }
-
-        Telescope::hideRequestParameters(['_token']);
-
-        Telescope::hideRequestHeaders([
-            'cookie',
-            'x-csrf-token',
-            'x-xsrf-token',
-        ]);
-    }
-
-    /**
-     * Register the Telescope gate.
-     *
-     * This gate determines who can access Telescope in non-local environments.
-     */
-    protected function gate(): void
-    {
-        Gate::define('viewTelescope', function (User $user) {
-            return in_array($user->email, [
-                //
-            ]);
-        });
     }
 }
 
@@ -15892,82 +15818,6 @@ return new class extends Migration
     public function down(): void
     {
         Schema::dropIfExists('cart_items');
-    }
-};
-
-
-=================================================
-File: database/migrations\2026_06_14_195807_create_telescope_entries_table.php
-=================================================
-
-<?php
-
-use Illuminate\Database\Migrations\Migration;
-use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\Schema;
-
-return new class extends Migration
-{
-    /**
-     * Get the migration connection name.
-     */
-    public function getConnection(): ?string
-    {
-        return config('telescope.storage.database.connection');
-    }
-
-    /**
-     * Run the migrations.
-     */
-    public function up(): void
-    {
-        $schema = Schema::connection($this->getConnection());
-
-        $schema->create('telescope_entries', function (Blueprint $table) {
-            $table->bigIncrements('sequence');
-            $table->uuid('uuid');
-            $table->uuid('batch_id');
-            $table->string('family_hash')->nullable();
-            $table->boolean('should_display_on_index')->default(true);
-            $table->string('type', 20);
-            $table->longText('content');
-            $table->dateTime('created_at')->nullable();
-
-            $table->unique('uuid');
-            $table->index('batch_id');
-            $table->index('family_hash');
-            $table->index('created_at');
-            $table->index(['type', 'should_display_on_index']);
-        });
-
-        $schema->create('telescope_entries_tags', function (Blueprint $table) {
-            $table->uuid('entry_uuid');
-            $table->string('tag');
-
-            $table->primary(['entry_uuid', 'tag']);
-            $table->index('tag');
-
-            $table->foreign('entry_uuid')
-                ->references('uuid')
-                ->on('telescope_entries')
-                ->cascadeOnDelete();
-        });
-
-        $schema->create('telescope_monitoring', function (Blueprint $table) {
-            $table->string('tag')->primary();
-        });
-    }
-
-    /**
-     * Reverse the migrations.
-     */
-    public function down(): void
-    {
-        $schema = Schema::connection($this->getConnection());
-
-        $schema->dropIfExists('telescope_entries_tags');
-        $schema->dropIfExists('telescope_entries');
-        $schema->dropIfExists('telescope_monitoring');
     }
 };
 

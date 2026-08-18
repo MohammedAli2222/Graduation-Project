@@ -134,6 +134,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/patients/store', [ReceptionistController::class, 'store']);
         Route::get('/patients/{id}', [ReceptionistController::class, 'show']);
         Route::post('/patients/update/{id}', [ReceptionistController::class, 'update']);
+        Route::post('/patients/{id}/new-visit', [ReceptionistController::class, 'newVisit']);
     });
 
     Route::middleware(['role:student'])->prefix('student')->group(function () {

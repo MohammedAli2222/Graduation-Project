@@ -1,0 +1,125 @@
+TASK: Fix instructor "approve/reject" action on the treatment-review screen — wrong endpoint is being called
+
+CONTEXT
+-------
+Bug report: instructor taps "Approve" or "Reject" on a completed treatment (the case a student
+already worked on) and it silently fails / does nothing / shows a generic error.
+
+Backend investigation confirmed the API itself works correctly (tested live against production,
+see real response below). The problem is that this app is a Clinical Case System with TWO
+completely separate "approve/reject" flows that are easy to confuse — the treatment-review screen
+is very likely calling the wrong one.
+
+THE TWO FLOWS — DO NOT MIX THEM UP
+-----------------------------------
+1) Diagnosis approval (BEFORE any treatment work starts — student proposed a diagnosis, instructor
+   approves/rejects the proposal itself):
+   POST /api/instructor/patients/{id}/approve
+   POST /api/instructor/patients/{id}/reject
+   -> {id} in the URL is the PatientDiagnose id. Unrelated to this task.
+
+2) Treatment review (AFTER the student has actually finished treating the patient — this is what
+   the "pending treatments" screen / this bug report is about):
+   POST /api/instructor/treatments/review
+   -> There is NO id in the URL. The treatment id goes in the JSON BODY as "treatment_id".
+
+If the app is currently calling `/instructor/patients/{id}/approve` (or building the URL as
+`/instructor/treatments/{id}/review` or similar) for this screen, that is the bug — switch it to
+the exact endpoint below.
+
+THE ENDPOINT TO USE FOR THIS SCREEN
+------------------------------------
+GET /api/instructor/treatments/pending
+  -> lists treatments currently awaiting instructor review. Use the "id" field from each item as
+     "treatment_id" below. Real captured response:
+
+  {
+    "data": {
+      "items": [
+        {
+          "id": 1,
+          "status": "waiting_instructor_approval",
+          "start_date": "2026-08-18 11:55:22",
+          "student_name": "mohammed ali",
+          "patient_name": "test",
+          "case_type": "(1) حالة عملية - طب أسنان الأطفال"
+        }
+      ],
+      "pagination": { "current_page": 1, "last_page": 1, "total": 1 }
+    },
+    "status": 200,
+    "message": "List of pending treatments retrieved successfully."
+  }
+
+GET /api/instructor/treatments/pending/{id}
+  -> full treatment details (images, diagnosis, patient) before the instructor decides. {id} here
+     IS in the URL for this GET endpoint — only the review POST puts it in the body.
+
+POST /api/instructor/treatments/review
+  -> the actual approve/reject action. treatment_id is REQUIRED IN THE BODY, not the URL.
+
+  Request body to APPROVE:
+  {
+    "treatment_id": 1,
+    "action": "approve",
+    "instructor_notes": "optional free text, max 1000 chars"
+  }
+
+  Real response captured from production for the request above (HTTP 200):
+  {
+    "data": {
+      "id": 1,
+      "diagnosis_id": 10,
+      "evaluating_instructor_id": 8,
+      "status": "completed",
+      "rejection_reason": null,
+      "start_date": "2026-08-18 11:55:22",
+      "end_date": "2026-08-18 09:29:22",
+      "before_images": [{"id": 29, "file_name": "scaled_IMG-....jpg", "url": "https://dsd.haderin.sy/storage/29/scaled_IMG-....jpg"}],
+      "after_images": [{"id": 30, "file_name": "scaled_Screenshot_....jpg", "url": "https://dsd.haderin.sy/storage/30/scaled_Screenshot_....jpg"}],
+      "diagnosis": {
+        "diagnosis_id": 10,
+        "patient_info": {"id": 6, "name": "test", "gender": "male", "phone": "0981617644", "birth_date": "3263-02-14", "address": "kjhgfdsa"},
+        "diagnosis_details": {"case_type": "...", "department": "...", "final_diagnosis": "...", "status": "finished", "estimated_cost": "0.00", "clinical_images": [], "x_ray_images": []},
+        "diagnostic_instructor_name": "محمد علي",
+        "created_at": "2026-08-18 08:44"
+      },
+      "evaluating_instructor": {"first_name": "محمد", "last_name": "علي"}
+    },
+    "status": 200,
+    "message": "Treatment has been approved and marked as completed successfully."
+  }
+
+  Request body to REJECT (rejection_reason is mandatory here, min 5 chars):
+  {
+    "treatment_id": 1,
+    "action": "reject",
+    "rejection_reason": "Not enough detail in the after-treatment images, please retake them.",
+    "instructor_notes": "optional free text, max 1000 chars"
+  }
+  -> expected success response shape is the same envelope as approve, with "status": "rejected"
+     and "rejection_reason" populated. (Not re-captured live — the only pending treatment in
+     production was consumed by the approve test above — but this is exactly what the backend
+     validation/action code does, not a guess.)
+
+VALIDATION RULES TO MATCH ON THE CLIENT SIDE (server enforces these, returns 422 if violated)
+------------------------------------------------------------------------------------------
+- treatment_id: required, integer, must exist in treatments table.
+- action: required, must be exactly "approve" or "reject" (nothing else).
+- instructor_notes: optional, string, max 1000 chars, allowed with either action.
+- rejection_reason: REQUIRED when action=reject (min 5, max 1000 chars) — and the API will
+  actively REJECT the request with 422 if you send rejection_reason while action=approve. Don't
+  send that field at all on the approve path.
+
+WHAT TO FIX
+-----------
+1. Find wherever the treatment-review screen currently builds its approve/reject request and
+   point it at POST /instructor/treatments/review with treatment_id in the JSON body (not the URL).
+2. Make sure the treatment id used comes from the "id" field returned by
+   GET /instructor/treatments/pending (or the details endpoint) — not from a patient id or
+   diagnosis id from a different screen.
+3. On reject, make sure the UI actually collects and sends rejection_reason (min 5 chars) — don't
+   send it on approve.
+4. Confirm error handling surfaces the real "message" field on 422s (e.g. "This treatment cannot
+   be reviewed. Current status: completed" if someone double-taps after it's already been reviewed
+   — that's a valid, expected error, not a crash).

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreNewVisitRequest;
 use App\Http\Requests\StorePatientRequest;
 use App\Http\Requests\UpdatePatientRequest;
 use App\Http\Resources\PatientResource;
@@ -118,6 +119,38 @@ class ReceptionistController extends Controller
             return response_error(null, 404, 'patient id not found');
         } catch (\Exception $e) {
             return response_error(null, 500, 'Update failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * زيارة جديدة لمريض موجود: يعيده لطابور الاستقبال بشكوى محدّثة دون تكرار
+     * تسجيله. صور الزيارة (إن وُجدت) تُعالَج بالخلفية كما في store().
+     */
+    public function newVisit(StoreNewVisitRequest $request, $id)
+    {
+        try {
+            $patient = $this->patientService->startNewVisit(
+                $id,
+                $request->validated(),
+                [
+                    'clinical_images' => $request->file('clinical_images'),
+                    'x_ray_images' => $request->file('x_ray_images'),
+                ]
+            );
+
+            return response_success(
+                new PatientResource($patient),
+                200,
+                'New visit registered successfully, images are processing in background.'
+            );
+        } catch (ModelNotFoundException $e) {
+            return response_error(null, 404, 'Patient not found.');
+        } catch (\Exception $e) {
+            $statusCode = is_numeric($e->getCode()) && $e->getCode() >= 400 && $e->getCode() < 600
+                ? (int) $e->getCode()
+                : 500;
+
+            return response_error(null, $statusCode, $e->getMessage());
         }
     }
 

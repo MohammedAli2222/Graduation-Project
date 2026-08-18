@@ -312,6 +312,46 @@ class PatientService
         });
     }
 
+    /**
+     * زيارة جديدة لمريض موجود مسبقاً: تعيده لطابور "بانتظار التشخيص" دون
+     * إنشاء سجل مريض مكرر، مع تحديث الشكوى الحالية والتاريخ الطبي بالكامل.
+     *
+     * تخزين الصور المؤقت يسبق المعاملة، والإرسال للـ Job يليها بعد نجاحها
+     * تماماً كما في registerPatient، حتى لا يبحث الـ Job عن بيانات لم تُحفظ بعد.
+     *
+     * @param  array<string, mixed>  $data
+     * @param  array<string, mixed>  $files
+     */
+    public function startNewVisit(int $patientId, array $data, array $files = []): Patient
+    {
+        $tempImages = $this->stageReceptionistImages($files);
+
+        try {
+            $patient = DB::transaction(function () use ($patientId, $data) {
+                $patient = $this->repository->FindOrFail($patientId);
+
+                $patient->update([
+                    'preliminary_diagnosis' => $data['preliminary_diagnosis'],
+                    'availability_status' => PatientStatus::WAITING_DIAGNOSIS->value,
+                ]);
+
+                $this->updateMedicalHistory($patient, $data);
+
+                return $patient;
+            });
+        } catch (\Throwable $e) {
+            $this->discardTempImages($tempImages);
+
+            throw $e;
+        }
+
+        if (! empty($tempImages)) {
+            ProcessPatientImagesJob::dispatch($patient->id, $tempImages);
+        }
+
+        return $patient->load('medicalHistory');
+    }
+
     public function getDailyDashboardStats(int $receptionistId)
     {
         return [

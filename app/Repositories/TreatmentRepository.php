@@ -73,11 +73,7 @@ class TreatmentRepository
         return Treatment::whereHas('diagnosis', function ($query) use ($patientId): void {
             $query->where('patient_id', $patientId);
         })
-            ->whereIn('status', [
-                TreatmentStatus::COMPLETED->value,
-                TreatmentStatus::IN_PROGRESS->value,
-                TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value,
-            ])
+            ->where('status', TreatmentStatus::COMPLETED->value)
             ->with([
                 'diagnosis' => function ($query): void {
                     $query->select('id', 'patient_id', 'case_type_id', 'department_id', 'final_diagnosis', 'status', 'created_at');

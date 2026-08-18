@@ -11,6 +11,7 @@ use App\Models\Treatment;
 use App\Models\User;
 use App\Repositories\TreatmentRepository;
 use Exception;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -60,6 +61,15 @@ class ReviewTreatmentAction
 
         if ($studentId !== null) {
             $this->treatmentRepo->clearStudentProgressCache($studentId);
+
+            // كاش قائمة أنواع الحالات (StudentCourseService::getCaseTypesForDropdown) مفتاحه
+            // معرّف ملف الطالب (student_profiles.id) لا معرّف المستخدم، فنحتاج تحويلاً صريحاً هنا
+            // بدل استخدام $studentId مباشرة (وإلا انمسح مفتاح لم يُخزَّن فيه شيء أصلاً).
+            $studentProfileId = DB::table('student_profiles')->where('user_id', $studentId)->value('id');
+
+            if ($studentProfileId !== null) {
+                Cache::forget("case_types:student_{$studentProfileId}");
+            }
         }
 
         // إطلاق الحدث بعد نجاح المعاملة لإشعار الطالب بنتيجة المراجعة
