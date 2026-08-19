@@ -68,6 +68,26 @@ class TreatmentRepository
         return $studentId !== null ? (int) $studentId : null;
     }
 
+    /**
+     * المعيد المسؤول عن فئة/مجموعة هذا الطالب (عبر group_instructor)، لا معيد
+     * التشخيص (PatientDiagnose::instructor_id) الذي قد يكون شخصاً آخر تماماً
+     * ولا علاقة له بالإشراف الفعلي على مجموعة الطالب.
+     *
+     * افتراض: كل فئة تتبع معيداً واحداً مسؤولاً؛ إن ارتبطت الفئة بأكثر من
+     * معيد (الجدول يسمح تقنياً)، تُعاد أقدم علاقة (أول من أُسنِد له الإشراف).
+     */
+    public function getResponsibleInstructorUserId(int $studentUserId): ?int
+    {
+        $userId = DB::table('student_profiles')
+            ->join('group_instructor', 'group_instructor.group_id', '=', 'student_profiles.group_id')
+            ->join('instructor_profiles', 'instructor_profiles.id', '=', 'group_instructor.instructor_profile_id')
+            ->where('student_profiles.user_id', $studentUserId)
+            ->orderBy('group_instructor.id')
+            ->value('instructor_profiles.user_id');
+
+        return $userId !== null ? (int) $userId : null;
+    }
+
     public function getHistoryByPatientId(int $patientId): Collection
     {
         return Treatment::whereHas('diagnosis', function ($query) use ($patientId): void {

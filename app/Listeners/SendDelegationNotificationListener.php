@@ -11,15 +11,15 @@ class SendDelegationNotificationListener
 {
     public function __construct(protected FirebaseNotificationService $notificationService) {}
 
-    // إشعار المعيد بحصوله على صلاحية مراجعة الحالات السريرية من رئيس القسم
+    // إشعار المعيد بموافقة رئيس القسم على طلب الصلاحية الذي تقدّم به
     public function handle(InstructorDelegatedEvent $event): void
     {
         $this->notificationService->sendNotificationToUser(
             $event->instructor->id,
-            'صلاحيات إدارية جديدة 🔑',
-            'لقد قام رئيس القسم بتفويضك بصلاحية مراجعة الحالات السريرية لطلاب القسم.',
-            ['type' => 'instructor_delegated'],
-            'instructor_delegated'
+            'تمت الموافقة على طلب الصلاحية',
+            'رئيس القسم وافق على طلب الصلاحية الخاص بك.',
+            ['type' => 'delegation_approved'],
+            'delegation_approved'
         );
     }
 }

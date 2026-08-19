@@ -121,6 +121,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/unread-count', [NotificationController::class, 'unreadCount']);
         Route::post('/read-all', [NotificationController::class, 'markAllAsRead']);
         Route::post('/{id}/read', [NotificationController::class, 'markAsRead']);
+        // اسم بديل لنفس التابع (mark-as-read) توافقاً مع تسمية عقد الواجهة الجديد
+        Route::post('/{id}/mark-as-read', [NotificationController::class, 'markAsRead']);
         Route::delete('/{id}', [NotificationController::class, 'destroy']);
     });
 
