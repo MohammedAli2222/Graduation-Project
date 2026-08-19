@@ -70,9 +70,9 @@ class UserSeeder extends Seeder
     }
 
     /**
-     * المعيد: نربطه بالمجموعتين معاً عبر جدول group_instructor.
+     * المعيد: نربطه بكل الفئات (كل سنوات وأقسام الطلاب) عبر جدول group_instructor.
      * هذا الربط شرط أساسي لعمل approveCase/rejectCase، لأن الخدمة ترفض بـ 403
-     * أي طلب تشخيص قادم من طالب لا يشترك مع المعيد بأي مجموعة.
+     * أي طلب تشخيص قادم من طالب لا يشترك مع المعيد بأي فئة.
      */
     private function seedInstructor(): void
     {
@@ -123,7 +123,9 @@ class UserSeeder extends Seeder
      */
     private function seedStudent(): void
     {
-        $group = Group::where('group_name', AcademicSeeder::GROUP_YEAR_FIVE)->firstOrFail();
+        $group = Group::where('academic_year', 5)
+            ->where('group_name', AcademicSeeder::groupName(1))
+            ->firstOrFail();
 
         $user = $this->createUser('أحمد', 'خالد', 'student@test.com');
         $user->assignRole('student');

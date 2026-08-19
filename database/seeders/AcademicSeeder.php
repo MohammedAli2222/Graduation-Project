@@ -12,7 +12,7 @@ use Illuminate\Database\Seeder;
 
 /**
  * الهيكل الأكاديمي الأساسي: أقسام ومقررات كلية طب الأسنان بجامعة دمشق
- * (السنتان السريريتان الرابعة والخامسة)، إضافة إلى مجموعتي السنتين.
+ * (السنتان السريريتان الرابعة والخامسة)، إضافة إلى فئات (مجموعات) كل سنة.
  *
  * يجب أن يُشغَّل قبل UserSeeder لأن student_profiles.group_id مفتاح خارجي
  * إلزامي (NOT NULL) نحو جدول groups، أي لا يمكن إنشاء طالب قبل وجود المجموعات.
@@ -26,8 +26,16 @@ class AcademicSeeder extends Seeder
     public const DEPARTMENT_ORTHODONTICS = 'قسم تقويم الأسنان والفكين';
     public const DEPARTMENT_SURGERY = 'قسم جراحة الفم والفكين';
 
-    public const GROUP_YEAR_FOUR = 'المجموعة الأولى - السنة الرابعة';
-    public const GROUP_YEAR_FIVE = 'المجموعة الأولى - السنة الخامسة';
+    /** السنوات السريرية التي تُنشأ لها فئات، وعدد الفئات لكل سنة منها */
+    private const CLINICAL_YEARS = [4, 5];
+    public const GROUPS_PER_YEAR = 5;
+    private const GROUP_NAME_PREFIX = 'الفئة ';
+
+    /** اسم الفئة رقم $index (1-based) ضمن سنتها؛ تستخدمها السيدرات الأخرى للبحث عن فئة محددة */
+    public static function groupName(int $index): string
+    {
+        return self::GROUP_NAME_PREFIX.$index;
+    }
 
     public function run(): void
     {
@@ -68,20 +76,20 @@ class AcademicSeeder extends Seeder
     }
 
     /**
-     * المجموعات: مجموعة لكل سنة سريرية. عمود academic_year هو ما يربط الطالب
-     * بمجموعة موافقة لسنته، ويحدد أي معيد يشرف عليه (عبر جدول group_instructor).
+     * الفئات (المجموعات): GROUPS_PER_YEAR فئة لكل سنة سريرية، بأسماء متكررة عبر
+     * السنوات (الفئة 1، الفئة 2...) والتمييز الفعلي بينها عبر عمود academic_year،
+     * وهو ما يربط الطالب بفئة موافقة لسنته ويحدد أي معيد يشرف عليه (عبر group_instructor).
      */
     private function seedGroups(): void
     {
-        Group::firstOrCreate(
-            ['group_name' => self::GROUP_YEAR_FOUR],
-            ['academic_year' => 4]
-        );
-
-        Group::firstOrCreate(
-            ['group_name' => self::GROUP_YEAR_FIVE],
-            ['academic_year' => 5]
-        );
+        foreach (self::CLINICAL_YEARS as $year) {
+            for ($i = 1; $i <= self::GROUPS_PER_YEAR; $i++) {
+                Group::firstOrCreate([
+                    'group_name' => self::groupName($i),
+                    'academic_year' => $year,
+                ]);
+            }
+        }
     }
 
     /**
