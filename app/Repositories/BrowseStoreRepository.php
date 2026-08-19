@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Repositories;
 
+use App\Enums\ProductAvailability;
 use App\Models\Product;
 use App\Models\User;
 use App\Repositories\Contracts\BrowseStoreRepositoryInterface;
@@ -44,7 +45,10 @@ class BrowseStoreRepository implements BrowseStoreRepositoryInterface
         return Cache::remember($cacheKey, 86400, function () use ($storeId, $filters, $perPage) {
             return $this->productModel->newQuery()
                 ->where('store_id', $storeId)
-                ->where('availability_status', 'available')
+                ->whereIn('availability_status', [
+                    ProductAvailability::AVAILABLE->value,
+                    ProductAvailability::LIMITED->value,
+                ])
                 ->filter($filters)
                 ->with(['category', 'media', 'seller.storeProfile'])
                 ->latest()
