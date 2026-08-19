@@ -8,6 +8,7 @@ use App\Http\Resources\Store\ProductResource;
 use App\Repositories\Contracts\ProductRepositoryInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Exception;
 
@@ -22,7 +23,8 @@ class MarketplaceBrowseController extends Controller
         try {
             $filters = $request->only(['search', 'category_id', 'condition']);
 
-            $products = $this->productRepo->getMarketplaceProducts($filters);
+            // ما بنعرض على الطالب أدواته الخاصة يلي هو نفسه ناشرها للبيع وهو يتصفّح السوق كمشتري
+            $products = $this->productRepo->getMarketplaceProducts($filters, 15, Auth::id());
 
             $paginatedData = ProductResource::collection($products)->response()->getData(true);
 

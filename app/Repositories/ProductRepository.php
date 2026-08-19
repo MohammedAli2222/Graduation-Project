@@ -64,13 +64,18 @@ class ProductRepository implements ProductRepositoryInterface
             ->count();
     }
 
-  public function getMarketplaceProducts(array $filters = [], int $perPage = 15): LengthAwarePaginator
+  public function getMarketplaceProducts(array $filters = [], int $perPage = 15, ?int $excludeSellerId = null): LengthAwarePaginator
     {
         return $this->model->query()
             ->whereIn('availability_status', [
                 ProductAvailability::AVAILABLE->value,
                 ProductAvailability::LIMITED->value
             ])
+
+            // الطالب البائع ما لازم يشوف أدواته الخاصة وهو يتصفّح السوق كمشتري
+            ->when($excludeSellerId, function ($query) use ($excludeSellerId) {
+                $query->where('store_id', '!=', $excludeSellerId);
+            })
 
             ->when(isset($filters['search']), function ($query) use ($filters) {
                 $query->where(function ($q) use ($filters) {

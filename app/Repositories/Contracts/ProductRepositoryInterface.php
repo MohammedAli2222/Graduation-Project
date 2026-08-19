@@ -22,7 +22,7 @@ interface ProductRepositoryInterface
 
     public function countStoreProductsByIds(int $storeId, array $productIds): int;
 
-    public function getMarketplaceProducts(array $filters = [], int $perPage = 15): LengthAwarePaginator;
+    public function getMarketplaceProducts(array $filters = [], int $perPage = 15, ?int $excludeSellerId = null): LengthAwarePaginator;
 
     public function findById(int $productId): ?Product;
 
