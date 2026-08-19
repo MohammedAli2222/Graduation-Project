@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace App\Observers;
 
 use App\Models\Department;
+use App\Support\CacheGroup;
+use App\Support\CacheVersion;
 use Illuminate\Support\Facades\Cache;
 
 class DepartmentObserver
@@ -27,5 +29,9 @@ class DepartmentObserver
     private function clearCache(Department $department): void
     {
         Cache::forget("department_{$department->id}_config");
+
+        // قائمة الأقسام المنسدلة (all_departments) كانت لا تُبطَل إطلاقاً عند
+        // إنشاء/تعديل/حذف قسم، فتبقى قديمة حتى ٢٤ ساعة كاملة
+        CacheVersion::bump(CacheGroup::DEPARTMENTS);
     }
 }

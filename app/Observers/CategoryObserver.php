@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Observers;
 
 use App\Models\Category;
+use App\Support\CacheGroup;
 use App\Support\CacheVersion;
 
 class CategoryObserver
@@ -26,6 +27,6 @@ class CategoryObserver
 
     private function clearCache(): void
     {
-        CacheVersion::bump('categories');
+        CacheVersion::bump(CacheGroup::CATEGORIES);
     }
 }

@@ -8,6 +8,8 @@ use App\Enums\ProductAvailability;
 use App\Models\Product;
 use App\Models\User;
 use App\Repositories\Contracts\BrowseStoreRepositoryInterface;
+use App\Support\CacheGroup;
+use App\Support\CacheVersion;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Pagination\Paginator;
@@ -42,7 +44,7 @@ class BrowseStoreRepository implements BrowseStoreRepositoryInterface
         $filterHash = md5(json_encode($filters));
         $cacheKey = "store_{$storeId}_products_per_page_{$perPage}_page_{$page}_filters_{$filterHash}";
 
-        return Cache::remember($cacheKey, 86400, function () use ($storeId, $filters, $perPage) {
+        return Cache::remember(CacheVersion::key(CacheGroup::store($storeId), $cacheKey), 86400, function () use ($storeId, $filters, $perPage) {
             return $this->productModel->newQuery()
                 ->where('store_id', $storeId)
                 ->whereIn('availability_status', [
