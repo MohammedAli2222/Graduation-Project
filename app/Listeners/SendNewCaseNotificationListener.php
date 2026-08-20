@@ -14,7 +14,8 @@ class SendNewCaseNotificationListener
 {
     public function __construct(protected FirebaseNotificationService $notificationService) {}
 
-    // إشعار الطلاب المسجلين فعلياً في المقررات المرتبطة بأنواع الحالات المُضافة حديثاً
+    // إشعار الطلاب المسجلين فعلياً في المقررات المرتبطة بأنواع الحالات المُضافة حديثاً،
+    // مع ذكر اسم/أسماء أنواع الحالات المتاحة فعلياً لكل طالب داخل نص الإشعار نفسه
     public function handle(NewDiagnosesAvailableEvent $event): void
     {
         $caseTypeIds = collect($event->diagnoses)
@@ -26,32 +27,55 @@ class SendNewCaseNotificationListener
             return;
         }
 
-        // إيجاد المقررات الدراسية التي تتبع لها أنواع الحالات هذه
-        $courseIds = CaseType::query()
+        // اسم ومقرر كل نوع حالة مُضاف، مفهرَسة بمعرّف نوع الحالة
+        $caseTypes = CaseType::query()
             ->whereIn('id', $caseTypeIds)
-            ->pluck('course_id')
-            ->unique()
-            ->values();
+            ->get(['id', 'name', 'course_id'])
+            ->keyBy('id');
 
-        if ($courseIds->isEmpty()) {
+        if ($caseTypes->isEmpty()) {
             return;
         }
 
+        // أسماء أنواع الحالات مجمَّعة حسب المقرر، لأن الطالب يظهر إشرافه عبر
+        // تسجيله بالمقرر لا بنوع الحالة مباشرة
+        $caseTypeNamesByCourse = $caseTypes->groupBy('course_id')
+            ->map(fn ($group) => $group->pluck('name')->unique()->values());
+
+        $courseIds = $caseTypeNamesByCourse->keys();
+
         // ربط جدول التسجيل الأكاديمي بملفات الطلاب للحصول على معرّفات المستخدمين الفعليين
         // لأن عمود student_id في جدول التسجيل يشير إلى student_profiles وليس إلى users مباشرة
-        $studentUserIds = DB::table('student_course_enrollments')
+        $enrollments = DB::table('student_course_enrollments')
             ->join('student_profiles', 'student_profiles.id', '=', 'student_course_enrollments.student_id')
             ->whereIn('student_course_enrollments.course_id', $courseIds)
             ->where('student_course_enrollments.status', EnrollmentStatus::ACTIVE->value)
+            ->select('student_profiles.user_id', 'student_course_enrollments.course_id')
             ->distinct()
-            ->pluck('student_profiles.user_id');
+            ->get();
 
-        foreach ($studentUserIds as $studentUserId) {
+        // معرّف الطالب => مجموعة أسماء أنواع الحالات المتاحة له تحديداً ضمن هذه الدفعة
+        $namesByStudent = [];
+
+        foreach ($enrollments as $enrollment) {
+            $names = $caseTypeNamesByCourse->get($enrollment->course_id, collect())->all();
+
+            $namesByStudent[$enrollment->user_id] = array_unique(array_merge(
+                $namesByStudent[$enrollment->user_id] ?? [],
+                $names
+            ));
+        }
+
+        foreach ($namesByStudent as $studentUserId => $names) {
+            $body = count($names) === 1
+                ? 'أصبحت حالة سريرية جديدة متاحة: '.$names[0].'. سارع بحجزها!'
+                : 'أصبحت حالات سريرية جديدة متاحة: '.implode('، ', $names).'. سارع بحجزها!';
+
             $this->notificationService->sendNotificationToUser(
                 (int) $studentUserId,
                 'حالات مرضية جديدة متاحة 🚨',
-                'تم إضافة حالات سريرية جديدة تناسب متطلبات مقرراتك الفعالة. سارع بحجزها!',
-                ['type' => 'new_cases_available'],
+                $body,
+                ['type' => 'new_cases_available', 'case_types' => implode(',', $names)],
                 'new_cases_available'
             );
         }
