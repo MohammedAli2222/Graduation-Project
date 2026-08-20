@@ -33,4 +33,25 @@ class InstructorRepository implements InstructorRepositoryInterface
             ->select(['id', 'first_name', 'last_name', 'email'])
             ->get();
     }
+
+    /**
+     * شاشة "صلاحيات المعيدين": تجمع من ينتظر موافقة على طلبه (requested_department_id)
+     * ومن مُنح الصلاحية فعلاً لهذا القسم مسبقاً (department_id + يملك الصلاحية حالياً)،
+     * وإلا يختفي المعيد من الشاشة فور منحه الصلاحية فلا يعود ممكناً سحبها منه لاحقاً.
+     */
+    public function getDelegationScreenInstructors(int $departmentId): Collection
+    {
+        return $this->model->newQuery()
+            ->role('instructor')
+            ->where(function ($query) use ($departmentId): void {
+                $query->whereHas('instructorProfile', fn ($q) => $q->where('requested_department_id', $departmentId))
+                    ->orWhere(fn ($q) => $q
+                        ->whereHas('instructorProfile', fn ($qq) => $qq->where('department_id', $departmentId))
+                        ->whereHas('permissions', fn ($qq) => $qq->where('name', 'view-department-treatments'))
+                    );
+            })
+            ->with('instructorProfile')
+            ->select(['id', 'first_name', 'last_name', 'email'])
+            ->get();
+    }
 }

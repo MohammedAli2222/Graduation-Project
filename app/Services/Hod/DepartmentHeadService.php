@@ -206,6 +206,16 @@ class DepartmentHeadService
     }
 
     /**
+     * شاشة "صلاحيات المعيدين": طلبات معلَّقة بانتظار الموافقة + معيدون ممنوحون
+     * الصلاحية فعلاً لهذا القسم، حتى لا يختفي المعيد من الشاشة فور منحه إياها
+     * فيتعذّر سحبها منه لاحقاً.
+     */
+    public function getInstructorsList(int $hodDepartmentId): Collection
+    {
+        return $this->instructorRepo->getDelegationScreenInstructors($hodDepartmentId);
+    }
+
+    /**
      * منح صلاحية عرض معالجات القسم لمعيد.
      *
      * مسارَان يبقيان معاً صالحَين:

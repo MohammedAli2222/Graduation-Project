@@ -27,7 +27,7 @@ class DepartmentDelegationController extends Controller
                 return response_error(null, 403, 'غير مصرح لك: حسابك لا يملك صلاحيات رئيس قسم.');
             }
 
-            $instructors = $this->hodService->getDelegationRequests($hodProfile->department_id);
+            $instructors = $this->hodService->getInstructorsList($hodProfile->department_id);
 
             return response_success(
                 $instructors,
