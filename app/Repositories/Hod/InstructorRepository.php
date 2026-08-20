@@ -15,16 +15,6 @@ class InstructorRepository implements InstructorRepositoryInterface
     ) {}
 
 
-    public function getAllInstructors(): Collection
-    {
-        return $this->model->newQuery()
-            ->role('instructor')
-            ->with('instructorProfile')
-            ->select(['id', 'first_name', 'last_name', 'email'])
-            ->get();
-    }
-
-
     public function findInstructorById(int $instructorId): ?User
     {
         return $this->model->newQuery()

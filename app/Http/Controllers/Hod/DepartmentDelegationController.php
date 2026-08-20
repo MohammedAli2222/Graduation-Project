@@ -16,10 +16,18 @@ class DepartmentDelegationController extends Controller
         protected DepartmentHeadService $hodService
     ) {}
 
+    // القائمة مقصورة على المعيدين الذين قدّموا فعلاً طلب صلاحية موجَّه لقسم رئيس
+    // القسم الحالي تحديداً (نفس معيار delegationRequests)، لا كل معيدي النظام
     public function instructorsList(): JsonResponse
     {
         try {
-            $instructors = $this->hodService->getInstructorsList();
+            $hodProfile = auth()->user()->departmentHeadProfile;
+
+            if (! $hodProfile) {
+                return response_error(null, 403, 'غير مصرح لك: حسابك لا يملك صلاحيات رئيس قسم.');
+            }
+
+            $instructors = $this->hodService->getDelegationRequests($hodProfile->department_id);
 
             return response_success(
                 $instructors,

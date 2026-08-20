@@ -7,9 +7,6 @@ use Illuminate\Database\Eloquent\Collection;
 
 interface InstructorRepositoryInterface
 {
-
-    public function getAllInstructors(): Collection;
-
     public function findInstructorById(int $instructorId): ?User;
 
     /**

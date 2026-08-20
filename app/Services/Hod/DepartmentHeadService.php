@@ -197,11 +197,6 @@ class DepartmentHeadService
         );
     }
 
-    public function getInstructorsList(): Collection
-    {
-        return $this->instructorRepo->getAllInstructors();
-    }
-
     /**
      * معيدون لديهم طلب تفويض معلَّق موجَّه تحديداً لقسم رئيس القسم الحالي.
      */
