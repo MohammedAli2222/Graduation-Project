@@ -134,7 +134,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/stats', [ReceptionistController::class, 'stats']);
         Route::get('/patients/search', [ReceptionistController::class, 'search']);
         Route::post('/patients/store', [ReceptionistController::class, 'store']);
-        Route::get('/patients/{id}', [ReceptionistController::class, 'show']);
+        // قيد رقمي صريح: أي {id} غير رقمي (مثلاً الرقم المرجعي بالغلط) يرجع 404 نظيف
+        // من لارافيل نفسه قبل ما يوصل حتى للـ Controller، بدل TypeError خام يكشف مسار الخادم
+        Route::get('/patients/{id}', [ReceptionistController::class, 'show'])->where('id', '[0-9]+');
         Route::post('/patients/update/{id}', [ReceptionistController::class, 'update']);
         Route::post('/patients/{id}/new-visit', [ReceptionistController::class, 'newVisit']);
     });

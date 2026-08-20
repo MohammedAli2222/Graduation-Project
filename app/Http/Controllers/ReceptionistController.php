@@ -80,7 +80,7 @@ class ReceptionistController extends Controller
     public function show($id)
     {
         try {
-            $patient = $this->patientService->getPatientProfile($id);
+            $patient = $this->patientService->getPatientProfile((int) $id);
             // $patient->load('medicalHistory');
             return response_success(new PatientResource($patient), 200, 'Patient profile fetched.');
         } catch (ModelNotFoundException $e) {
