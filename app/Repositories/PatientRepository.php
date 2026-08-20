@@ -43,13 +43,28 @@ class PatientRepository
         return Patient::with(['media', 'medicalHistory'])->findOrFail($id);
     }
 
-    public function getReceptionistWaitingList(): LengthAwarePaginator
+    /**
+     * قائمة مرضى الاستقبال، قابلة للفلترة بحالة المريض (availability_status).
+     *
+     * status = waiting_diagnosis تبقى محتفظة بشرط whereDoesntHave('diagnoses')
+     * الأصلي (مرضى لم يُقترَح لهم أي تشخيص بعد إطلاقاً)، أما بقية الحالات
+     * (available/fully_reserved/completed) فتُفلتَر بعمود الحالة فقط، إذ لا
+     * معنى لشرط "بلا تشخيص" لمريض تجاوز أصلاً مرحلة اقتراح التشخيص.
+     */
+    public function getReceptionistWaitingList(string $status = 'all'): LengthAwarePaginator
     {
-        return Patient::with(['media', 'medicalHistory'])
-            ->where('availability_status', PatientStatus::WAITING_DIAGNOSIS->value)
-            ->whereDoesntHave('diagnoses')
-            ->orderBy('created_at', 'asc')
-            ->paginate(10);
+        $validStatuses = array_map(fn ($case) => $case->value, PatientStatus::cases());
+        $status = in_array($status, $validStatuses, true) ? $status : 'all';
+
+        $query = Patient::with(['media', 'medicalHistory'])->orderBy('created_at', 'asc');
+
+        if ($status === PatientStatus::WAITING_DIAGNOSIS->value) {
+            $query->where('availability_status', $status)->whereDoesntHave('diagnoses');
+        } elseif ($status !== 'all') {
+            $query->where('availability_status', $status);
+        }
+
+        return $query->paginate(10);
     }
 
     // =====================================================================

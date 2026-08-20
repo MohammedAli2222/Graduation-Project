@@ -260,9 +260,9 @@ class PatientService
         return $this->repository->findWithMedia($id);
     }
 
-    public function getReceptionistWaitingPatients()
+    public function getReceptionistWaitingPatients(string $status = 'all')
     {
-        return $this->repository->getReceptionistWaitingList();
+        return $this->repository->getReceptionistWaitingList($status);
     }
 
     /**

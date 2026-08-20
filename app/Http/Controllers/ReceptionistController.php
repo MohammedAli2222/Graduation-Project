@@ -85,9 +85,11 @@ class ReceptionistController extends Controller
         }
     }
 
-    public function receptionistWaiting()
+    public function receptionistWaiting(Request $request)
     {
-        $patients = $this->patientService->getReceptionistWaitingPatients();
+        $patients = $this->patientService->getReceptionistWaitingPatients(
+            (string) $request->query('status', 'all')
+        );
 
         if ($patients->isEmpty()) {
             return response_success([], 200, 'Waiting list is currently empty.');
