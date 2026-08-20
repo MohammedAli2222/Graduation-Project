@@ -58,20 +58,23 @@ class ReceptionistController extends Controller
 
     public function search(Request $request)
     {
-        $term = $request->query('q');
-        if (! $term) {
+        $term = trim((string) $request->query('q'));
+        if ($term === '') {
             return response_error(null, 400, 'Search term is required');
         }
 
-        $patient = $this->patientService->searchPatients($term);
+        $patients = $this->patientService->searchPatients($term);
 
-        if (! $patient) {
-            return response_error(null, 404, 'No patient found.');
-        }
-
-        $patient->load(['medicalHistory', 'media']);
-
-        return response_success(new PatientResource($patient), 200, 'Search results.');
+        return response_success([
+            'patients' => PatientResource::collection($patients->items()),
+            'pagination' => [
+                'total' => $patients->total(),
+                'count' => $patients->count(),
+                'per_page' => $patients->perPage(),
+                'current_page' => $patients->currentPage(),
+                'last_page' => $patients->lastPage(),
+            ],
+        ], 200, 'Search results.');
     }
 
     public function show($id)

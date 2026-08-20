@@ -250,7 +250,7 @@ class PatientService
         });
     }
 
-    public function searchPatients(string $term)
+    public function searchPatients(string $term): \Illuminate\Contracts\Pagination\LengthAwarePaginator
     {
         return $this->repository->search($term);
     }

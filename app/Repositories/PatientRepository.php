@@ -30,12 +30,21 @@ class PatientRepository
         return Patient::create($data);
     }
 
-    public function search(string $term): ?Patient
+    /**
+     * بحث مرن: يطابق الاسم الكامل أو الرقم المرجعي أو الهاتف جزئياً (LIKE)، لا
+     * تطابقاً حرفياً كاملاً كما كانت سابقاً. مُقيَّد بترقيم صفحات (paginate) بدل
+     * إرجاع كل النتائج دفعة واحدة، حتى يبقى سريعاً حتى لو تطابقت أسماء كثيرة.
+     */
+    public function search(string $term): LengthAwarePaginator
     {
-        return Patient::with('media')
-            ->where('patient_code', $term)
-            ->orWhere('phone', $term)
-            ->first();
+        return Patient::with(['media', 'medicalHistory'])
+            ->where(function ($query) use ($term): void {
+                $query->where('patient_code', 'like', "%{$term}%")
+                    ->orWhere('phone', 'like', "%{$term}%")
+                    ->orWhere('full_name', 'like', "%{$term}%");
+            })
+            ->orderBy('created_at', 'desc')
+            ->paginate(10);
     }
 
     public function findWithMedia(int $id): Patient
