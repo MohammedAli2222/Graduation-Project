@@ -172,7 +172,7 @@ class AcademicSeeder extends Seeder
     {
         foreach ($courses as $course) {
             CaseType::create([
-                'name' => 'حالة عملية - '.$course->name,
+                'name' => $course->name,
                 'course_id' => $course->id,
                 'required_count' => 2,
                 'slots_needed' => 1,

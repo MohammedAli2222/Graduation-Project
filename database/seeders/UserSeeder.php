@@ -34,6 +34,7 @@ class UserSeeder extends Seeder
         $this->seedDepartmentHead();
         $this->seedInstructor();
         $this->seedStoreOwner();
+        $this->seedRealStores();
         $this->seedStudent();
     }
 
@@ -53,20 +54,36 @@ class UserSeeder extends Seeder
     }
 
     /**
-     * رئيس القسم: مرتبط بقسم التقويم. علاقة department_head_profiles مع القسم
+     * رئيس قسم واحد لكل قسم علمي. علاقة department_head_profiles مع القسم
      * هي 1:1 (عمود department_id فريد UNIQUE)، أي لا يمكن تعيين رئيسين للقسم نفسه.
+     *
+     * head@test.com بقي مرتبطاً بقسم التقويم كما كان (الحساب الأصلي المستخدم
+     * بالاختبار اليدوي)، وأضفنا رئيساً لكل قسم آخر لم يكن له رئيس من قبل.
      */
     private function seedDepartmentHead(): void
     {
-        $department = Department::where('name', AcademicSeeder::DEPARTMENT_ORTHODONTICS)->firstOrFail();
+        $heads = [
+            'قسم طب الفم' => ['محمود', 'الشامي', 'head1@test.com'],
+            'قسم المداواة' => ['ليلى', 'مراد', 'head2@test.com'],
+            AcademicSeeder::DEPARTMENT_SURGERY => ['يوسف', 'حمدان', 'head3@test.com'],
+            'قسم التعويضات المتحركة' => ['رنا', 'قاسم', 'head4@test.com'],
+            AcademicSeeder::DEPARTMENT_ORTHODONTICS => ['خالد', 'الزين', 'head@test.com'],
+            'قسم علم النسج حول السنية' => ['سامي', 'دبس', 'head5@test.com'],
+            'قسم التعويضات الثابتة' => ['هبة', 'النابلسي', 'head6@test.com'],
+            'قسم طب أسنان الأطفال' => ['نور', 'العبدالله', 'head7@test.com'],
+        ];
 
-        $user = $this->createUser('خالد', 'الزين', 'head@test.com');
-        $user->assignRole('department_head');
+        foreach ($heads as $departmentName => [$firstName, $lastName, $email]) {
+            $department = Department::where('name', $departmentName)->firstOrFail();
 
-        DepartmentHeadProfile::firstOrCreate(
-            ['user_id' => $user->id],
-            ['department_id' => $department->id]
-        );
+            $user = $this->createUser($firstName, $lastName, $email);
+            $user->assignRole('department_head');
+
+            DepartmentHeadProfile::firstOrCreate(
+                ['user_id' => $user->id],
+                ['department_id' => $department->id]
+            );
+        }
     }
 
     /**
@@ -105,6 +122,46 @@ class UserSeeder extends Seeder
                 'store_address' => 'دمشق - المزة - شارع الجلاء',
             ]
         );
+    }
+
+    /**
+     * متاجر/مستودعات أدوات ومواد طب أسنان حقيقية وناشطة فعلياً بدمشق (الحلبوني،
+     * شارع بغداد، الميسات...)، لتعبئة سوق المتاجر ببيانات واقعية بدل بيانات وهمية.
+     *
+     * حساب فقط (User + StoreProfile) بلا أي منتجات أو طلبات، ليضيفها كل صاحب
+     * متجر بنفسه لاحقاً عبر التطبيق.
+     */
+    private function seedRealStores(): void
+    {
+        $stores = [
+            ['مركز خدمات طلاب طب الأسنان', 'دمشق - الحلبوني - بناء الخولي - الطابق الأرضي', 'store1@test.com'],
+            ['RAMO MEDICAL', 'دمشق - الحلبوني', 'store2@test.com'],
+            ['مستودع بقدونس لتجهيزات طب الأسنان', 'دمشق - شارع مسلم البارودي - بناء الخولي', 'store3@test.com'],
+            ['مستودع التونسي لطب الأسنان', 'دمشق - الحلبوني - بناء الحلبوني', 'store4@test.com'],
+            ['مستودع الروماني - مازن الروماني', 'دمشق - شارع مسلم البارودي - بناء صلاحي وخولي', 'store5@test.com'],
+            ['مستودع الملكي - Royal Dent', 'دمشق - شارع بغداد - بعد محطة الأزبكية - مقابل مركز جنرال الطبي', 'store6@test.com'],
+            ['الجلال لتجهيزات طب الأسنان', 'دمشق - شارع بغداد - خلف كازية عوض', 'store7@test.com'],
+            ['مركز الخير للتجهيزات السنية', 'دمشق - ساحة الميسات - جانب نقابة أطباء أسنان ريف دمشق', 'store8@test.com'],
+            ['مستودع الزهراء لطب الأسنان', 'دمشق - طلعة الشهندر', 'store9@test.com'],
+            ['شركة نشاوي لطب الأسنان', 'دمشق', 'store10@test.com'],
+            ['مستودع زيركون لطب الأسنان', 'دمشق', 'store11@test.com'],
+        ];
+
+        foreach ($stores as $index => [$storeName, $address, $email]) {
+            // لا نملك اسم صاحب المتجر الشخصي الحقيقي، فنكتفي باسم المتجر التجاري
+            // نفسه كاسم أول للحساب بدل اختلاق اسم عائلة وهمي لشخص غير موجود
+            $user = $this->createUser($storeName, '', $email);
+            $user->assignRole('store_owner');
+
+            StoreProfile::firstOrCreate(
+                ['user_id' => $user->id],
+                [
+                    'store_name' => $storeName,
+                    'store_phone' => '099100' . str_pad((string) (10 + $index), 4, '0', STR_PAD_LEFT),
+                    'store_address' => $address,
+                ]
+            );
+        }
     }
 
     /**
