@@ -33,6 +33,7 @@ jobs:
             /.claude/**
             /.github/**
             .env
+            /storage/firebase-credentials.json
             /Dentex_API_Collection.json
             /export_context.php
             /phpunit.xml
