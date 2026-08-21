@@ -107,14 +107,11 @@ class InstructorController extends Controller
 
     public function approve(ApproveCaseRequest $request, $id)
     {
-        $validatedData = $request->validated();
-
         try {
             $instructorId = $this->getInstructorId();
 
             $this->diagnosisService->approveCase(
                 $id,
-                $validatedData,
                 auth()->id(),
                 $instructorId
             );

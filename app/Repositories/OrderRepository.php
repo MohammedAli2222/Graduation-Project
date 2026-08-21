@@ -34,7 +34,12 @@ class OrderRepository implements OrderRepositoryInterface
         return $this->model->newQuery()
             ->where('store_id', $storeId)
             ->where('id', $orderId)
-            ->with(['student.studentProfile', 'orderItems.product:id,name'])
+            // store_id/quantity/availability_status لازمة لمنطق استعادة المخزون
+            // عند رفض الطلب بـ StoreOrderService::updateOrderStatus (يعدّل
+            // ويحفظ نفس نسخة المنتج المحمَّلة هنا)؛ الاقتصار على id,name فقط
+            // كان يجعل quantity تُصفَّر فعلياً بدل أن تُضاف إليها كمية الطلب
+            // المرفوض، ويجعل store_id فارغاً فيفشل ProductObserver عند الحفظ.
+            ->with(['student.studentProfile', 'orderItems.product:id,name,store_id,quantity,availability_status'])
             ->first();
     }
 

@@ -107,13 +107,20 @@ class PatientService
     {
         return DB::transaction(function () use ($data, $files, $diagnosisData, $user) {
 
+            // الطالب يختار نوع حالة من الدروب داون بدل كتابة نص حر، فيُشتق
+            // نص التشخيص الأولي من اسم نوع الحالة المعتمد نفسه (توحيد الأسماء).
+            // الاستقبال ليس له مستوى أكاديمي فيبقى نصاً حراً كما كان.
+            $preliminaryDiagnosis = $user->hasRole('student')
+                ? $this->resolvePreliminaryDiagnosisName((int) $data['preliminary_diagnosis_case_type_id'], $user)
+                : ($data['preliminary_diagnosis'] ?? null);
+
             $patientData = [
                 'full_name'    => $data['full_name'],
                 'gender'       => $data['gender'],
                 'phone'        => $data['phone'],
                 'birth_date'   => $data['birth_date'],
                 'address'      => $data['address'],
-                'preliminary_diagnosis' => $data['preliminary_diagnosis'] ?? null,
+                'preliminary_diagnosis' => $preliminaryDiagnosis,
                 'added_by'     => auth()->id(),
                 'availability_status' => PatientStatus::WAITING_DIAGNOSIS->value,
             ];
@@ -138,6 +145,47 @@ class PatientService
 
             return $patient;
         });
+    }
+
+    /**
+     * يحدّد ما إذا كان نوع الحالة متاحاً لطالب بمستواه الأكاديمي الحالي: أي
+     * مقرر من سنة أسبق مسموح دوماً، ومقرر السنة الحالية مسموح فقط إذا كان
+     * فصله أقدم من فصل الطالب الحالي أو يساويه. نفس القاعدة المعتمدة في
+     * StudentRepository::getCategorizedCaseTypes لقائمة الدروب داون، لذا أي
+     * خيار يظهر بالدروب داون يمر هنا حتماً.
+     */
+    private function isCaseTypeAllowedForStudent(CaseType $caseType, int $studentYear, int $studentSemester): bool
+    {
+        $course = $caseType->course;
+
+        return $course
+            && (($course->year < $studentYear)
+                || ($course->year == $studentYear && $course->semester <= $studentSemester));
+    }
+
+    /**
+     * يشتق نص "التشخيص الأولي" من اسم نوع الحالة الذي اختاره الطالب من
+     * الدروب داون، بعد التحقق من أنه ضمن مستواه الأكاديمي.
+     */
+    private function resolvePreliminaryDiagnosisName(int $caseTypeId, $user): string
+    {
+        $student = $user->studentProfile;
+
+        if (! $student) {
+            throw new \Exception('Student academic profile not found.', 404);
+        }
+
+        $caseType = CaseType::with('course')->find($caseTypeId);
+
+        if (! $caseType || ! $caseType->course) {
+            throw new \Exception("Case type #{$caseTypeId} not found.", 404);
+        }
+
+        if (! $this->isCaseTypeAllowedForStudent($caseType, (int) $student->academic_year, (int) $student->semester)) {
+            throw new \Exception("Unauthorized: Cannot register for '{$caseType->name}'.", 403);
+        }
+
+        return $caseType->name;
     }
 
     /**
@@ -172,10 +220,7 @@ class PatientService
 
             $course = $caseType->course;
 
-            $isAllowed = ($course->year < $studentYear)
-                || ($course->year == $studentYear && $course->semester <= $studentSemester);
-
-            if (! $isAllowed) {
+            if (! $this->isCaseTypeAllowedForStudent($caseType, $studentYear, $studentSemester)) {
                 throw new \Exception("Unauthorized: Cannot register for '{$caseType->name}'.", 403);
             }
 
@@ -218,9 +263,7 @@ class PatientService
                 $caseType = CaseType::with('course')->findOrFail($caseTypeId);
                 $course = $caseType->course;
 
-                $isAllowed = ($course->year < $studentYear) || ($course->year == $studentYear && $course->semester <= $studentSemester);
-
-                if (! $isAllowed) {
+                if (! $this->isCaseTypeAllowedForStudent($caseType, $studentYear, $studentSemester)) {
                     throw new \Exception("Unauthorized: Cannot register for '{$caseType->name}'.", 403);
                 }
 

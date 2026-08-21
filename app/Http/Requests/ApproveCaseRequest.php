@@ -16,14 +16,13 @@ class ApproveCaseRequest extends FormRequest
     }
 
     /**
-     * Get the validation rules that apply to the request.
+     * لا حقول مطلوبة: الموافقة تعني أن تشخيص الطالب صحيح كما هو، فالتشخيص
+     * النهائي يُشتق تلقائياً من اسم نوع الحالة نفسه بدل نص يكتبه المعيد.
      *
      * @return array<string, ValidationRule|array<mixed>|string>
      */
     public function rules(): array
     {
-        return [
-            'final_diagnosis' => 'required|string|max:1000',
-        ];
+        return [];
     }
 }

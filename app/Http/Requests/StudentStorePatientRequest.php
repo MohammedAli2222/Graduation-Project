@@ -28,7 +28,11 @@ class StudentStorePatientRequest extends StorePatientRequest
 
         $rules = parent::rules();
 
-        $rules['preliminary_diagnosis'] = 'required|string|max:1000';
+        // التشخيص الأولي لم يعد نصاً حراً: الطالب يختار نوع حالة من نفس
+        // قائمة "نوع الحالة" المعتمدة (دروب داون)، فيتوحّد اسم التشخيص مع
+        // بقية النظام بدل نص حر قد لا يطابق أي نوع حالة معروف.
+        unset($rules['preliminary_diagnosis']);
+        $rules['preliminary_diagnosis_case_type_id'] = 'required|integer|exists:case_types,id';
 
         $rules['case_type_ids'] = 'required|array|min:1';
         $rules['case_type_ids.*'] = 'required|exists:case_types,id';

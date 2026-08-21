@@ -63,7 +63,10 @@ class DiagnosisService
             $createdDiagnoses = DB::transaction(function () use ($data, $instructorId) {
                 $patient = $this->patientRepo->FindOrFail($data['patient_id']);
 
-                if ($patient->availability_status !== PatientStatus::WAITING_DIAGNOSIS) {
+                // available مسموحة أيضاً كي يستطيع المعيد إضافة تشخيص إضافي على
+                // مريض اعتمد تشخيص طالب له للتو (انظر DiagnosisService::approveCase)
+                // بدل أن يُحظر عليه ذلك لمجرد أن المريض لم يعد "بانتظار تشخيص".
+                if (! in_array($patient->availability_status, [PatientStatus::WAITING_DIAGNOSIS, PatientStatus::AVAILABLE], true)) {
                     // نُظهر الحالة الفعلية ومعرّف المريض في الرسالة لأن الخطأ العام
                     // كان يخفي السبب الحقيقي (مريض خاطئ أو مريض تغيّرت حالته فعلاً)
                     throw new Exception(sprintf(
@@ -141,7 +144,14 @@ class DiagnosisService
         }
     }
 
-    public function approveCase(int $id, array $data, int $instructorId, int $instructorProfileId)
+    /**
+     * الموافقة تعني أن تشخيص الطالب صحيح كما اقترحه: التشخيص النهائي هو حرفياً
+     * اسم نوع الحالة الذي اختاره الطالب، وليس نصاً يعيد المعيد كتابته. إن أراد
+     * المعيد إضافة تشخيص إضافي على نفس المريض، يستدعي بعدها POST
+     * /instructor/diagnose كالمعتاد (انظر التخفيف في شرط الحالة داخل
+     * storeMultiple الذي يسمح بذلك بعد أن يصبح المريض available).
+     */
+    public function approveCase(int $id, int $instructorId, int $instructorProfileId)
     {
         $lock = Cache::lock('lock:review_diagnosis:' . $id, 10);
 
@@ -149,16 +159,18 @@ class DiagnosisService
 
             $lock->block(3);
 
-            $diagnosis = DB::transaction(function () use ($id, $data, $instructorId, $instructorProfileId) {
+            $diagnosis = DB::transaction(function () use ($id, $instructorId, $instructorProfileId) {
                 $diagnosis = $this->diagnosisRepo->FindOrFail($id);
 
                 $this->validatePendingStatus($diagnosis);
                 $this->authorizeInstructorForStudent($diagnosis, $instructorProfileId);
 
+                $caseType = CaseType::findOrFail($diagnosis->case_type_id);
+
                 $this->diagnosisRepo->update($diagnosis, [
                     'status' => DiagnosisStatus::AVAILABLE->value,
                     'instructor_id' => $instructorId,
-                    'final_diagnosis' => $data['final_diagnosis'],
+                    'final_diagnosis' => $caseType->name,
                 ]);
 
                 $this->patientRepo->updateAvailability($diagnosis->patient_id, PatientStatus::AVAILABLE->value);
