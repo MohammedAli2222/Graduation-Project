@@ -31,6 +31,15 @@ class StartTreatmentAction
     /** المنطقة الزمنية المعتمدة للعيادة في كل عمليات التاريخ والوقت. */
     private const CLINIC_TIMEZONE = 'Asia/Damascus';
 
+    /**
+     * هل يُشترط بدء العلاج في يوم الموعد نفسه؟
+     *
+     * معطّل حالياً بطلب الفريق: بدء المعالجة يُقبل في أي وقت مهما كان يوم
+     * الموعد أو فترته، تسهيلاً للتجريب والعرض. لإعادة التشديد يكفي جعل هذه
+     * القيمة true — لا شيء آخر يتغيّر، وشكل الاستجابة كما هو في الحالتين.
+     */
+    private const ENFORCE_APPOINTMENT_DATE = false;
+
     public function __construct(
         private readonly TreatmentRepository $treatmentRepo,
         private readonly AppointmentRepository $appointmentRepo,
@@ -138,21 +147,25 @@ class StartTreatmentAction
     }
 
     /**
-     * لا يُسمح ببدء العلاج إلا في يوم الموعد نفسه.
+     * فحص توقيت الموعد قبل بدء العلاج.
      *
-     * ملاحظة: التحقق من الساعة ضمن الفترة معطّل عمداً لتسهيل الاختبار على
-     * البيئة التجريبية؛ يكفي حالياً ضبط اليوم.
+     * التحقق من الساعة ضمن الفترة معطّل أصلاً، وقيد "يوم الموعد نفسه" صار
+     * محكوماً بـ [ENFORCE_APPOINTMENT_DATE] وهو معطّل حالياً؛ فبدء المعالجة
+     * مقبول في أي وقت. يبقى فحص رقم الفترة قائماً لأنه فحص سلامة بيانات
+     * (فترة خارج دوام الجامعة تعني سجلّاً تالفاً) لا قيداً زمنياً.
      */
     private function validateTimeSlot(Appointment $appointment): void
     {
-        $now = Carbon::now(self::CLINIC_TIMEZONE);
-        $appointmentDate = Carbon::parse($appointment->appointment_date, self::CLINIC_TIMEZONE);
+        if (self::ENFORCE_APPOINTMENT_DATE) {
+            $now = Carbon::now(self::CLINIC_TIMEZONE);
+            $appointmentDate = Carbon::parse($appointment->appointment_date, self::CLINIC_TIMEZONE);
 
-        if (! $now->isSameDay($appointmentDate)) {
-            throw new Exception(
-                'Treatment can only be started on the scheduled date: '.$appointmentDate->format('Y-m-d'),
-                422
-            );
+            if (! $now->isSameDay($appointmentDate)) {
+                throw new Exception(
+                    'Treatment can only be started on the scheduled date: '.$appointmentDate->format('Y-m-d'),
+                    422
+                );
+            }
         }
 
         $slotsPerDay = (int) config('clinic.working_slots_per_day');
