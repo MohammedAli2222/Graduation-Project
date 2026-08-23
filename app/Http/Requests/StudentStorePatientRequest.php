@@ -28,11 +28,10 @@ class StudentStorePatientRequest extends StorePatientRequest
 
         $rules = parent::rules();
 
-        // التشخيص الأولي لم يعد نصاً حراً: الطالب يختار نوع حالة من نفس
-        // قائمة "نوع الحالة" المعتمدة (دروب داون)، فيتوحّد اسم التشخيص مع
-        // بقية النظام بدل نص حر قد لا يطابق أي نوع حالة معروف.
+        // الشكاية الرئيسية وصف حر بلسان المريض، وليست تصنيفاً منهجياً — ذاك
+        // التصنيف موجود أصلاً ضمن diagnoses[].case_type_id (هنا: case_type_ids[]).
         unset($rules['preliminary_diagnosis']);
-        $rules['preliminary_diagnosis_case_type_id'] = 'required|integer|exists:case_types,id';
+        $rules['chief_complaint'] = ['required', 'string', 'min:3', 'max:1000'];
 
         $rules['case_type_ids'] = 'required|array|min:1';
         $rules['case_type_ids.*'] = 'required|exists:case_types,id';
@@ -41,6 +40,16 @@ class StudentStorePatientRequest extends StorePatientRequest
         $rules['estimated_costs.*'] = 'required|numeric|min:0';
 
         return $rules;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'chief_complaint.required' => 'الشكاية الرئيسية مطلوبة.',
+        ];
     }
 
     public function withValidator(Validator $validator)

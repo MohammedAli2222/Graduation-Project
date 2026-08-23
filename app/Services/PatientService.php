@@ -107,11 +107,10 @@ class PatientService
     {
         return DB::transaction(function () use ($data, $files, $diagnosisData, $user) {
 
-            // الطالب يختار نوع حالة من الدروب داون بدل كتابة نص حر، فيُشتق
-            // نص التشخيص الأولي من اسم نوع الحالة المعتمد نفسه (توحيد الأسماء).
-            // الاستقبال ليس له مستوى أكاديمي فيبقى نصاً حراً كما كان.
+            // الشكاية الرئيسية (الطالب) والتشخيص الأولي (الاستقبال) كلاهما نص
+            // حر بلسان مُدخِل البيانات، يُخزَّنان بنفس العمود preliminary_diagnosis.
             $preliminaryDiagnosis = $user->hasRole('student')
-                ? $this->resolvePreliminaryDiagnosisName((int) $data['preliminary_diagnosis_case_type_id'], $user)
+                ? $data['chief_complaint']
                 : ($data['preliminary_diagnosis'] ?? null);
 
             $patientData = [
@@ -163,30 +162,6 @@ class PatientService
                 || ($course->year == $studentYear && $course->semester <= $studentSemester));
     }
 
-    /**
-     * يشتق نص "التشخيص الأولي" من اسم نوع الحالة الذي اختاره الطالب من
-     * الدروب داون، بعد التحقق من أنه ضمن مستواه الأكاديمي.
-     */
-    private function resolvePreliminaryDiagnosisName(int $caseTypeId, $user): string
-    {
-        $student = $user->studentProfile;
-
-        if (! $student) {
-            throw new \Exception('Student academic profile not found.', 404);
-        }
-
-        $caseType = CaseType::with('course')->find($caseTypeId);
-
-        if (! $caseType || ! $caseType->course) {
-            throw new \Exception("Case type #{$caseTypeId} not found.", 404);
-        }
-
-        if (! $this->isCaseTypeAllowedForStudent($caseType, (int) $student->academic_year, (int) $student->semester)) {
-            throw new \Exception("Unauthorized: Cannot register for '{$caseType->name}'.", 403);
-        }
-
-        return $caseType->name;
-    }
 
     /**
      * إنشاء التشخيصات التي يقترحها الطالب عند تسجيل مريض جديد.

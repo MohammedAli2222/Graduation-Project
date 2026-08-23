@@ -17,6 +17,9 @@ class PatientResource extends JsonResource
             'phone' => $this->phone,
             'birth_date' => $this->birth_date,
             'address' => $this->address,
+            // preliminary_diagnosis مُبقى مؤقتاً للتوافق الخلفي مع شاشات الموبايل
+            // القديمة؛ سيُحذف بعد أن تنتقل جميعها لقراءة chief_complaint.
+            'chief_complaint' => $this->preliminary_diagnosis,
             'preliminary_diagnosis' => $this->preliminary_diagnosis,
             'status' => $this->availability_status,
 
