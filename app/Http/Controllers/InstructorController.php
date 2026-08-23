@@ -145,7 +145,11 @@ class InstructorController extends Controller
         } catch (ModelNotFoundException) {
             return response_error(null, 404, 'PatientDiagnose not found');
         } catch (Exception $e) {
-            return response_error(null, 400, $e->getMessage());
+            // كان يُرجع 400 دائماً بغضّ النظر عن كود الاستثناء الفعلي، فيصل
+            // 403 (خارج مجموعتك) أو 409 (قيد المراجعة من معيد آخر) للفرونت
+            // كـ 400 عام لا يمكن تمييزه عن خطأ تحقّق عادي. approve() يحترم
+            // $e->getCode() فعلاً؛ هذا يوحّد السلوك بينهما.
+            return response_error(null, $e->getCode() ?: 400, $e->getMessage());
         }
     }
 

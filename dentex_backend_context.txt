@@ -5148,11 +5148,10 @@ class StudentStorePatientRequest extends StorePatientRequest
 
         $rules = parent::rules();
 
-        // التشخيص الأولي لم يعد نصاً حراً: الطالب يختار نوع حالة من نفس
-        // قائمة "نوع الحالة" المعتمدة (دروب داون)، فيتوحّد اسم التشخيص مع
-        // بقية النظام بدل نص حر قد لا يطابق أي نوع حالة معروف.
+        // الشكاية الرئيسية وصف حر بلسان المريض، وليست تصنيفاً منهجياً — ذاك
+        // التصنيف موجود أصلاً ضمن diagnoses[].case_type_id (هنا: case_type_ids[]).
         unset($rules['preliminary_diagnosis']);
-        $rules['preliminary_diagnosis_case_type_id'] = 'required|integer|exists:case_types,id';
+        $rules['chief_complaint'] = ['required', 'string', 'min:3', 'max:1000'];
 
         $rules['case_type_ids'] = 'required|array|min:1';
         $rules['case_type_ids.*'] = 'required|exists:case_types,id';
@@ -5161,6 +5160,16 @@ class StudentStorePatientRequest extends StorePatientRequest
         $rules['estimated_costs.*'] = 'required|numeric|min:0';
 
         return $rules;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public function messages(): array
+    {
+        return [
+            'chief_complaint.required' => 'الشكاية الرئيسية مطلوبة.',
+        ];
     }
 
     public function withValidator(Validator $validator)
@@ -5872,6 +5881,9 @@ class PatientResource extends JsonResource
             'phone' => $this->phone,
             'birth_date' => $this->birth_date,
             'address' => $this->address,
+            // preliminary_diagnosis مُبقى مؤقتاً للتوافق الخلفي مع شاشات الموبايل
+            // القديمة؛ سيُحذف بعد أن تنتقل جميعها لقراءة chief_complaint.
+            'chief_complaint' => $this->preliminary_diagnosis,
             'preliminary_diagnosis' => $this->preliminary_diagnosis,
             'status' => $this->availability_status,
 
@@ -10307,9 +10319,12 @@ declare(strict_types=1);
 
 namespace App\Repositories;
 
+use App\Enums\AppointmentStatus;
 use App\Enums\DiagnosisStatus;
 use App\Enums\EnrollmentStatus;
 use App\Enums\PatientStatus;
+use App\Enums\TreatmentStatus;
+use App\Models\CaseType;
 use App\Models\Patient;
 use App\Models\PatientDiagnose;
 use App\Models\StudentCourseEnrollment;
@@ -10557,6 +10572,43 @@ class PatientRepository
                 $query->where('id', $caseTypeId);
             })
             ->exists();
+    }
+
+    /**
+     * هل استنفد الطالب حصته (required_count) من نوع الحالة هذا؟ نفس تعريف
+     * "المُنجز" المعتمد بلوحة تقدّم الطالب (TreatmentRepository::getProgressStats):
+     * فقط العلاجات completed تُحتسب فعلياً ضمن المتطلب. بالإضافة لذلك، أي حجز
+     * لم يُحسم بعد (محجوز بلا علاج، أو علاج قيد التنفيذ/بانتظار اعتماد المعيد)
+     * يُحتسب أيضاً لمنع حجز عدة مرضى من نفس النوع دفعة واحدة قبل إنجاز أيٍّ
+     * منها. المواعيد الملغاة والعلاجات المرفوضة/الملغاة لا تُحتسب أبداً، لأن
+     * تلك الحالات تُعاد إتاحتها للطالب نفسه من جديد.
+     */
+    public function hasReachedCaseTypeQuota(int $caseTypeId, int $studentUserId): bool
+    {
+        $requiredCount = CaseType::find($caseTypeId)?->required_count;
+
+        if (! $requiredCount) {
+            return false;
+        }
+
+        $activeClaimsCount = DB::table('appointments')
+            ->join('patient_diagnoses', 'appointments.diagnosis_id', '=', 'patient_diagnoses.id')
+            ->leftJoin('treatments', 'appointments.treatment_id', '=', 'treatments.id')
+            ->where('appointments.student_id', $studentUserId)
+            ->where('patient_diagnoses.case_type_id', $caseTypeId)
+            ->where('appointments.status', '!=', AppointmentStatus::CANCELLED->value)
+            ->where(function ($query): void {
+                $query->whereNull('treatments.id')
+                    ->orWhereIn('treatments.status', [
+                        TreatmentStatus::IN_PROGRESS->value,
+                        TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value,
+                        TreatmentStatus::COMPLETED->value,
+                    ]);
+            })
+            ->distinct()
+            ->count('patient_diagnoses.id');
+
+        return $activeClaimsCount >= $requiredCount;
     }
 
     public function getDiagnosisDetailsWithPatientMedia(int $id): PatientDiagnose
@@ -10866,9 +10918,15 @@ class StudentMarketplaceRepository implements StudentMarketplaceRepositoryInterf
                     ProductAvailability::AVAILABLE->value,
                     ProductAvailability::LIMITED->value,
                 ])
-                ->whereHas('seller', function ($query) {
-                    $query->role('student');
-                })
+                // كان الشرط يعتمد على دور Spatie (role('student')) لتمييز أدوات
+                // الطلاب عن منتجات المتاجر الرسمية على نفس عمود store_id
+                // الموحّد. أي حساب بائع فاتَه تعيين هذا الدور (رغم امتلاكه ملف
+                // طالب فعلي) كانت أدواته تختفي نهائياً من هذه القائمة عند كل
+                // الطلاب الآخرين، بينما تبقى ظاهرة له هو فقط عبر شاشة "أدواتي"
+                // التي تُصفّي بـ store_id مباشرة بلا أي فحص للدور. وجود ملف
+                // طالب (studentProfile) هو نفس المعيار المعتمد بكل مكان آخر من
+                // منطق الطالب بهذا المشروع، ولا يعتمد على تزامن جدول أدوار منفصل.
+                ->whereHas('seller.studentProfile')
                 ->filter($filters)
                 ->with(['category', 'media', 'seller.studentProfile'])
                 ->latest()
@@ -11566,6 +11624,15 @@ class AppointmentService
                     throw ValidationException::withMessages(['academic_standing' => ['Academic validation requirements failed for this case type.']]);
                 }
 
+                // دفاع إضافي بجانب التحقق بـ PatientService::getAvailablePatientsByCaseType:
+                // يمنع حجز نوع حالة استنفد الطالب حصته المطلوبة منه، حتى لو وصل
+                // معرّف التشخيص من قائمة جُلبت قبل اكتمال الحصة.
+                if ($this->patientRepo->hasReachedCaseTypeQuota($diagnosis->case_type_id, $student->id)) {
+                    throw ValidationException::withMessages([
+                        'case_type' => ['You have already fulfilled the required number of cases for this case type.'],
+                    ]);
+                }
+
                 $createdAppointments = [];
                 for ($i = 0; $i < $slotsNeeded; $i++) {
                     $currentSlot = $startSlot + $i;
@@ -12086,7 +12153,14 @@ class DiagnosisService
     private function validatePendingStatus($diagnosis)
     {
         if ($diagnosis->status->value !== DiagnosisStatus::WAITING_APPROVAL->value) {
-            throw new Exception('This request has already been processed.');
+            // نُظهر رقم التشخيص وحالته الفعلية بالرسالة لأن الخطأ العام كان
+            // يخفي السبب الحقيقي (غالباً إرسال patient_id بدل diagnosis_id
+            // من الفرونت، بما أن {id} بمسار approve/reject يعني تشخيصاً لا مريضاً).
+            throw new Exception(sprintf(
+                'This diagnosis request (#%d) has already been processed. Current status: %s',
+                $diagnosis->id,
+                $diagnosis->status->value
+            ));
         }
     }
 
@@ -12750,11 +12824,10 @@ class PatientService
     {
         return DB::transaction(function () use ($data, $files, $diagnosisData, $user) {
 
-            // الطالب يختار نوع حالة من الدروب داون بدل كتابة نص حر، فيُشتق
-            // نص التشخيص الأولي من اسم نوع الحالة المعتمد نفسه (توحيد الأسماء).
-            // الاستقبال ليس له مستوى أكاديمي فيبقى نصاً حراً كما كان.
+            // الشكاية الرئيسية (الطالب) والتشخيص الأولي (الاستقبال) كلاهما نص
+            // حر بلسان مُدخِل البيانات، يُخزَّنان بنفس العمود preliminary_diagnosis.
             $preliminaryDiagnosis = $user->hasRole('student')
-                ? $this->resolvePreliminaryDiagnosisName((int) $data['preliminary_diagnosis_case_type_id'], $user)
+                ? $data['chief_complaint']
                 : ($data['preliminary_diagnosis'] ?? null);
 
             $patientData = [
@@ -12806,30 +12879,6 @@ class PatientService
                 || ($course->year == $studentYear && $course->semester <= $studentSemester));
     }
 
-    /**
-     * يشتق نص "التشخيص الأولي" من اسم نوع الحالة الذي اختاره الطالب من
-     * الدروب داون، بعد التحقق من أنه ضمن مستواه الأكاديمي.
-     */
-    private function resolvePreliminaryDiagnosisName(int $caseTypeId, $user): string
-    {
-        $student = $user->studentProfile;
-
-        if (! $student) {
-            throw new \Exception('Student academic profile not found.', 404);
-        }
-
-        $caseType = CaseType::with('course')->find($caseTypeId);
-
-        if (! $caseType || ! $caseType->course) {
-            throw new \Exception("Case type #{$caseTypeId} not found.", 404);
-        }
-
-        if (! $this->isCaseTypeAllowedForStudent($caseType, (int) $student->academic_year, (int) $student->semester)) {
-            throw new \Exception("Unauthorized: Cannot register for '{$caseType->name}'.", 403);
-        }
-
-        return $caseType->name;
-    }
 
     /**
      * إنشاء التشخيصات التي يقترحها الطالب عند تسجيل مريض جديد.
@@ -13098,6 +13147,10 @@ class PatientService
 
         if (! $isAllowed) {
             throw new \Exception('Unauthorized access. This case type does not belong to your current academic year or semester.', 403);
+        }
+
+        if ($this->repository->hasReachedCaseTypeQuota($caseTypeId, $student->id)) {
+            throw new \Exception('You have already fulfilled the required number of cases for this case type.', 403);
         }
 
         $statusAvailable = DiagnosisStatus::AVAILABLE->value;
@@ -13651,6 +13704,10 @@ class StudentCartService
 
         if (! $product) {
             throw new Exception('المنتج غير موجود.', 404);
+        }
+
+        if ($product->store_id === $studentId) {
+            throw new Exception('لا يمكنك شراء أداة تعرضها أنت للبيع.', 403);
         }
 
         if ($product->quantity < $quantity) {

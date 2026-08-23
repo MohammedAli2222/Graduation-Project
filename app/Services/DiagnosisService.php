@@ -280,7 +280,14 @@ class DiagnosisService
     private function validatePendingStatus($diagnosis)
     {
         if ($diagnosis->status->value !== DiagnosisStatus::WAITING_APPROVAL->value) {
-            throw new Exception('This request has already been processed.');
+            // نُظهر رقم التشخيص وحالته الفعلية بالرسالة لأن الخطأ العام كان
+            // يخفي السبب الحقيقي (غالباً إرسال patient_id بدل diagnosis_id
+            // من الفرونت، بما أن {id} بمسار approve/reject يعني تشخيصاً لا مريضاً).
+            throw new Exception(sprintf(
+                'This diagnosis request (#%d) has already been processed. Current status: %s',
+                $diagnosis->id,
+                $diagnosis->status->value
+            ));
         }
     }
 
