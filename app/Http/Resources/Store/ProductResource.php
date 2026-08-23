@@ -24,6 +24,21 @@ class ProductResource extends JsonResource
             'condition'           => $this->condition?->value ?? $this->condition,
             'quantity' => (int) $this->quantity,
 
+            // أعلى نسبة خصم من بين العروض الترويجية السارية فعلياً الآن على
+            // هذا المنتج (is_active + ضمن نافذة start_date/end_date)، أو null
+            // إن لم يوجد أي عرض ساري. تُحسب هنا وقت كل طلب رغم أن قائمة
+            // العروض مخزَّنة كاش، مشان لا يبقى عرض منتهي "ساري" بنظر العميل
+            // حتى تنتهي مدة الكاش.
+            'discount_percentage' => $this->whenLoaded('promotions', function () {
+                $now = now();
+
+                return $this->promotions
+                    ->filter(fn ($promotion) => $promotion->is_active
+                        && $promotion->start_date <= $now
+                        && $promotion->end_date >= $now)
+                    ->max('discount_percentage');
+            }),
+
             'category'            => $this->whenLoaded('category', function () {
                 return [
                     'id'   => $this->category->id,

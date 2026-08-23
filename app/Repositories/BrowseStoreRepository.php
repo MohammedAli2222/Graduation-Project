@@ -52,7 +52,11 @@ class BrowseStoreRepository implements BrowseStoreRepositoryInterface
                     ProductAvailability::LIMITED->value,
                 ])
                 ->filter($filters)
-                ->with(['category', 'media', 'seller.storeProfile'])
+                // كل عروض المنتج تُحمَّل هنا بلا فلترة تاريخ داخل الاستعلام
+                // المخزَّن كاش ليوم كامل: فلترة "هل العرض ساري الآن؟" تجري
+                // لاحقاً بالـ Resource وقت كل طلب فعلي، لا وقت كتابة الكاش —
+                // وإلا بقي عرض منتهي يظهر كساري حتى نهاية مدة الكاش.
+                ->with(['category', 'media', 'seller.storeProfile', 'promotions'])
                 ->latest()
                 ->paginate($perPage);
         });

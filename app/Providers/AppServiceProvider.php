@@ -7,12 +7,14 @@ use App\Models\Category;
 use App\Models\Department;
 use App\Models\Group;
 use App\Models\Product;
+use App\Models\Promotion;
 use App\Models\Treatment;
 use App\Observers\CaseTypeObserver;
 use App\Observers\CategoryObserver;
 use App\Observers\DepartmentObserver;
 use App\Observers\GroupObserver;
 use App\Observers\ProductObserver;
+use App\Observers\PromotionObserver;
 use App\Observers\TreatmentObserver;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -40,6 +42,7 @@ class AppServiceProvider extends ServiceProvider
         Category::observe(CategoryObserver::class);
         Department::observe(DepartmentObserver::class);
         Product::observe(ProductObserver::class);
+        Promotion::observe(PromotionObserver::class);
         Treatment::observe(TreatmentObserver::class);
 
         RateLimiter::for('strict_auth', function (Request $request) {

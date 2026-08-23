@@ -6,6 +6,8 @@ namespace App\Repositories;
 
 use App\Models\Promotion;
 use App\Repositories\Contracts\PromotionRepositoryInterface;
+use App\Support\CacheGroup;
+use App\Support\CacheVersion;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 
 class PromotionRepository implements PromotionRepositoryInterface
@@ -74,6 +76,13 @@ class PromotionRepository implements PromotionRepositoryInterface
 
     public function syncProducts(Promotion $promotion, array $productIds): array
     {
-        return $promotion->products()->sync($productIds);
+        $result = $promotion->products()->sync($productIds);
+
+        // sync() على علاقة pivot لا يُطلق حدث updated على Promotion نفسه
+        // (بخلاف حفظ حقول الموديل مباشرة)، فـ PromotionObserver وحده لا يكفي
+        // لإبطال الكاش هنا رغم أن هذا هو التغيير الفعلي على "أي منتج عليه خصم".
+        CacheVersion::bump(CacheGroup::store($promotion->store_id));
+
+        return $result;
     }
 }
