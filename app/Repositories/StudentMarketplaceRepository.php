@@ -33,9 +33,15 @@ class StudentMarketplaceRepository implements StudentMarketplaceRepositoryInterf
                     ProductAvailability::AVAILABLE->value,
                     ProductAvailability::LIMITED->value,
                 ])
-                ->whereHas('seller', function ($query) {
-                    $query->role('student');
-                })
+                // كان الشرط يعتمد على دور Spatie (role('student')) لتمييز أدوات
+                // الطلاب عن منتجات المتاجر الرسمية على نفس عمود store_id
+                // الموحّد. أي حساب بائع فاتَه تعيين هذا الدور (رغم امتلاكه ملف
+                // طالب فعلي) كانت أدواته تختفي نهائياً من هذه القائمة عند كل
+                // الطلاب الآخرين، بينما تبقى ظاهرة له هو فقط عبر شاشة "أدواتي"
+                // التي تُصفّي بـ store_id مباشرة بلا أي فحص للدور. وجود ملف
+                // طالب (studentProfile) هو نفس المعيار المعتمد بكل مكان آخر من
+                // منطق الطالب بهذا المشروع، ولا يعتمد على تزامن جدول أدوار منفصل.
+                ->whereHas('seller.studentProfile')
                 ->filter($filters)
                 ->with(['category', 'media', 'seller.studentProfile'])
                 ->latest()
