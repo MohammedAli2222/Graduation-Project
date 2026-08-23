@@ -457,6 +457,10 @@ class PatientService
             throw new \Exception('Unauthorized access. This case type does not belong to your current academic year or semester.', 403);
         }
 
+        if ($this->repository->hasReachedCaseTypeQuota($caseTypeId, $student->id)) {
+            throw new \Exception('You have already fulfilled the required number of cases for this case type.', 403);
+        }
+
         $statusAvailable = DiagnosisStatus::AVAILABLE->value;
 
         return $this->repository->getByCaseTypeAndStatus($caseTypeId, $statusAvailable);

@@ -120,6 +120,15 @@ class AppointmentService
                     throw ValidationException::withMessages(['academic_standing' => ['Academic validation requirements failed for this case type.']]);
                 }
 
+                // دفاع إضافي بجانب التحقق بـ PatientService::getAvailablePatientsByCaseType:
+                // يمنع حجز نوع حالة استنفد الطالب حصته المطلوبة منه، حتى لو وصل
+                // معرّف التشخيص من قائمة جُلبت قبل اكتمال الحصة.
+                if ($this->patientRepo->hasReachedCaseTypeQuota($diagnosis->case_type_id, $student->id)) {
+                    throw ValidationException::withMessages([
+                        'case_type' => ['You have already fulfilled the required number of cases for this case type.'],
+                    ]);
+                }
+
                 $createdAppointments = [];
                 for ($i = 0; $i < $slotsNeeded; $i++) {
                     $currentSlot = $startSlot + $i;

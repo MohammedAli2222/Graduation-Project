@@ -30,6 +30,10 @@ class StudentCartService
             throw new Exception('المنتج غير موجود.', 404);
         }
 
+        if ($product->store_id === $studentId) {
+            throw new Exception('لا يمكنك شراء أداة تعرضها أنت للبيع.', 403);
+        }
+
         if ($product->quantity < $quantity) {
             throw new Exception("الكمية المطلوبة غير متوفرة. المتاح حالياً: {$product->quantity}", 400);
         }

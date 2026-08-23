@@ -4,9 +4,12 @@ declare(strict_types=1);
 
 namespace App\Repositories;
 
+use App\Enums\AppointmentStatus;
 use App\Enums\DiagnosisStatus;
 use App\Enums\EnrollmentStatus;
 use App\Enums\PatientStatus;
+use App\Enums\TreatmentStatus;
+use App\Models\CaseType;
 use App\Models\Patient;
 use App\Models\PatientDiagnose;
 use App\Models\StudentCourseEnrollment;
@@ -254,6 +257,43 @@ class PatientRepository
                 $query->where('id', $caseTypeId);
             })
             ->exists();
+    }
+
+    /**
+     * هل استنفد الطالب حصته (required_count) من نوع الحالة هذا؟ نفس تعريف
+     * "المُنجز" المعتمد بلوحة تقدّم الطالب (TreatmentRepository::getProgressStats):
+     * فقط العلاجات completed تُحتسب فعلياً ضمن المتطلب. بالإضافة لذلك، أي حجز
+     * لم يُحسم بعد (محجوز بلا علاج، أو علاج قيد التنفيذ/بانتظار اعتماد المعيد)
+     * يُحتسب أيضاً لمنع حجز عدة مرضى من نفس النوع دفعة واحدة قبل إنجاز أيٍّ
+     * منها. المواعيد الملغاة والعلاجات المرفوضة/الملغاة لا تُحتسب أبداً، لأن
+     * تلك الحالات تُعاد إتاحتها للطالب نفسه من جديد.
+     */
+    public function hasReachedCaseTypeQuota(int $caseTypeId, int $studentUserId): bool
+    {
+        $requiredCount = CaseType::find($caseTypeId)?->required_count;
+
+        if (! $requiredCount) {
+            return false;
+        }
+
+        $activeClaimsCount = DB::table('appointments')
+            ->join('patient_diagnoses', 'appointments.diagnosis_id', '=', 'patient_diagnoses.id')
+            ->leftJoin('treatments', 'appointments.treatment_id', '=', 'treatments.id')
+            ->where('appointments.student_id', $studentUserId)
+            ->where('patient_diagnoses.case_type_id', $caseTypeId)
+            ->where('appointments.status', '!=', AppointmentStatus::CANCELLED->value)
+            ->where(function ($query): void {
+                $query->whereNull('treatments.id')
+                    ->orWhereIn('treatments.status', [
+                        TreatmentStatus::IN_PROGRESS->value,
+                        TreatmentStatus::WAITING_INSTRUCTOR_APPROVAL->value,
+                        TreatmentStatus::COMPLETED->value,
+                    ]);
+            })
+            ->distinct()
+            ->count('patient_diagnoses.id');
+
+        return $activeClaimsCount >= $requiredCount;
     }
 
     public function getDiagnosisDetailsWithPatientMedia(int $id): PatientDiagnose
